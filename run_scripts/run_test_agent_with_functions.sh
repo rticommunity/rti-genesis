@@ -17,6 +17,9 @@ mkdir -p "$LOG_DIR"
 PROJECT_ROOT=$(dirname "$SCRIPT_DIR")
 [ "$DEBUG" = "true" ] && echo "Project root: $PROJECT_ROOT"
 
+# Set PYTHONPATH to include the project root
+export PYTHONPATH="$PROJECT_ROOT:$PYTHONPATH"
+
 # Initialize array to store PIDs
 declare -a pids=()
 
