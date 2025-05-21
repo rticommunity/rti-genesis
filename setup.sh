@@ -105,26 +105,41 @@ set_environment_variables() {
     local nddshome=$1
     local arch=$2
     
+    # Export NDDSHOME and ensure it's available in the environment
     export NDDSHOME="$nddshome"
+    echo "export NDDSHOME=\"$nddshome\"" >> "$PROJECT_ROOT/.env"
     
     if [[ "$(uname -s)" == "Darwin" ]]; then
         # macOS
         export PYTHONPATH="$nddshome/lib/python3.10:$PYTHONPATH"
         export LD_LIBRARY_PATH="$nddshome/lib:$LD_LIBRARY_PATH"
         export DYLD_LIBRARY_PATH="$nddshome/lib:$DYLD_LIBRARY_PATH"
+        echo "export PYTHONPATH=\"$nddshome/lib/python3.10:$PYTHONPATH\"" >> "$PROJECT_ROOT/.env"
+        echo "export LD_LIBRARY_PATH=\"$nddshome/lib:$LD_LIBRARY_PATH\"" >> "$PROJECT_ROOT/.env"
+        echo "export DYLD_LIBRARY_PATH=\"$nddshome/lib:$DYLD_LIBRARY_PATH\"" >> "$PROJECT_ROOT/.env"
     elif [[ "$(uname -s)" == *"MINGW"* ]] || [[ "$(uname -s)" == *"MSYS"* ]]; then
         # Windows
         export PYTHONPATH="$nddshome/lib/python3.10;$PYTHONPATH"
         export PATH="$nddshome/lib;$PATH"
+        echo "export PYTHONPATH=\"$nddshome/lib/python3.10;$PYTHONPATH\"" >> "$PROJECT_ROOT/.env"
+        echo "export PATH=\"$nddshome/lib;$PATH\"" >> "$PROJECT_ROOT/.env"
     elif [[ "$(uname -s)" == "Linux" ]]; then
         # Linux
         export PYTHONPATH="$nddshome/lib/python3.10:$PYTHONPATH"
         export LD_LIBRARY_PATH="$nddshome/lib:$LD_LIBRARY_PATH"
+        echo "export PYTHONPATH=\"$nddshome/lib/python3.10:$PYTHONPATH\"" >> "$PROJECT_ROOT/.env"
+        echo "export LD_LIBRARY_PATH=\"$nddshome/lib:$LD_LIBRARY_PATH\"" >> "$PROJECT_ROOT/.env"
     fi
 }
 
 # Main setup process
 echo "Starting Genesis LIB setup..."
+
+# Get the project root directory
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Create .env file if it doesn't exist
+touch "$PROJECT_ROOT/.env"
 
 # Check if Python 3.10 is installed
 if ! command -v python3.10 &> /dev/null; then
@@ -293,6 +308,23 @@ if [ -z "$OPENAI_API_KEY" ]; then
     fi
 fi
 
+# Source the .env file to ensure environment variables are set
+echo "Sourcing environment variables..."
+source "$PROJECT_ROOT/.env"
+
+# Verify NDDSHOME is set and rtiddsspy exists
+echo "Verifying RTI Connext DDS environment..."
+if [ -z "$NDDSHOME" ]; then
+    echo "Error: NDDSHOME is not set after setup"
+    exit 1
+fi
+
+if [ ! -f "$NDDSHOME/bin/rtiddsspy" ]; then
+    echo "Error: rtiddsspy not found at $NDDSHOME/bin/rtiddsspy"
+    echo "Please verify your RTI Connext DDS installation"
+    exit 1
+fi
+
 echo "Setup complete. RTI Connext DDS environment configured."
 echo "Python Version: $(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
 echo "NDDSHOME: $NDDSHOME"
@@ -302,18 +334,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
 elif [[ "$(uname -s)" == "Linux" ]]; then
     echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
 fi
-if [ ! -z "$ANTHROPIC_API_KEY" ]; then
-    echo "ANTHROPIC_API_KEY is set"
-else
-    echo "ANTHROPIC_API_KEY is not set"
-fi
 
-if [ ! -z "$OPENAI_API_KEY" ]; then
-    echo "OPENAI_API_KEY is set"
-else
-    echo "OPENAI_API_KEY is not set"
-fi
-
-echo "To activate the virtual environment, run:"
-echo "source venv/bin/activate"
+echo "To activate the virtual environment and load environment variables, run:"
+echo "source venv/bin/activate && source .env"
 
