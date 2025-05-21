@@ -1,4 +1,50 @@
 #!/usr/bin/env python3
+# --------------------------------------------------------------------------- #
+# CalculatorService: Docstring-Reliant Decorator Approach for Function Definition
+#
+# This service illustrates a straightforward method for defining functions
+# within the Genesis framework. It uses the `@genesis_function` decorator,
+# which, in this case, infers a JSON schema from Python type hints and
+# docstrings for LLM consumption. Descriptions and parameter details are
+# primarily extracted from the docstrings.
+#
+# Key characteristics of this approach:
+#   - Decorator for Registration and Schema Inference: The `@genesis_function()`
+#     decorator is used. It handles basic registration and, importantly,
+#     attempts to automatically generate a JSON schema by introspecting
+#     the function's type hints and parsing its docstring (especially the 'Args:' section).
+#   - Docstrings for Description: The primary source for human-readable descriptions
+#     and parameter details (including examples) that the decorator tries to parse.
+#   - Type Hints: Standard Python type hints (e.g., float, str) are crucial inputs
+#     for the schema inference process.
+#   - Imperative Validation: Input validation (e.g., checking for division
+#     by zero) is handled explicitly within the function bodies.
+#   - Custom Exceptions: Defines and uses custom exceptions for error handling.
+#
+# Strengths:
+#   - Simplicity: Appears simple at the service level for developers, relying on
+#     standard Python features (type hints, docstrings).
+#   - Automatic Schema Generation: A JSON schema is generated without requiring
+#     explicit schema definition (like Pydantic models or raw JSON) in the service code.
+#   - Low Perceived Overhead: Avoids direct use of additional libraries like Pydantic
+#     at the service definition level if the inferred schema is sufficient.
+#
+# Considerations/Cons:
+#   - Reliability of Inference: The robustness of the auto-generated schema depends heavily
+#     on the capabilities of the `infer_schema_from_annotations` logic within the
+#     `@genesis_function` decorator. Complex types or nuanced constraints might not be
+#     fully or accurately captured compared to an explicit Pydantic model or schema.
+#   - Docstring Dependency: The quality of parameter descriptions and examples in the
+#     schema is tied to the meticulousness and format of the docstrings. Changes to
+#     docstring parsing logic or inconsistent docstring formats can affect the schema.
+#   - Limited Expressiveness: Type hints and docstrings might not be able to express all
+#     the validation rules or schema details that can be defined with Pydantic or
+#     direct JSON Schema (e.g., complex regex patterns, conditional logic within schema).
+#   - Debugging Schema Issues: If the inferred schema is not what the LLM expects,
+#     debugging might require understanding the inference logic in `decorators.py`.
+#   - Maintenance of Docstrings: Requires discipline to keep docstrings detailed,
+#     correctly formatted for parsing, and in sync with the code logic.
+# --------------------------------------------------------------------------- #
 import logging, asyncio, sys
 from typing import Dict, Any
 from datetime import datetime

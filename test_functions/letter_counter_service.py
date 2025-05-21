@@ -1,4 +1,24 @@
 #!/usr/bin/env python3
+# --------------------------------------------------------------------------- #
+# LetterCounterService: Original Method for Genesis Service Function Definition
+#
+# This service demonstrates the original approach to defining and registering
+# functions within the Genesis framework. Unlike newer services that might
+# leverage decorators (e.g., @genesis_function with Pydantic models),
+# this service explicitly uses `self.register_enhanced_function` during its
+# initialization phase.
+#
+# Key characteristics of this approach:
+#   - Direct Schema Definition: Function parameter schemas are defined as
+#     Python dictionaries (resembling JSON Schema) directly within the
+#     `__init__` method.
+#   - Explicit Registration: Each function is manually registered using
+#     `self.register_enhanced_function`, providing the function, its
+#     description, schema, operation type, and common patterns.
+#
+# This method offers precise control over the schema and metadata provided
+# for function calling by large language models.
+# --------------------------------------------------------------------------- #
 
 import logging
 import asyncio

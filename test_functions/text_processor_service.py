@@ -1,4 +1,38 @@
 #!/usr/bin/env python3
+# --------------------------------------------------------------------------- #
+# TextProcessorService: Decorator-Based Function Definition with Pydantic
+#
+# This service showcases a modern approach to defining and registering functions
+# within the Genesis framework, primarily utilizing the `@genesis_function`
+# decorator in conjunction with Pydantic models.
+#
+# Key characteristics of this approach:
+#   - Decorator-Driven Registration: Functions are defined as standard Python
+#     methods and then "enhanced" or registered using the `@genesis_function`
+#     decorator. This decorator likely handles the introspection and
+#     registration with the underlying service base.
+#   - Pydantic for Schema and Validation: Input arguments for service functions
+#     are defined using Pydantic models (e.g., `TextArgs`, `TransformCaseArgs`).
+#     Pydantic provides data validation, serialization, and automatically
+#     generates a schema that can be used for function calling by LLMs.
+#   - Metadata in Decorator: The decorator can take arguments like `description`,
+#     `model` (referencing the Pydantic model), and `operation_type` to
+#     provide rich metadata.
+#
+# Strengths:
+#   - Python-idiomatic: Feels natural for Python developers.
+#   - Declarative Validation: Pydantic models clearly define the expected
+#     data structure and validation rules.
+#   - Readability and Maintainability: Consolidates schema definition with
+#     argument types.
+#   - Automatic Schema Generation: Simplifies compatibility with systems
+#     requiring structured function definitions (like OpenAI).
+#
+# Considerations:
+#   - Learning Curve: Requires familiarity with Pydantic and decorator patterns,
+#     which might introduce a slight learning curve for developers new to
+#     these concepts.
+# --------------------------------------------------------------------------- #
 
 import logging
 import asyncio
