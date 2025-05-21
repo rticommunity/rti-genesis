@@ -71,7 +71,7 @@ check_and_cleanup_dds() {
     
     # Start spy to check for DDS activity
     SPY_LOG="$LOG_DIR/dds_check.log"
-    /Applications/rti_connext_dds-7.3.0/bin/rtiddsspy -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$SPY_LOG" 2>&1 &
+    "$NDDSHOME/bin/rtiddsspy" -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$SPY_LOG" 2>&1 &
     SPY_PID=$!
     
     # Wait a bit to see if any DDS activity is detected
@@ -105,7 +105,7 @@ check_and_cleanup_dds() {
         
         # Start a new spy to verify cleanup
         rm -f "$SPY_LOG"
-        /Applications/rti_connext_dds-7.3.0/bin/rtiddsspy -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$SPY_LOG" 2>&1 &
+        "$NDDSHOME/bin/rtiddsspy" -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$SPY_LOG" 2>&1 &
         SPY_PID=$!
         sleep 5
         

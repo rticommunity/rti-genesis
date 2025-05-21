@@ -110,7 +110,7 @@ sleep 5
 echo "🕵️ TRACE: Starting rtiddsspy to monitor FunctionCapability..."
 # RTI Connext DDS Spy command
 # Ensure the path to rtiddsspy is correct for your environment
-DDS_SPY_CMD="/Applications/rti_connext_dds-7.3.0/bin/rtiddsspy"
+DDS_SPY_CMD="$NDDSHOME/bin/rtiddsspy"
 if [ ! -f "$DDS_SPY_CMD" ]; then
     echo "❌ ERROR: rtiddsspy command not found at $DDS_SPY_CMD"
     exit 1

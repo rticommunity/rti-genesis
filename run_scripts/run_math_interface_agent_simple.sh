@@ -86,7 +86,7 @@ sleep 5
 
 # Now start RTI DDS Spy AFTER the agent
 echo "🚀 TRACE: Starting RTI DDS Spy to verify durability..."
-/Applications/rti_connext_dds-7.3.0/bin/rtiddsspy -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$REGISTRATION_SPY_LOG" 2>&1 &
+"$NDDSHOME/bin/rtiddsspy" -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$REGISTRATION_SPY_LOG" 2>&1 &
 REGISTRATION_SPY_PID=$!
 echo "✅ TRACE: RTI DDS Spy started with PID: $REGISTRATION_SPY_PID (Log: $REGISTRATION_SPY_LOG)"
 
@@ -125,7 +125,7 @@ sleep 5
 
 # Start RTI DDS Spy for interface test
 echo "🚀 TRACE: Starting RTI DDS Spy for interface test..."
-/Applications/rti_connext_dds-7.3.0/bin/rtiddsspy -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$INTERFACE_SPY_LOG" 2>&1 &
+"$NDDSHOME/bin/rtiddsspy" -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$INTERFACE_SPY_LOG" 2>&1 &
 INTERFACE_SPY_PID=$!
 echo "✅ TRACE: RTI DDS Spy started with PID: $INTERFACE_SPY_PID (Log: $INTERFACE_SPY_LOG)"
 

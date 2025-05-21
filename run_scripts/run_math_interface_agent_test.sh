@@ -64,7 +64,7 @@ trap cleanup EXIT INT TERM
 
 # Start RTI DDS Spy with print sample
 echo "🚀 TRACE: Starting RTI DDS Spy..."
-/Applications/rti_connext_dds-7.3.0/bin/rtiddsspy -printSample > "$SPY_LOG" 2>&1 &
+"$NDDSHOME/bin/rtiddsspy" -printSample > "$SPY_LOG" 2>&1 &
 SPY_PID=$!
 echo "✅ TRACE: RTI DDS Spy started with PID: $SPY_PID (Log: $SPY_LOG)"
 
