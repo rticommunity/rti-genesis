@@ -43,17 +43,25 @@ trap cleanup EXIT
 # --- 1. DDS Sanity Check ---
 echo "Performing DDS sanity check for relevant topics..."
 rm -f "$SPY_LOG"
-# Spy on topics that should be quiet before our test starts
-# We are checking for any writers or data on these specific topics.
-# If your NDDSHOME is not set, this might not find rtiddsspy
-NDDSHOME_PATH="${NDDSHOME:-/Applications/rti_connext_dds-7.3.0}" # Default if not set
 
-if [ ! -f "$NDDSHOME_PATH/bin/rtiddsspy" ]; then
-    echo "ERROR: rtiddsspy not found at $NDDSHOME_PATH/bin/rtiddsspy. Set NDDSHOME or adjust path."
+# Check for NDDSHOME
+if [ -z "$NDDSHOME" ]; then
+    echo "ERROR: NDDSHOME environment variable is not set."
+    echo "Please set NDDSHOME to your RTI Connext DDS installation directory."
+    echo "Example: export NDDSHOME=/opt/rti.com/rti_connext_dds-7.3.0"
     exit 1
 fi
 
-"$NDDSHOME_PATH/bin/rtiddsspy" -printSample -topic 'RegistrationAnnouncement' -topic 'InterfaceAgentRequest' -topic 'CalculatorServiceRequest' -duration 5 > "$SPY_LOG" 2>&1 &
+# Verify rtiddsspy exists
+if [ ! -f "$NDDSHOME/bin/rtiddsspy" ]; then
+    echo "ERROR: rtiddsspy not found at $NDDSHOME/bin/rtiddsspy"
+    echo "Please verify that NDDSHOME is set correctly and rtiddsspy exists in the bin directory."
+    echo "Current NDDSHOME: $NDDSHOME"
+    exit 1
+fi
+
+# Spy on topics that should be quiet before our test starts
+"$NDDSHOME/bin/rtiddsspy" -printSample -topic 'RegistrationAnnouncement' -topic 'InterfaceAgentRequest' -topic 'CalculatorServiceRequest' -duration 5 > "$SPY_LOG" 2>&1 &
 SPY_PID=$!
 pids+=("$SPY_PID") # Add spy to cleanup, though it should exit on its own
 wait "$SPY_PID" # Wait for spy to finish its 5-second run
