@@ -4,6 +4,9 @@ import asyncio
 import sys
 import logging
 
+# Configure logger for this module
+logger = logging.getLogger("test_agent")
+
 class TestAgent(OpenAIGenesisAgent):
     def __init__(self):
         # Initialize the base class with our specific configuration
@@ -41,6 +44,15 @@ async def main():
     try:
         # Give some time for initialization and announcement propagation
         await asyncio.sleep(5)  # Use async sleep instead of time.sleep
+        
+        # Log available functions
+        await agent._ensure_functions_discovered()
+        if agent.function_cache:
+            logger.info("Available functions:")
+            for func_name, func_info in agent.function_cache.items():
+                logger.info(f"- {func_name}: {func_info['description']}")
+        else:
+            logger.info("No functions discovered")
         
         # Get message from command line argument or use default
         message = sys.argv[1] if len(sys.argv) > 1 else "Hello, can you tell me a joke?"
