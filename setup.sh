@@ -111,26 +111,49 @@ set_environment_variables() {
     
     if [[ "$(uname -s)" == "Darwin" ]]; then
         # macOS
-        export PYTHONPATH="$nddshome/lib/python3.10:$PYTHONPATH"
+        export PYTHONPATH="$nddshome/lib/python${PY_MM}:$PYTHONPATH"
         export LD_LIBRARY_PATH="$nddshome/lib:$LD_LIBRARY_PATH"
         export DYLD_LIBRARY_PATH="$nddshome/lib:$DYLD_LIBRARY_PATH"
-        echo "export PYTHONPATH=\"$nddshome/lib/python3.10:$PYTHONPATH\"" >> "$PROJECT_ROOT/.env"
+        echo "export PYTHONPATH=\"$nddshome/lib/python${PY_MM}:$PYTHONPATH\"" >> "$PROJECT_ROOT/.env"
         echo "export LD_LIBRARY_PATH=\"$nddshome/lib:$LD_LIBRARY_PATH\"" >> "$PROJECT_ROOT/.env"
         echo "export DYLD_LIBRARY_PATH=\"$nddshome/lib:$DYLD_LIBRARY_PATH\"" >> "$PROJECT_ROOT/.env"
     elif [[ "$(uname -s)" == *"MINGW"* ]] || [[ "$(uname -s)" == *"MSYS"* ]]; then
         # Windows
-        export PYTHONPATH="$nddshome/lib/python3.10;$PYTHONPATH"
+        export PYTHONPATH="$nddshome/lib/python${PY_MM};$PYTHONPATH"
         export PATH="$nddshome/lib;$PATH"
-        echo "export PYTHONPATH=\"$nddshome/lib/python3.10;$PYTHONPATH\"" >> "$PROJECT_ROOT/.env"
+        echo "export PYTHONPATH=\"$nddshome/lib/python${PY_MM};$PYTHONPATH\"" >> "$PROJECT_ROOT/.env"
         echo "export PATH=\"$nddshome/lib;$PATH\"" >> "$PROJECT_ROOT/.env"
     elif [[ "$(uname -s)" == "Linux" ]]; then
         # Linux
-        export PYTHONPATH="$nddshome/lib/python3.10:$PYTHONPATH"
+        export PYTHONPATH="$nddshome/lib/python${PY_MM}:$PYTHONPATH"
         export LD_LIBRARY_PATH="$nddshome/lib:$LD_LIBRARY_PATH"
-        echo "export PYTHONPATH=\"$nddshome/lib/python3.10:$PYTHONPATH\"" >> "$PROJECT_ROOT/.env"
+        echo "export PYTHONPATH=\"$nddshome/lib/python${PY_MM}:$PYTHONPATH\"" >> "$PROJECT_ROOT/.env"
         echo "export LD_LIBRARY_PATH=\"$nddshome/lib:$LD_LIBRARY_PATH\"" >> "$PROJECT_ROOT/.env"
     fi
 }
+
+# ------------------------------------------------------------------
+# Pick the first usable python3.X we can find.
+# Prefer 3.10 (wheels ABI-compatible with 3.11 in most cases),
+# fall back to whatever "python3" points to.
+# ------------------------------------------------------------------
+if command -v python3.10 >/dev/null; then
+    PY_BIN=$(command -v python3.10)
+else
+    PY_BIN=$(command -v python3)
+    if [ -z "$PY_BIN" ]; then
+        echo "ERROR: no python3 interpreter found in PATH"
+        exit 1
+    fi
+    echo "Warning: python3.10 not found, using $PY_BIN"
+fi
+
+# Get the *major.minor* string for PYTHONPATH, e.g. "3.11"
+PY_MM=$($PY_BIN - <<'EOF'
+import sys, os
+sys.stdout.write(f"{sys.version_info.major}.{sys.version_info.minor}")
+EOF
+)
 
 # Main setup process
 echo "Starting Genesis LIB setup..."
@@ -140,12 +163,6 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Create .env file if it doesn't exist
 touch "$PROJECT_ROOT/.env"
-
-# Check if Python 3.10 is installed
-if ! command -v python3.10 &> /dev/null; then
-    echo "Python 3.10 is required but not installed. Please install Python 3.10 first."
-    exit 1
-fi
 
 # Detect system architecture
 ARCH=$(detect_architecture)
@@ -204,8 +221,8 @@ fi
 echo "Found RTI environment script: $RTI_ENV_SCRIPT"
 
 # Create virtual environment
-echo "Creating virtual environment..."
-python3.10 -m venv venv
+echo "Creating virtual environment with $PY_BIN ..."
+$PY_BIN -m venv venv
 
 # Activate virtual environment
 echo "Activating virtual environment..."
