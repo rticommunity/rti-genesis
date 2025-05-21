@@ -33,9 +33,9 @@ Before setting up Genesis LIB, ensure you have:
 2. **RTI Connext DDS 7.3.0 or greater**
    - Download from [RTI's website](https://support.rti.com/downloads)
    - Install in one of the following locations:
-     - macOS: `/Applications/rti_connext_dds-7.3.0`
-     - Linux: `/opt/rti_connext_dds-7.3.0` or `$HOME/rti_connext_dds-7.3.0`
-     - Windows: `C:\Program Files\rti_connext_dds-7.3.0` or `C:\Program Files (x86)\rti_connext_dds-7.3.0`
+     - macOS: `/path/to/rti_connext_dds-7.3.0`
+     - Linux: `/path/to/rti_connext_dds-7.3.0` or `$HOME/rti_connext_dds-7.3.0`
+     - Windows: `C:\path\to\rti_connext_dds-7.3.0`
 
 3. **API Keys**
    - OpenAI API Key (for GPT models)
@@ -597,9 +597,9 @@ Before setting up Genesis LIB, ensure you have the following installed:
 2. **RTI Connext DDS 7.3.0 or greater**
    - Download from [RTI's website](https://www.rti.com/downloads)
    - Install in one of the following locations:
-     - macOS: `/Applications/rti_connext_dds-7.3.0`
-     - Linux: `/opt/rti_connext_dds-7.3.0` or `$HOME/rti_connext_dds-7.3.0`
-     - Windows: `C:\Program Files\rti_connext_dds-7.3.0` or `C:\Program Files (x86)\rti_connext_dds-7.3.0`
+     - macOS: `/path/to/rti_connext_dds-7.3.0`
+     - Linux: `/path/to/rti_connext_dds-7.3.0` or `$HOME/rti_connext_dds-7.3.0`
+     - Windows: `C:\path\to\rti_connext_dds-7.3.0`
 
 3. **API Keys**
    - OpenAI API Key (for GPT models)

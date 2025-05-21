@@ -48,7 +48,7 @@ rm -f "$SPY_LOG"
 if [ -z "$NDDSHOME" ]; then
     echo "ERROR: NDDSHOME environment variable is not set."
     echo "Please set NDDSHOME to your RTI Connext DDS installation directory."
-    echo "Example: export NDDSHOME=/opt/rti.com/rti_connext_dds-7.3.0"
+    echo "Example: export NDDSHOME=/path/to/rti_connext_dds-7.3.0"
     exit 1
 fi
 
