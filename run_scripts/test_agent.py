@@ -40,7 +40,7 @@ async def main():
     
     try:
         # Give some time for initialization and announcement propagation
-        await asyncio.sleep(2)  # Use async sleep instead of time.sleep
+        await asyncio.sleep(5)  # Use async sleep instead of time.sleep
         
         # Get message from command line argument or use default
         message = sys.argv[1] if len(sys.argv) > 1 else "Hello, can you tell me a joke?"

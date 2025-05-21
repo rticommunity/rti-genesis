@@ -101,7 +101,7 @@ fi
 
 # Wait for services to start
 echo "Waiting for services to start..."
-sleep 30
+sleep 10
 
 # Function to run a single test
 run_test() {
