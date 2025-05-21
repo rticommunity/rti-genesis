@@ -4,6 +4,10 @@ import asyncio
 import sys
 import logging
 
+# Configure logging
+logging.getLogger("openai._base_client").setLevel(logging.WARNING)  # Suppress OpenAI client debug logs
+logging.getLogger("genesis_lib.function_classifier").setLevel(logging.WARNING)  # Suppress function classifier debug logs
+
 # Configure logger for this module
 logger = logging.getLogger("test_agent")
 
@@ -47,12 +51,13 @@ async def main():
         
         # Log available functions
         await agent._ensure_functions_discovered()
+        print("=== Available Functions ===")
         if agent.function_cache:
-            logger.info("Available functions:")
-            for func_name, func_info in agent.function_cache.items():
-                logger.info(f"- {func_name}: {func_info['description']}")
+            for func_name in agent.function_cache.keys():
+                print(f"Function: {func_name}")
         else:
-            logger.info("No functions discovered")
+            print("No functions discovered")
+        print("===========================")
         
         # Get message from command line argument or use default
         message = sys.argv[1] if len(sys.argv) > 1 else "Hello, can you tell me a joke?"

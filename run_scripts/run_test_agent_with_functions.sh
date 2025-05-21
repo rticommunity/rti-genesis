@@ -145,6 +145,11 @@ run_test() {
         exit 1
     fi
     
+    # Display discovered functions
+    echo "📋 Discovered Functions:"
+    grep "Function:" "$log_file" || echo "  No functions discovered"
+    echo "=================================================="
+    
     # Test-specific checks
     if [ "$test_name" = "function_test" ]; then
         # Check for RPC call in function test
