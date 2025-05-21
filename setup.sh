@@ -68,6 +68,7 @@ find_rti_installations() {
         # Linux
         local base_paths=(
             "/opt/rti_connext_dds-*"
+            "/opt/rti.com/rti_connext_dds-*"
             "$HOME/rti_connext_dds-*"
         )
         for base_path in "${base_paths[@]}"; do
