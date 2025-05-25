@@ -337,6 +337,154 @@ class AgentCommunicationMixin:
             if "timeout" not in str(e).lower():
                 logger.error(f"Error handling agent request: {e}")
     
+    async def connect_to_agent(self, target_agent_id: str, timeout_seconds: float = 5.0) -> bool:
+        """
+        Establish RPC connection to another agent.
+        
+        Args:
+            target_agent_id: ID of the target agent
+            timeout_seconds: Connection timeout
+            
+        Returns:
+            True if connection successful, False otherwise
+        """
+        try:
+            logger.info(f"Connecting to agent {target_agent_id}")
+            
+            # Check if we already have a connection
+            if target_agent_id in self.agent_connections:
+                logger.debug(f"Reusing existing connection to agent {target_agent_id}")
+                return True
+            
+            # Look up target agent in discovered agents
+            if not self.is_agent_discovered(target_agent_id):
+                logger.warning(f"Agent {target_agent_id} not discovered yet")
+                return False
+            
+            # Ensure RPC types are loaded
+            if not self.agent_request_type or not self.agent_reply_type:
+                logger.error("Cannot connect to agent: RPC types not loaded")
+                return False
+            
+            # Ensure we have access to the DDS participant
+            if not hasattr(self, 'app') or not hasattr(self.app, 'participant'):
+                logger.error("Cannot connect to agent: no DDS participant available")
+                return False
+            
+            # Get target agent's service name
+            target_service_name = self._get_agent_service_name(target_agent_id)
+            logger.info(f"Creating RPC requester for service: {target_service_name}")
+            
+            # Create RPC requester
+            requester = rpc.Requester(
+                request_type=self.agent_request_type,
+                reply_type=self.agent_reply_type,
+                participant=self.app.participant,
+                service_name=target_service_name
+            )
+            
+            # Wait for DDS match with timeout
+            logger.debug(f"Waiting for DDS match with agent {target_agent_id} (timeout: {timeout_seconds}s)")
+            start_time = asyncio.get_event_loop().time()
+            
+            while True:
+                # Check if we have a match
+                if requester.matched_replier_count > 0:
+                    logger.info(f"Successfully connected to agent {target_agent_id}")
+                    self.agent_connections[target_agent_id] = requester
+                    return True
+                
+                # Check timeout
+                elapsed = asyncio.get_event_loop().time() - start_time
+                if elapsed >= timeout_seconds:
+                    logger.warning(f"Timeout connecting to agent {target_agent_id} after {timeout_seconds}s")
+                    requester.close()
+                    return False
+                
+                # Wait a bit before checking again
+                await asyncio.sleep(0.1)
+                
+        except Exception as e:
+            logger.error(f"Error connecting to agent {target_agent_id}: {e}")
+            return False
+    
+    async def send_agent_request(self, 
+                               target_agent_id: str, 
+                               message: str, 
+                               conversation_id: Optional[str] = None,
+                               timeout_seconds: float = 10.0) -> Optional[Dict[str, Any]]:
+        """
+        Send a request to another agent.
+        
+        Args:
+            target_agent_id: ID of the target agent
+            message: Request message
+            conversation_id: Optional conversation ID for tracking
+            timeout_seconds: Request timeout
+            
+        Returns:
+            Reply data or None if failed
+        """
+        try:
+            logger.info(f"Sending request to agent {target_agent_id}: {message}")
+            
+            # Ensure connection exists
+            if not await self.connect_to_agent(target_agent_id):
+                logger.error(f"Failed to connect to agent {target_agent_id}")
+                return None
+            
+            # Get the requester
+            requester = self.agent_connections[target_agent_id]
+            
+            # Generate conversation ID if not provided
+            if conversation_id is None:
+                conversation_id = str(uuid.uuid4())
+            
+            # Create AgentAgentRequest
+            request_sample = self.agent_request_type()
+            request_sample.set_string("message", message)
+            request_sample.set_string("conversation_id", conversation_id)
+            request_sample.set_string("sender_agent_id", getattr(self.app, 'agent_id', 'unknown'))
+            request_sample.set_int64("timestamp", int(asyncio.get_event_loop().time() * 1000))
+            
+            # Send via RPC
+            logger.debug(f"Sending RPC request to agent {target_agent_id}")
+            reply_sample = requester.send_request(
+                request_sample, 
+                timeout=dds.Duration.from_seconds(timeout_seconds)
+            )
+            
+            if reply_sample is None:
+                logger.warning(f"No reply received from agent {target_agent_id} within {timeout_seconds}s")
+                return None
+            
+            # Parse response
+            response_data = {
+                "message": reply_sample.get_string("message"),
+                "status": reply_sample.get_int32("status"),
+                "conversation_id": reply_sample.get_string("conversation_id"),
+                "timestamp": reply_sample.get_int64("timestamp")
+            }
+            
+            logger.info(f"Received reply from agent {target_agent_id}: {response_data['message']}")
+            return response_data
+            
+        except Exception as e:
+            logger.error(f"Error sending request to agent {target_agent_id}: {e}")
+            return None
+    
+    def _cleanup_agent_connection(self, agent_id: str):
+        """Clean up connection to a specific agent"""
+        if agent_id in self.agent_connections:
+            try:
+                requester = self.agent_connections[agent_id]
+                if hasattr(requester, 'close'):
+                    requester.close()
+                del self.agent_connections[agent_id]
+                logger.debug(f"Cleaned up connection to agent {agent_id}")
+            except Exception as e:
+                logger.warning(f"Error cleaning up connection to agent {agent_id}: {e}")
+    
     @abstractmethod
     async def process_agent_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """
