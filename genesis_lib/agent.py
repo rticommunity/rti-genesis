@@ -35,6 +35,7 @@ import rti.rpc as rpc
 from .genesis_app import GenesisApp
 from .llm import ChatAgent, AnthropicChatAgent
 from .utils import get_datamodel_path
+from .agent_communication import AgentCommunicationMixin
 
 # Get logger
 logger = logging.getLogger(__name__)
@@ -44,7 +45,8 @@ class GenesisAgent(ABC):
     registration_writer: Optional[dds.DynamicData.DataWriter] = None # Define at class level
 
     def __init__(self, agent_name: str, base_service_name: str, 
-                 service_instance_tag: Optional[str] = None, agent_id: str = None):
+                 service_instance_tag: Optional[str] = None, agent_id: str = None,
+                 enable_agent_communication: bool = False):
         """
         Initialize the agent.
         
@@ -53,6 +55,7 @@ class GenesisAgent(ABC):
             base_service_name: The fundamental type of service offered (e.g., "Chat", "ImageGeneration")
             service_instance_tag: Optional tag to make this instance's RPC service name unique (e.g., "Primary", "User1")
             agent_id: Optional UUID for the agent (if None, will generate one)
+            enable_agent_communication: Whether to enable agent-to-agent communication capabilities
         """
         logger.info(f"GenesisAgent {agent_name} STARTING initializing with agent_id {agent_id}, base_service_name: {base_service_name}, tag: {service_instance_tag}")
         self.agent_name = agent_name
@@ -184,6 +187,107 @@ class GenesisAgent(ABC):
         
         # Store discovered functions
         # self.discovered_functions = [] # Removed as per event-driven plan
+        
+        # Initialize agent-to-agent communication if enabled
+        self.enable_agent_communication = enable_agent_communication
+        self.agent_communication = None
+        if enable_agent_communication:
+            self._setup_agent_communication()
+
+    def _setup_agent_communication(self):
+        """Initialize agent-to-agent communication capabilities"""
+        try:
+            logger.info(f"Setting up agent-to-agent communication for {self.agent_name}")
+            
+            # Create a communication mixin instance
+            class AgentCommunicationWrapper(AgentCommunicationMixin):
+                def __init__(self, parent_agent):
+                    super().__init__()
+                    self.parent_agent = parent_agent
+                    # Share the app instance
+                    self.app = parent_agent.app
+                    self.base_service_name = parent_agent.base_service_name
+                
+                async def process_agent_request(self, request):
+                    """Delegate to parent agent's process_agent_request method"""
+                    return await self.parent_agent.process_agent_request(request)
+            
+            # Create the communication wrapper
+            self.agent_communication = AgentCommunicationWrapper(self)
+            
+            # Initialize RPC types
+            if self.agent_communication._initialize_agent_rpc_types():
+                logger.info("Agent-to-agent RPC types loaded successfully")
+            else:
+                logger.warning("Failed to load agent-to-agent RPC types")
+                return
+            
+            # Set up agent discovery
+            if self.agent_communication._setup_agent_discovery():
+                logger.info("Agent discovery setup completed")
+            else:
+                logger.warning("Failed to set up agent discovery")
+                return
+            
+            # Set up agent RPC service
+            if self.agent_communication._setup_agent_rpc_service():
+                logger.info("Agent RPC service setup completed")
+            else:
+                logger.warning("Failed to set up agent RPC service")
+                return
+            
+            logger.info(f"Agent-to-agent communication enabled for {self.agent_name}")
+            
+        except Exception as e:
+            logger.error(f"Failed to set up agent communication: {e}")
+            self.agent_communication = None
+    
+    async def process_agent_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process a request from another agent.
+        
+        This method should be overridden by subclasses that want to handle
+        agent-to-agent communication. The default implementation returns an error.
+        
+        Args:
+            request: Dictionary containing the request data
+            
+        Returns:
+            Dictionary containing the response data
+        """
+        return {
+            "message": f"Agent {self.agent_name} does not support agent-to-agent communication",
+            "status": -1,
+            "conversation_id": request.get("conversation_id", "")
+        }
+    
+    # Agent-to-agent communication convenience methods
+    async def send_agent_request(self, target_agent_id: str, message: str, 
+                               conversation_id: Optional[str] = None,
+                               timeout_seconds: float = 10.0) -> Optional[Dict[str, Any]]:
+        """Send a request to another agent (if agent communication is enabled)"""
+        if not self.agent_communication:
+            logger.error("Agent communication not enabled")
+            return None
+        
+        return await self.agent_communication.send_agent_request(
+            target_agent_id, message, conversation_id, timeout_seconds
+        )
+    
+    async def wait_for_agent(self, agent_id: str, timeout_seconds: float = 30.0) -> bool:
+        """Wait for a specific agent to be discovered (if agent communication is enabled)"""
+        if not self.agent_communication:
+            logger.error("Agent communication not enabled")
+            return False
+        
+        return await self.agent_communication.wait_for_agent(agent_id, timeout_seconds)
+    
+    def get_discovered_agents(self) -> Dict[str, Dict[str, Any]]:
+        """Get list of discovered agents (if agent communication is enabled)"""
+        if not self.agent_communication:
+            return {}
+        
+        return self.agent_communication.get_discovered_agents()
 
     @abstractmethod
     async def process_request(self, request: Any) -> Dict[str, Any]:
@@ -197,10 +301,26 @@ class GenesisAgent(ABC):
             logger.info("Announcing agent presence...")
             await self.announce_self()
             
-            # Main loop - just keep the event loop running
+            # Main loop - handle agent requests if enabled
             logger.info(f"{self.agent_name} listening for requests (Ctrl+C to exit)...")
-            shutdown_event = asyncio.Event()
-            await shutdown_event.wait()
+            
+            if self.agent_communication:
+                # Run loop with agent request handling
+                while True:
+                    try:
+                        # Handle agent-to-agent requests
+                        await self.agent_communication._handle_agent_request()
+                        # Small delay to prevent busy waiting
+                        await asyncio.sleep(0.01)
+                    except asyncio.CancelledError:
+                        break
+                    except Exception as e:
+                        logger.error(f"Error in agent communication loop: {e}")
+                        await asyncio.sleep(0.1)
+            else:
+                # Original behavior - just keep the event loop running
+                shutdown_event = asyncio.Event()
+                await shutdown_event.wait()
                 
         except KeyboardInterrupt:
             logger.info(f"\nShutting down {self.agent_name}...")
@@ -210,7 +330,11 @@ class GenesisAgent(ABC):
     async def close(self):
         """Clean up resources"""
         try:
-            # Close replier first
+            # Close agent communication first
+            if hasattr(self, 'agent_communication') and self.agent_communication is not None:
+                await self.agent_communication.close_agent_communication()
+                
+            # Close replier
             if hasattr(self, 'replier') and not getattr(self.replier, '_closed', False):
                 self.replier.close()
                 

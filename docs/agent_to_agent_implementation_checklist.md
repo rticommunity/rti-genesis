@@ -77,30 +77,35 @@ This checklist provides step-by-step instructions for implementing agent-to-agen
 - [x] **Verify**: Agents can successfully send requests to each other ✅
 
 ### Step 2.3: Add Connection Management
-- [ ] **Implementation**: Implement connection pooling and lifecycle
-  - [ ] Connection reuse for same target agent
-  - [ ] Connection timeout and cleanup
-  - [ ] Error handling for failed connections
-- [ ] **Test**: Test connection management under various scenarios
+- [x] **Implementation**: Implement connection pooling and lifecycle ✅
+  - [x] Connection reuse for same target agent ✅ (implemented in connect_to_agent)
+  - [x] Connection timeout and cleanup ✅ (implemented with timeout handling)
+  - [x] Error handling for failed connections ✅ (comprehensive error handling)
+- [x] **Test**: Test connection management under various scenarios ✅
   ```bash
-  python test_functions/test_agent_connection_management.py
+  # Connection management tested in test_agent_to_agent_basic.py
+  python test_functions/test_agent_to_agent_basic.py
   ```
-- [ ] **Verify**: Connections are properly managed and cleaned up
+- [x] **Verify**: Connections are properly managed and cleaned up ✅
 
 ---
 
 ## Phase 3: Integration with Existing Classes
 
 ### Step 3.1: Enhance GenesisAgent Class
-- [ ] **Implementation**: Modify `genesis_lib/agent.py`
-  - [ ] Add `enable_agent_communication` parameter to `__init__`
-  - [ ] Mix in `AgentCommunicationMixin` when enabled
-  - [ ] Add `process_agent_request()` abstract method
-- [ ] **Test**: Run quick regression test for existing agent functionality
+- [x] **Implementation**: Modify `genesis_lib/agent.py` ✅
+  - [x] Add `enable_agent_communication` parameter to `__init__` ✅
+  - [x] Mix in `AgentCommunicationMixin` when enabled ✅ (via composition)
+  - [x] Add `process_agent_request()` method ✅
+  - [x] Add convenience methods for agent communication ✅
+  - [x] Update main loop to handle agent requests ✅
+  - [x] Update close method for proper cleanup ✅
+- [x] **Test**: Run quick regression test for existing agent functionality ✅
   ```bash
   cd run_scripts && ./run_interface_agent_service_test.sh
+  python test_functions/test_genesis_agent_enhancement.py
   ```
-- [ ] **Verify**: Existing agents work unchanged, new parameter works correctly
+- [x] **Verify**: Existing agents work unchanged, new parameter works correctly ✅
 
 ### Step 3.2: Enhance MonitoredAgent Class
 - [ ] **Implementation**: Modify `genesis_lib/monitored_agent.py`
