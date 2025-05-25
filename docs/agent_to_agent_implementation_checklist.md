@@ -6,7 +6,7 @@ This checklist provides step-by-step instructions for implementing agent-to-agen
 ## Prerequisites
 - [x] Verify `AgentAgentRequest` and `AgentAgentReply` types exist in `datamodel.xml` ✅ (Confirmed in lines 28-37)
 - [x] Ensure existing tests pass: `cd run_scripts && ./run_all_tests.sh` ✅ (All tests passed)
-- [ ] Backup current working state: `git commit -am "Pre agent-to-agent implementation backup"`
+- [x] Backup current working state: `git commit -am "Pre agent-to-agent implementation backup"` ✅ (Commit: 8a92883)
 
 ---
 
@@ -18,9 +18,9 @@ This checklist provides step-by-step instructions for implementing agent-to-agen
   - [ ] Add agent discovery tracking (`discovered_agents` dict)
   - [ ] Add connection management (`agent_connections` dict)
   - [ ] Add agent-to-agent RPC type initialization
-- [ ] **Test**: Run existing tests to ensure no regression
+- [ ] **Test**: Run quick regression test to ensure no regression
   ```bash
-  cd run_scripts && ./run_all_tests.sh
+  cd run_scripts && ./run_interface_agent_service_test.sh
   ```
 - [ ] **Verify**: No import errors, existing functionality unchanged
 
@@ -41,9 +41,9 @@ This checklist provides step-by-step instructions for implementing agent-to-agen
   - [ ] `_on_agent_capability_received()` - Handle discovered agents
   - [ ] `get_discovered_agents()` - Return list of discovered agents
   - [ ] `wait_for_agent(agent_id, timeout)` - Wait for specific agent
-- [ ] **Test**: Run existing tests + verify discovery doesn't break existing functionality
+- [ ] **Test**: Run quick regression test + verify discovery doesn't break existing functionality
   ```bash
-  cd run_scripts && ./run_all_tests.sh
+  cd run_scripts && ./run_interface_agent_service_test.sh
   ```
 - [ ] **Verify**: Agent discovery works without affecting existing agent registration
 
@@ -94,9 +94,9 @@ This checklist provides step-by-step instructions for implementing agent-to-agen
   - [ ] Add `enable_agent_communication` parameter to `__init__`
   - [ ] Mix in `AgentCommunicationMixin` when enabled
   - [ ] Add `process_agent_request()` abstract method
-- [ ] **Test**: Run all existing agent tests
+- [ ] **Test**: Run quick regression test for existing agent functionality
   ```bash
-  cd run_scripts && ./run_all_tests.sh
+  cd run_scripts && ./run_interface_agent_service_test.sh
   ```
 - [ ] **Verify**: Existing agents work unchanged, new parameter works correctly
 
@@ -173,9 +173,16 @@ This checklist provides step-by-step instructions for implementing agent-to-agen
   - [ ] Test agent discovery and connection management
   - [ ] Test monitoring and event generation
   - [ ] Test error scenarios and recovery
+- [ ] **Implementation**: Create fast integration test
+  - [ ] `run_scripts/run_interface_multi_agent_service_test.sh` - Multi-agent pipeline test
+  - [ ] Based on existing `run_interface_agent_service_test.sh`
+  - [ ] Tests Interface → Agent A → Agent B → Service flow
+  - [ ] Verifies agent-to-agent communication works in realistic scenario
+  - [ ] Fast execution (~10-15 seconds) for development iteration
 - [ ] **Test**: Run complete test suite
   ```bash
   python test_functions/test_agent_to_agent_communication.py
+  cd run_scripts && ./run_interface_multi_agent_service_test.sh
   ```
 - [ ] **Verify**: All agent-to-agent communication scenarios work correctly
 
@@ -199,6 +206,7 @@ This checklist provides step-by-step instructions for implementing agent-to-agen
 - [ ] **Test**: Run full integration test suite
   ```bash
   cd run_scripts && ./run_all_tests.sh
+  cd run_scripts && ./run_interface_multi_agent_service_test.sh
   python test_functions/test_agent_to_agent_communication.py
   ```
 - [ ] **Verify**: All existing functionality works with new agent communication
@@ -237,9 +245,9 @@ This checklist provides step-by-step instructions for implementing agent-to-agen
 ## Testing Requirements Summary
 
 ### After Each Implementation Step:
-1. **Run existing tests** to ensure no regression:
+1. **Run quick regression test** (fast verification):
    ```bash
-   cd run_scripts && ./run_all_tests.sh
+   cd run_scripts && ./run_interface_agent_service_test.sh
    ```
 
 2. **Run specific tests** for the implemented feature:
@@ -248,6 +256,12 @@ This checklist provides step-by-step instructions for implementing agent-to-agen
    ```
 
 3. **Verify functionality** manually if needed
+
+### Before Final Commit:
+- **Run full test suite** to ensure complete compatibility:
+  ```bash
+  cd run_scripts && ./run_all_tests.sh
+  ```
 
 ### New Test Files to Create:
 - [ ] `test_functions/test_agent_communication.py` - Basic agent communication tests
@@ -261,9 +275,17 @@ This checklist provides step-by-step instructions for implementing agent-to-agen
 - [ ] `test_functions/test_agent_to_agent_communication.py` - Comprehensive suite
 - [ ] `test_functions/test_agent_performance.py` - Performance testing
 
+### New Integration Test Scripts to Create:
+- [ ] `run_scripts/run_interface_multi_agent_service_test.sh` - **Multi-agent pipeline test**
+  - Based on `run_interface_agent_service_test.sh` 
+  - Tests Interface → Agent A → Agent B → Service flow
+  - Verifies agent-to-agent communication in realistic scenario
+  - Fast execution for development iteration
+
 ### Test Execution Scripts:
 - [ ] `test_functions/test_agent_communication.sh` - Run all agent communication tests
-- [ ] Update `test_functions/test_all_services.sh` to include agent communication tests
+- [ ] Update `run_scripts/run_all_tests.sh` to include new multi-agent test
+- [ ] `run_scripts/run_interface_multi_agent_service_test.sh` - Fast multi-agent verification
 
 ---
 
