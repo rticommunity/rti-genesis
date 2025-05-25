@@ -160,6 +160,25 @@ This checklist provides step-by-step instructions for implementing agent-to-agen
   ```
 - [ ] **Verify**: Agents can be discovered by capability and specialization
 
+### Step 3.6: Create Specialized Weather Agent for Testing
+- [ ] **Implementation**: Create concrete weather agent using OpenWeatherMap API
+  - [ ] Create `examples/weather_agent/openweather_agent.py` with `OpenWeatherMapAgent` class
+  - [ ] Implement weather API integration with aiohttp
+  - [ ] Add location extraction from natural language
+  - [ ] Add weather request classification (current vs forecast)
+  - [ ] Include mock data fallback for testing without API key
+  - [ ] Implement comprehensive capability advertisement
+- [ ] **Implementation**: Create supporting files
+  - [ ] `examples/weather_agent/requirements.txt` - Add aiohttp dependency
+  - [ ] `examples/weather_agent/README.md` - Setup and usage instructions
+  - [ ] `examples/weather_agent/run_weather_agent.py` - Standalone runner
+- [ ] **Test**: Test weather agent functionality
+  ```bash
+  cd examples/weather_agent && python run_weather_agent.py
+  python test_functions/test_weather_agent.py
+  ```
+- [ ] **Verify**: Weather agent can handle weather requests and advertise capabilities correctly
+
 ---
 
 ## Phase 4: Advanced Features and Monitoring
@@ -255,14 +274,16 @@ This checklist provides step-by-step instructions for implementing agent-to-agen
 
 ### Step 6.1: Create Usage Examples
 - [ ] **Implementation**: Create example applications
-  - [ ] `examples/agent_collaboration/` - Two agents working together
+  - [ ] `examples/agent_collaboration/` - General agent + Weather agent working together
   - [ ] `examples/agent_chain/` - Multi-agent processing chain
   - [ ] `examples/agent_broadcast/` - One agent communicating with multiple agents
-- [ ] **Test**: Run all examples
+  - [ ] `examples/weather_demo/` - Complete demo: Interface → General Agent → Weather Agent
+  - [ ] **Test**: Run all examples
   ```bash
   cd examples/agent_collaboration && python run_example.py
   cd examples/agent_chain && python run_example.py
   cd examples/agent_broadcast && python run_example.py
+  cd examples/weather_demo && python run_weather_demo.py
   ```
 - [ ] **Verify**: Examples work and demonstrate key features
 
@@ -309,6 +330,7 @@ This checklist provides step-by-step instructions for implementing agent-to-agen
 - [ ] `test_functions/test_agent_capability_advertisement.py` - Enhanced capability discovery
 - [ ] `test_functions/test_agent_classification.py` - Agent classification system
 - [ ] `test_functions/test_agent_discovery_enhanced.py` - Capability-based discovery
+- [ ] `test_functions/test_weather_agent.py` - Weather agent functionality
 - [ ] `test_functions/test_agent_monitoring_events.py` - Event generation
 - [ ] `test_functions/test_agent_chain_tracking.py` - Chain event tracking
 - [ ] `test_functions/test_agent_error_handling.py` - Error scenarios
@@ -321,6 +343,10 @@ This checklist provides step-by-step instructions for implementing agent-to-agen
   - Tests Interface → Agent A → Agent B → Service flow
   - Verifies agent-to-agent communication in realistic scenario
   - Fast execution for development iteration
+- [ ] `run_scripts/run_weather_agent_demo.sh` - **Weather agent classification demo**
+  - Tests Interface → General Agent → Weather Agent flow
+  - Demonstrates automatic classification and routing
+  - Uses weather queries to test specialized agent discovery
 
 ### Test Execution Scripts:
 - [ ] `test_functions/test_agent_communication.sh` - Run all agent communication tests

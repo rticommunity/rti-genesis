@@ -297,6 +297,208 @@ class SmartGeneralAgent(MonitoredAgent):
         return await self.handle_general_request(request)
 ```
 
+### 4.4 Concrete Weather Agent Implementation
+
+For testing and demonstration, a complete weather agent using OpenWeatherMap API:
+
+```python
+import aiohttp
+import json
+import os
+from typing import Dict, Any, Optional
+
+class OpenWeatherMapAgent(MonitoredAgent):
+    """
+    Specialized weather agent using OpenWeatherMap API
+    Perfect for testing agent-to-agent communication and classification
+    """
+    
+    def __init__(self, api_key: Optional[str] = None):
+        super().__init__(
+            agent_name="WeatherExpert",
+            base_service_name="WeatherService",
+            enable_agent_communication=True
+        )
+        
+        # Get API key from environment or parameter
+        self.api_key = api_key or os.getenv('OPENWEATHERMAP_API_KEY')
+        if not self.api_key:
+            logger.warning("No OpenWeatherMap API key provided. Weather agent will use mock data.")
+        
+        self.base_url = "http://api.openweathermap.org/data/2.5"
+    
+    def get_agent_capabilities(self):
+        """Advertise weather-specific capabilities"""
+        return {
+            "agent_type": "specialized",
+            "specializations": ["weather", "meteorology", "climate"],
+            "capabilities": [
+                "current_weather",
+                "weather_forecast",
+                "weather_alerts",
+                "temperature_check",
+                "precipitation_forecast"
+            ],
+            "classification_tags": [
+                "weather", "temperature", "rain", "snow", "storm",
+                "forecast", "climate", "humidity", "wind", "pressure",
+                "sunny", "cloudy", "precipitation", "conditions"
+            ],
+            "model_info": None,  # Not an LLM-based agent
+            "default_capable": False,  # Only handles weather queries
+            "performance_metrics": {
+                "avg_response_time": "2-3 seconds",
+                "accuracy": "Real-time data from OpenWeatherMap"
+            }
+        }
+    
+    async def process_agent_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """Process weather-related requests from other agents"""
+        message = request.get('message', '')
+        conversation_id = request.get('conversation_id', '')
+        
+        try:
+            # Parse the weather request
+            location = self._extract_location(message)
+            weather_type = self._classify_weather_request(message)
+            
+            # Get weather data
+            if weather_type == "current":
+                weather_data = await self._get_current_weather(location)
+            elif weather_type == "forecast":
+                weather_data = await self._get_forecast(location)
+            else:
+                weather_data = await self._get_current_weather(location)
+            
+            return {
+                'message': self._format_weather_response(weather_data, weather_type),
+                'status': 0,
+                'conversation_id': conversation_id,
+                'metadata': {
+                    'location': location,
+                    'weather_type': weather_type,
+                    'source': 'OpenWeatherMap'
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Error processing weather request: {e}")
+            return {
+                'message': f"Sorry, I couldn't get weather information: {str(e)}",
+                'status': -1,
+                'conversation_id': conversation_id
+            }
+    
+    def _extract_location(self, message: str) -> str:
+        """Extract location from natural language message"""
+        # Simple keyword extraction - could be enhanced with NLP
+        words = message.lower().split()
+        
+        # Look for common location indicators
+        location_indicators = ['in', 'for', 'at', 'weather']
+        for i, word in enumerate(words):
+            if word in location_indicators and i + 1 < len(words):
+                return words[i + 1].title()
+        
+        # Default to a test location if none found
+        return "London"
+    
+    def _classify_weather_request(self, message: str) -> str:
+        """Classify the type of weather request"""
+        message_lower = message.lower()
+        
+        if any(word in message_lower for word in ['forecast', 'tomorrow', 'week', 'future']):
+            return "forecast"
+        else:
+            return "current"
+    
+    async def _get_current_weather(self, location: str) -> Dict[str, Any]:
+        """Get current weather for a location"""
+        if not self.api_key:
+            return self._get_mock_weather_data(location)
+        
+        url = f"{self.base_url}/weather"
+        params = {
+            'q': location,
+            'appid': self.api_key,
+            'units': 'metric'
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, params=params) as response:
+                if response.status == 200:
+                    return await response.json()
+                else:
+                    raise Exception(f"Weather API error: {response.status}")
+    
+    async def _get_forecast(self, location: str) -> Dict[str, Any]:
+        """Get weather forecast for a location"""
+        if not self.api_key:
+            return self._get_mock_forecast_data(location)
+        
+        url = f"{self.base_url}/forecast"
+        params = {
+            'q': location,
+            'appid': self.api_key,
+            'units': 'metric'
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, params=params) as response:
+                if response.status == 200:
+                    return await response.json()
+                else:
+                    raise Exception(f"Weather API error: {response.status}")
+    
+    def _format_weather_response(self, weather_data: Dict[str, Any], weather_type: str) -> str:
+        """Format weather data into a natural language response"""
+        if weather_type == "current":
+            temp = weather_data['main']['temp']
+            description = weather_data['weather'][0]['description']
+            location = weather_data['name']
+            
+            return f"Current weather in {location}: {description}, {temp}°C"
+        
+        elif weather_type == "forecast":
+            location = weather_data['city']['name']
+            forecasts = weather_data['list'][:3]  # Next 3 periods
+            
+            forecast_text = f"Weather forecast for {location}:\n"
+            for forecast in forecasts:
+                temp = forecast['main']['temp']
+                desc = forecast['weather'][0]['description']
+                time = forecast['dt_txt']
+                forecast_text += f"- {time}: {desc}, {temp}°C\n"
+            
+            return forecast_text.strip()
+    
+    def _get_mock_weather_data(self, location: str) -> Dict[str, Any]:
+        """Return mock weather data for testing without API key"""
+        return {
+            'name': location,
+            'main': {'temp': 22.5, 'humidity': 65},
+            'weather': [{'description': 'partly cloudy'}]
+        }
+    
+    def _get_mock_forecast_data(self, location: str) -> Dict[str, Any]:
+        """Return mock forecast data for testing without API key"""
+        return {
+            'city': {'name': location},
+            'list': [
+                {
+                    'dt_txt': '2025-01-15 12:00:00',
+                    'main': {'temp': 23.0},
+                    'weather': [{'description': 'sunny'}]
+                },
+                {
+                    'dt_txt': '2025-01-15 15:00:00', 
+                    'main': {'temp': 25.5},
+                    'weather': [{'description': 'partly cloudy'}]
+                }
+            ]
+        }
+```
+
 ## 5. Monitoring and Observability
 
 ### 5.1 New Monitoring Events
