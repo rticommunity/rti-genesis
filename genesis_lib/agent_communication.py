@@ -247,6 +247,96 @@ class AgentCommunicationMixin:
         
         return matching_agents
     
+    def _setup_agent_rpc_service(self):
+        """Set up RPC service for receiving requests from other agents"""
+        try:
+            logger.info("Setting up agent RPC service for receiving agent requests")
+            
+            # Ensure we have access to the DDS participant and agent ID
+            if not hasattr(self, 'app') or not hasattr(self.app, 'participant'):
+                logger.error("Cannot set up agent RPC service: no DDS participant available")
+                return False
+            
+            if not hasattr(self.app, 'agent_id'):
+                logger.error("Cannot set up agent RPC service: no agent_id available")
+                return False
+            
+            # Ensure RPC types are loaded
+            if not self.agent_request_type or not self.agent_reply_type:
+                logger.error("Cannot set up agent RPC service: RPC types not loaded")
+                return False
+            
+            # Generate unique service name for this agent
+            agent_service_name = self._get_agent_service_name(self.app.agent_id)
+            logger.info(f"Creating agent RPC service with name: {agent_service_name}")
+            
+            # Create replier for agent-to-agent communication
+            self.agent_replier = rpc.Replier(
+                request_type=self.agent_request_type,
+                reply_type=self.agent_reply_type,
+                participant=self.app.participant,
+                service_name=agent_service_name
+            )
+            
+            logger.info(f"Agent RPC service '{agent_service_name}' created successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to set up agent RPC service: {e}")
+            return False
+    
+    async def _handle_agent_request(self):
+        """Handle incoming agent requests (should be called in agent's main loop)"""
+        if not self.agent_replier:
+            return
+        
+        try:
+            # Check for incoming requests (non-blocking)
+            request_info = self.agent_replier.receive_request(timeout=dds.Duration.from_milliseconds(10))
+            
+            if request_info is None:
+                return  # No request available
+            
+            request_sample, request_identity = request_info
+            
+            # Extract request data
+            request_data = {
+                "message": request_sample.get_string("message"),
+                "conversation_id": request_sample.get_string("conversation_id"),
+                "sender_agent_id": request_sample.get_string("sender_agent_id"),
+                "timestamp": request_sample.get_int64("timestamp")
+            }
+            
+            logger.info(f"Received agent request from {request_data['sender_agent_id']}: {request_data['message']}")
+            
+            # Process the request using the abstract method
+            try:
+                response_data = await self.process_agent_request(request_data)
+            except Exception as e:
+                logger.error(f"Error processing agent request: {e}")
+                response_data = {
+                    "message": f"Error processing request: {str(e)}",
+                    "status": -1,
+                    "conversation_id": request_data.get("conversation_id", "")
+                }
+            
+            # Create reply sample
+            reply_sample = self.agent_reply_type()
+            reply_sample.set_string("message", response_data.get("message", ""))
+            reply_sample.set_int32("status", response_data.get("status", 0))
+            reply_sample.set_string("conversation_id", response_data.get("conversation_id", ""))
+            reply_sample.set_int64("timestamp", int(asyncio.get_event_loop().time() * 1000))
+            
+            # Send reply
+            self.agent_replier.send_reply(reply_sample, request_identity)
+            
+            logger.info(f"Sent reply to agent {request_data['sender_agent_id']}: {response_data.get('message', '')}")
+            
+        except Exception as e:
+            # Handle timeout or other errors gracefully
+            if "timeout" not in str(e).lower():
+                logger.error(f"Error handling agent request: {e}")
+    
     @abstractmethod
     async def process_agent_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """
