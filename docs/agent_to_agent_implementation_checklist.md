@@ -36,16 +36,18 @@ This checklist provides step-by-step instructions for implementing agent-to-agen
 - [x] **Verify**: Types load without errors ✅
 
 ### Step 1.3: Implement Agent Discovery Enhancement
-- [ ] **Implementation**: Add agent discovery methods to `AgentCommunicationMixin`
-  - [ ] `_setup_agent_discovery()` - Listen for `AgentCapability` announcements
-  - [ ] `_on_agent_capability_received()` - Handle discovered agents
-  - [ ] `get_discovered_agents()` - Return list of discovered agents
-  - [ ] `wait_for_agent(agent_id, timeout)` - Wait for specific agent
-- [ ] **Test**: Run quick regression test + verify discovery doesn't break existing functionality
+- [x] **Implementation**: Add agent discovery methods to `AgentCommunicationMixin` ✅
+  - [x] `_setup_agent_discovery()` - Listen for `AgentCapability` announcements ✅
+  - [x] `_on_agent_capability_received()` - Handle discovered agents ✅
+  - [x] `get_discovered_agents()` - Return list of discovered agents ✅
+  - [x] `wait_for_agent(agent_id, timeout)` - Wait for specific agent ✅
+  - [x] `get_agents_by_type()` - Filter agents by type ✅
+  - [x] `get_agents_by_capability()` - Filter agents by capability ✅
+- [x] **Test**: Run quick regression test + verify discovery doesn't break existing functionality ✅
   ```bash
   cd run_scripts && ./run_interface_agent_service_test.sh
   ```
-- [ ] **Verify**: Agent discovery works without affecting existing agent registration
+- [x] **Verify**: Agent discovery works without affecting existing agent registration ✅
 
 ---
 
