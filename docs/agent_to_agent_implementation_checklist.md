@@ -120,14 +120,45 @@ This checklist provides step-by-step instructions for implementing agent-to-agen
 
 ### Step 3.3: Update Agent Capability Advertisement
 - [ ] **Implementation**: Enhance capability advertisement
-  - [ ] Agents advertise agent-to-agent communication capability
-  - [ ] Include supported agent interaction types
-  - [ ] Update capability discovery to include agent services
+  - [ ] Update `datamodel.xml` to enhance `AgentCapability` struct with new fields
+    - [ ] Add `capabilities` field (JSON array of capabilities)
+    - [ ] Add `specializations` field (domain expertise areas)
+    - [ ] Add `model_info` field (for general AI agents)
+    - [ ] Add `classification_tags` field (for request routing)
+    - [ ] Add `default_capable` field (can handle general requests)
+  - [ ] Implement `get_agent_capabilities()` method in GenesisAgent
+  - [ ] Update agent discovery to parse enhanced capability information
+  - [ ] Modify `_on_agent_capability_received()` to handle new fields
 - [ ] **Test**: Test capability discovery and advertisement
   ```bash
   python test_functions/test_agent_capability_advertisement.py
   ```
-- [ ] **Verify**: Agents properly advertise and discover communication capabilities
+- [ ] **Verify**: Agents properly advertise and discover enhanced capabilities
+
+### Step 3.4: Implement Agent Classification System
+- [ ] **Implementation**: Create agent classification for request routing
+  - [ ] Create `genesis_lib/agent_classifier.py` with `AgentClassifier` class
+  - [ ] Implement exact capability matching
+  - [ ] Add LLM-based semantic matching (optional)
+  - [ ] Implement keyword/tag-based fallback matching
+  - [ ] Integrate with GenesisAgent for automatic request routing
+- [ ] **Test**: Test agent classification accuracy
+  ```bash
+  python test_functions/test_agent_classification.py
+  ```
+- [ ] **Verify**: Requests are correctly routed to appropriate agents
+
+### Step 3.5: Add Capability-Based Agent Discovery
+- [ ] **Implementation**: Enhanced discovery methods
+  - [ ] `find_agents_by_capability(capability)` - Find agents with specific capability
+  - [ ] `find_agents_by_specialization(domain)` - Find specialized agents
+  - [ ] `find_general_agents()` - Find agents that can handle any request
+  - [ ] `get_best_agent_for_request(request)` - Use classifier to find best agent
+- [ ] **Test**: Test enhanced discovery methods
+  ```bash
+  python test_functions/test_agent_discovery_enhanced.py
+  ```
+- [ ] **Verify**: Agents can be discovered by capability and specialization
 
 ---
 
@@ -271,11 +302,13 @@ This checklist provides step-by-step instructions for implementing agent-to-agen
   ```
 
 ### New Test Files to Create:
-- [ ] `test_functions/test_agent_communication.py` - Basic agent communication tests
-- [ ] `test_functions/test_agent_to_agent_basic.py` - Two-agent communication
+- [x] `test_functions/test_agent_communication.py` - Basic agent communication tests ✅
+- [x] `test_functions/test_agent_to_agent_basic.py` - Two-agent communication ✅
 - [ ] `test_functions/test_agent_connection_management.py` - Connection lifecycle
 - [ ] `test_functions/test_monitored_agent_communication.py` - Monitoring integration
-- [ ] `test_functions/test_agent_capability_advertisement.py` - Capability discovery
+- [ ] `test_functions/test_agent_capability_advertisement.py` - Enhanced capability discovery
+- [ ] `test_functions/test_agent_classification.py` - Agent classification system
+- [ ] `test_functions/test_agent_discovery_enhanced.py` - Capability-based discovery
 - [ ] `test_functions/test_agent_monitoring_events.py` - Event generation
 - [ ] `test_functions/test_agent_chain_tracking.py` - Chain event tracking
 - [ ] `test_functions/test_agent_error_handling.py` - Error scenarios
