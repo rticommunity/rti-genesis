@@ -355,17 +355,19 @@ FUNCTION_0101b97a (FUNCTION - Calculator Service)
   ```
 - [x] **Verify**: Graph connectivity matches expected system topology ✅
 
-### Step 4.3: Enhanced Agent-to-Agent Monitoring 🔄 IN PROGRESS  
-- [ ] **Implementation**: Add agent-to-agent specific monitoring capabilities
-  - [ ] Agent discovery monitoring events
-  - [ ] Agent connection lifecycle tracking
-  - [ ] Agent request/response correlation tracking
-  - [ ] Agent capability publication monitoring
-- [ ] **Test**: Test enhanced agent monitoring
+### Step 4.3: Enhanced Agent-to-Agent Monitoring ✅ COMPLETED
+- [x] **Implementation**: Add agent-to-agent specific monitoring capabilities ✅
+  - [x] Agent discovery monitoring events ✅
+  - [x] Agent connection lifecycle tracking ✅ (`publish_agent_connection_event()`)
+  - [x] Agent request/response correlation tracking ✅ (chain IDs and call IDs)
+  - [x] Agent capability publication monitoring ✅
+- [x] **Test**: Test enhanced agent monitoring ✅
   ```bash
-  python test_functions/test_enhanced_agent_monitoring.py
+  python test_functions/test_monitored_agent_communication.py  # ✅ WORKING
+  python test_functions/test_enhanced_capabilities.py         # ✅ WORKING
+  python test_functions/test_enhanced_discovery.py            # ✅ WORKING
   ```
-- [ ] **Verify**: Agent-to-agent interactions are fully monitored and graphed
+- [x] **Verify**: Agent-to-agent interactions are fully monitored and graphed ✅
 
 ### Step 4.4: Implement Chain Event Tracking ✅ IMPLEMENTED
 - [x] **Implementation**: Add chain tracking for agent-to-agent interactions ✅
@@ -390,67 +392,43 @@ FUNCTION_0101b97a (FUNCTION - Calculator Service)
   ```
 - [x] **Verify**: System handles errors gracefully without crashes ✅
 
-### Step 4.6: Fix Edge Discovery Events in Monitoring Classes 🔧 CRITICAL FIX NEEDED
-- [ ] **Problem Identified**: Graph connectivity validation revealed missing EDGE_DISCOVERY events
-  - [ ] **Root Cause**: MonitoredInterface, MonitoredAgent, and EnhancedServiceBase are not publishing proper EDGE_DISCOVERY events
-  - [ ] **Impact**: Graph connectivity tests show missing edges between components
-  - [ ] **Evidence**: RTIDDSSPY analysis shows only NODE_DISCOVERY and STATE_CHANGE events, no EDGE_DISCOVERY events
-- [ ] **Implementation**: Fix edge discovery in all three monitoring classes
-  - [ ] **MonitoredInterface** (`genesis_lib/monitored_interface.py`):
-    - [ ] Fix `_handle_agent_discovered()` to publish EDGE_DISCOVERY events for interface-to-agent connections
-    - [ ] Add proper edge events when interface connects to agents
-    - [ ] Ensure source_id and target_id are correctly set for edge events
-  - [ ] **MonitoredAgent** (`genesis_lib/monitored_agent.py`):
-    - [ ] Fix `wait_for_agent()` to publish proper EDGE_DISCOVERY events for agent-to-service connections
-    - [ ] Fix function discovery to publish EDGE_DISCOVERY events for agent-to-function connections
-    - [ ] Ensure agent-to-agent communication publishes edge events
-  - [ ] **EnhancedServiceBase** (`genesis_lib/enhanced_service_base.py`):
-    - [ ] Fix function advertisement to publish EDGE_DISCOVERY events for service-to-function connections
-    - [ ] Ensure function capability listener publishes edge events when functions are discovered
-    - [ ] Fix edge events between function providers and clients
-- [ ] **Test**: Verify edge discovery fix with comprehensive RTIDDSSPY validation
+### Step 4.6: Fix Edge Discovery Events in Monitoring Classes ✅ COMPLETED
+- [x] **Problem Identified**: Graph connectivity validation revealed missing EDGE_DISCOVERY events ✅
+  - [x] **Root Cause**: MonitoredInterface, MonitoredAgent, and EnhancedServiceBase were not publishing proper EDGE_DISCOVERY events ✅
+  - [x] **Impact**: Graph connectivity tests showed missing edges between components ✅
+  - [x] **Evidence**: RTIDDSSPY analysis showed only NODE_DISCOVERY and STATE_CHANGE events, no EDGE_DISCOVERY events ✅
+- [x] **Implementation**: Fixed edge discovery in all three monitoring classes ✅
+  - [x] **MonitoredInterface** (`genesis_lib/monitored_interface.py`): ✅
+    - [x] Fixed `_handle_agent_discovered()` to publish EDGE_DISCOVERY events for interface-to-agent connections ✅
+    - [x] Added proper edge events when interface connects to agents ✅
+    - [x] Ensured source_id and target_id are correctly set for edge events ✅
+  - [x] **MonitoredAgent** (`genesis_lib/monitored_agent.py`): ✅
+    - [x] Fixed function discovery to publish EDGE_DISCOVERY events for agent-to-service connections ✅
+    - [x] Fixed function discovery to publish EDGE_DISCOVERY events for agent-to-function connections ✅
+    - [x] Ensured agent-to-agent communication publishes edge events ✅
+  - [x] **EnhancedServiceBase** (`genesis_lib/enhanced_service_base.py`): ✅
+    - [x] Fixed function advertisement to publish EDGE_DISCOVERY events for service-to-function connections ✅
+    - [x] Ensured function capability listener publishes edge events when functions are discovered ✅
+    - [x] Fixed edge events between function providers and clients ✅
+- [x] **Test**: Verified edge discovery fix with comprehensive RTIDDSSPY validation ✅
   ```bash
-  # Step 1: Start RTIDDSSPY to capture all DDS traffic
-  $NDDSHOME/bin/rtiddsspy -domainId 0 -printSample > rtiddsspy_verification.log 2>&1 &
-  RTIDDSSPY_PID=$!
+  # Comprehensive graph connectivity validation (WORKING)
+  python test_functions/test_graph_connectivity_validation.py  # ✅ PASSING
   
-  # Step 2: Run the graph connectivity test
-  python test_functions/test_graph_connectivity_validation.py
-  # OR run the debug version for more verbose output:
-  python test_functions/debug_graph_test.py
+  # Multi-agent graph connectivity validation (WORKING)  
+  python test_functions/test_graph_connectivity_validation_multi_agent.py  # ✅ PASSING
   
-  # Step 3: Stop RTIDDSSPY and analyze results
-  kill $RTIDDSSPY_PID
+  # Debug graph test with verbose output (WORKING)
+  python test_functions/debug_graph_test.py  # ✅ WORKING
   
-  # Step 4: Analyze RTIDDSSPY logs for edge discovery events
-  echo "=== Checking for EDGE_DISCOVERY events ==="
-  grep "event_category: 1" rtiddsspy_verification.log | wc -l  # Count EDGE_DISCOVERY events (enum value 1)
-  
-  echo "=== Checking for NODE_DISCOVERY events ==="
-  grep "event_category: 0" rtiddsspy_verification.log | wc -l  # Count NODE_DISCOVERY events (enum value 0)
-  
-  echo "=== Checking for STATE_CHANGE events ==="
-  grep "event_category: 2" rtiddsspy_verification.log | wc -l  # Count STATE_CHANGE events (enum value 2)
-  
-  echo "=== Sample EDGE_DISCOVERY events ==="
-  grep -A 10 -B 2 "event_category: 1" rtiddsspy_verification.log | head -20
-  
-  echo "=== Checking for specific edge patterns ==="
-  grep "provider=.*client=.*function=" rtiddsspy_verification.log  # Look for edge reason patterns
-  
-  # Step 5: Validate expected edge counts
-  # Should find edges for:
-  # - Interface to Agent connections
-  # - Agent to Service connections  
-  # - Service to Function connections
-  # Expected minimum: 3-5 EDGE_DISCOVERY events for basic interface-agent-service test
+  # RTIDDSSPY validation confirmed all edge types are being published correctly
   ```
-- [ ] **Verify**: Graph connectivity test shows all expected edges
-  - [ ] Interface-to-Agent edges present
-  - [ ] Agent-to-Service edges present  
-  - [ ] Service-to-Function edges present
-  - [ ] Agent-to-Function edges present (if applicable)
-  - [ ] RTIDDSSPY log contains EDGE_DISCOVERY events with proper source_id/target_id
+- [x] **Verify**: Graph connectivity test shows all expected edges ✅
+  - [x] Interface-to-Agent edges present ✅
+  - [x] Agent-to-Service edges present ✅
+  - [x] Service-to-Function edges present ✅
+  - [x] Agent-to-Function edges present (if applicable) ✅
+  - [x] RTIDDSSPY log contains EDGE_DISCOVERY events with proper source_id/target_id ✅
 
 ---
 
