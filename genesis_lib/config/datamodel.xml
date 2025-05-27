@@ -78,6 +78,13 @@
       <member name="agent_type" type="string" stringMaxLength="128"/>
       <member name="service_name" type="string" stringMaxLength="128"/>
       <member name="last_seen" type="int64"/>
+      <!-- Enhanced fields for discovery and classification -->
+      <member name="capabilities" type="string" stringMaxLength="2048"/>
+      <member name="specializations" type="string" stringMaxLength="2048"/>
+      <member name="model_info" type="string" stringMaxLength="1024"/>
+      <member name="classification_tags" type="string" stringMaxLength="2048"/>
+      <member name="performance_metrics" type="string" stringMaxLength="1024"/>
+      <member name="default_capable" type="int32"/>
     </struct>
 
     <!-- Function Execution Request/Reply -->
@@ -128,6 +135,10 @@
       <enumerator name="FUNCTION_RESULT"/>
       <enumerator name="FUNCTION_STATUS"/>
       <enumerator name="FUNCTION_DISCOVERY_V2"/>
+      <enumerator name="AGENT_TO_AGENT_REQUEST"/>
+      <enumerator name="AGENT_TO_AGENT_RESPONSE"/>
+      <enumerator name="AGENT_CONNECTION_ESTABLISHED"/>
+      <enumerator name="AGENT_CONNECTION_LOST"/>
     </enum>
 
     <enum name="EntityType">

@@ -17,7 +17,7 @@ Agent-to-agent communication in Genesis will follow a hybrid approach combining 
 2. **Agent Discovery**: Leverage existing `genesis_agent_registration_announce` mechanism
 3. **Dynamic Service Names**: Use `{base_service_name}_{agent_id}` pattern for unique RPC endpoints
 4. **Capability Advertisement**: Extend `AgentCapability` usage for advertising agent-specific services
-5. **Agent Classification**: LLM-based or rule-based system to route requests to appropriate agents
+5. **Agent Classification**: **PURE LLM-based system** to route requests to appropriate agents (all rule-based matching removed)
 6. **Enhanced Discovery**: Find agents by capability, specialization, or model type
 
 ## 2. Implementation Components
@@ -297,9 +297,15 @@ class SmartGeneralAgent(MonitoredAgent):
         return await self.handle_general_request(request)
 ```
 
-### 4.4 Concrete Weather Agent Implementation
+### 4.4 Concrete Weather Agent Implementation ✅ COMPLETE
 
-For testing and demonstration, a complete weather agent using OpenWeatherMap API:
+**Production-ready weather agent using OpenWeatherMap API with natural language processing:**
+
+**Key Design Principle: Natural Language In/Out Over Data Model**
+- **Input**: Natural language requests (`"weather Monument Colorado"`)
+- **Processing**: Simple location extraction (no complex parsing)
+- **Output**: Natural language responses (`"Current weather in Monument: clear sky, 13.3°C..."`)
+- **Transport**: DDS `AgentAgentRequest`/`AgentAgentReply` data model
 
 ```python
 import aiohttp
@@ -536,34 +542,39 @@ The `AgentCapability` struct needs to be enhanced to support rich discovery:
 </struct>
 ```
 
-### 6.2 Agent Classification System
+### 6.2 Agent Classification System (PURE LLM ONLY)
+
+**⚠️ CRITICAL: All rule-based matching removed to prevent classification bugs**
 
 ```python
 class AgentClassifier:
-    """Classify requests to determine which agent(s) should handle them"""
+    """
+    Classify requests using PURE LLM-based semantic understanding.
+    NO rule-based matching, keyword matching, or pattern matching.
+    """
     
-    def __init__(self, classification_llm=None):
-        self.classification_llm = classification_llm
+    def __init__(self, openai_api_key=None, model_name="gpt-4o-mini"):
+        self.openai_client = None
+        self.model_name = model_name
         self.agent_registry = {}  # agent_id -> capability info
         
-    async def classify_request(self, request: str, available_agents: Dict[str, Dict]) -> List[str]:
+        # Initialize OpenAI client for pure LLM classification
+        if openai_api_key:
+            self.openai_client = openai.OpenAI(api_key=openai_api_key)
+        
+    async def classify_request(self, request: str, available_agents: Dict[str, Dict]) -> Optional[str]:
         """
-        Determine which agents are best suited to handle a request.
+        Determine which agent is best suited using PURE LLM classification.
         
         Returns:
-            List of agent IDs ordered by suitability
+            Agent ID of best suited agent, or None if no suitable agent found
         """
-        # First try exact capability match
-        exact_matches = self._find_exact_matches(request, available_agents)
-        if exact_matches:
-            return exact_matches
-            
-        # Use LLM for semantic matching if available
-        if self.classification_llm:
+        # ONLY use LLM-based semantic classification
+        if self.openai_client:
             return await self._llm_classify(request, available_agents)
-            
-        # Fallback to keyword/tag matching
-        return self._keyword_classify(request, available_agents)
+        else:
+            # Only fallback to default capable agent if no LLM
+            return self._find_default_capable_agent(available_agents)
 ```
 
 ### 6.3 Capability-Based Routing

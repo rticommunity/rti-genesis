@@ -74,7 +74,7 @@ class OpenAIGenesisAgent(MonitoredAgent):
             agent_name=agent_name,
             base_service_name=base_service_name,
             service_instance_tag=service_instance_tag,
-            agent_type="SPECIALIZED_AGENT",  # This is a specialized AI agent
+            agent_type="AGENT",  # This is a primary agent (changed from SPECIALIZED_AGENT for testing)
             description=description or f"An OpenAI-powered agent using {model_name} model, providing {base_service_name} service",
             domain_id=domain_id
         )
@@ -93,6 +93,9 @@ class OpenAIGenesisAgent(MonitoredAgent):
         logger.debug(f"===== TRACING: Initializing GenericFunctionClient using agent app's FunctionRegistry: {id(self.app.function_registry)} =====")
         self.generic_client = GenericFunctionClient(function_registry=self.app.function_registry)
         self.function_cache = {}  # Cache for discovered functions
+        
+        # Register discovery callback with the function registry for asynchronous edge discovery
+        self.app.function_registry.add_discovery_callback(self._on_function_discovered)
         
         # Initialize function classifier
         self.function_classifier = FunctionClassifier(llm_client=self.client)
@@ -124,6 +127,57 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         if self.enable_tracing:
             logger.debug("OpenAIGenesisAgent initialized successfully")
     
+    def _on_function_discovered(self, function_id: str, function_info: dict):
+        """
+        Callback method called when a function is discovered asynchronously.
+        This publishes edge discovery events immediately when functions become available.
+        
+        Args:
+            function_id: ID of the discovered function
+            function_info: Dictionary containing function information
+        """
+        try:
+            if self.enable_tracing:
+                logger.debug(f"===== TRACING: Function discovered callback: {function_info.get('name', 'unknown')} ({function_id}) =====")
+            
+            provider_id = function_info.get('provider_id', '')
+            function_name = function_info.get('name', 'unknown')
+            
+            if provider_id:
+                # Only publish AGENT_TO_SERVICE edge discovery event
+                # The service will handle SERVICE_TO_FUNCTION edges
+                reason = f"provider={provider_id} client={self.app.agent_id} function={function_id} name={function_name}"
+                if self.enable_tracing:
+                    logger.debug(f"Publishing AGENT_TO_SERVICE edge discovery event with reason: {reason}")
+
+                self.publish_component_lifecycle_event(
+                    category="EDGE_DISCOVERY",
+                    reason=reason,
+                    previous_state="DISCOVERING",
+                    new_state="DISCOVERING",
+                    capabilities=json.dumps({
+                        "agent_type": self.agent_type,
+                        "service": self.base_service_name,
+                        "edge_type": "agent_to_service",
+                        "provider_id": provider_id,
+                        "client_id": self.app.agent_id,
+                        "function_id": function_id,
+                        "function_name": function_name
+                    }),
+                    source_id=self.app.agent_id,
+                    target_id=provider_id,
+                    connection_type="AGENT_TO_SERVICE"
+                )
+                if self.enable_tracing:
+                    logger.debug("Published AGENT_TO_SERVICE edge discovery event")
+
+                # NOTE: Removed direct FUNCTION_CONNECTION edge to function UUID
+                # The service provider will handle SERVICE_TO_FUNCTION edges
+                    
+        except Exception as e:
+            logger.error(f"Error in function discovery callback: {str(e)}")
+            logger.error(traceback.format_exc())
+    
     async def _ensure_functions_discovered(self):
         """Ensure functions are discovered before use. Relies on GenericFunctionClient to asynchronously update its list.
         This method populates the agent's function_cache based on the current list from GenericFunctionClient ON EVERY CALL.
@@ -131,6 +185,9 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         logger.debug("===== TRACING: Attempting to populate function cache from GenericFunctionClient... =====")
         
         functions = self.generic_client.list_available_functions()
+        
+        # Track which functions are newly discovered
+        previously_cached_functions = set(self.function_cache.keys())
         
         # Reset function cache for fresh population
         self.function_cache = {}
@@ -143,11 +200,15 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         logger.debug(f"===== TRACING: {len(functions)} functions listed by GenericFunctionClient. Populating cache. System prompt set to function-based. =====")
         self.system_prompt = self.function_based_system_prompt
 
+        newly_discovered_functions = []
+        
         for func_data in functions: # Iterate over list of dicts
             # func_data should be a dictionary from the list returned by GenericFunctionClient
             # It has keys like 'name', 'description', 'schema', 'function_id'
             func_id = func_data["function_id"]
-            self.function_cache[func_data["name"]] = {
+            func_name = func_data["name"]
+            
+            self.function_cache[func_name] = {
                 "function_id": func_id,
                 "description": func_data["description"],
                 "schema": func_data["schema"],
@@ -172,8 +233,11 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             }
             # If func_data itself contains a 'classification' field, merge it or use it
             if "classification" in func_data and isinstance(func_data["classification"], dict):
-                self.function_cache[func_data["name"]]["classification"].update(func_data["classification"])
+                self.function_cache[func_name]["classification"].update(func_data["classification"])
 
+            # Check if this is a newly discovered function
+            if func_name not in previously_cached_functions:
+                newly_discovered_functions.append(func_data)
             
             logger.debug("===== TRACING: Processing discovered function for cache =====")
             logger.debug(f"Name: {func_data['name']}")
@@ -193,6 +257,44 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                     "source": "OpenAIGenesisAgent._ensure_functions_discovered"
                 }
             )
+        
+        # Publish edge discovery events for newly discovered functions (asynchronously discovered)
+        if newly_discovered_functions:
+            logger.debug(f"===== TRACING: Publishing edge discovery events for {len(newly_discovered_functions)} newly discovered functions =====")
+            
+            for func_data in newly_discovered_functions:
+                provider_id = func_data.get('provider_id', '')
+                function_name = func_data.get('name', 'unknown')
+                function_id = func_data.get('function_id', '')
+                
+                if provider_id:
+                    # Only publish AGENT_TO_SERVICE edge discovery event
+                    # The service will handle SERVICE_TO_FUNCTION edges
+                    reason = f"provider={provider_id} client={self.app.agent_id} function={function_id} name={function_name}"
+                    logger.debug(f"Publishing AGENT_TO_SERVICE edge discovery event with reason: {reason}")
+
+                    self.publish_component_lifecycle_event(
+                        category="EDGE_DISCOVERY",
+                        reason=reason,
+                        previous_state="DISCOVERING",
+                        new_state="DISCOVERING",
+                        capabilities=json.dumps({
+                            "agent_type": self.agent_type,
+                            "service": self.base_service_name,
+                            "edge_type": "agent_to_service",
+                            "provider_id": provider_id,
+                            "client_id": self.app.agent_id,
+                            "function_id": function_id,
+                            "function_name": function_name
+                        }),
+                        source_id=self.app.agent_id,
+                        target_id=provider_id,
+                        connection_type="AGENT_TO_SERVICE"
+                    )
+                    logger.debug("Published AGENT_TO_SERVICE edge discovery event")
+
+                    # NOTE: Removed direct FUNCTION_CONNECTION edge to function UUID
+                    # The service provider will handle SERVICE_TO_FUNCTION edges
     
     def _get_function_schemas_for_openai(self, relevant_functions: Optional[List[str]] = None):
         """Convert discovered functions to OpenAI function schemas format"""
@@ -524,6 +626,10 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
     async def close(self):
         """Clean up resources"""
         try:
+            # Remove discovery callback
+            if hasattr(self, 'app') and hasattr(self.app, 'function_registry'):
+                self.app.function_registry.remove_discovery_callback(self._on_function_discovered)
+            
             # Close OpenAI-specific resources
             if hasattr(self, 'generic_client') and self.generic_client is not None:
                 if asyncio.iscoroutinefunction(self.generic_client.close):
