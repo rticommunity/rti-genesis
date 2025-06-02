@@ -546,7 +546,7 @@ class MultiAgentGraphConnectivityValidator:
                 qos=reader_qos
             )
             
-            logger.info(f"✅ DDS monitoring setup complete on domain {domain_id}")
+            logger.info(f"✅ DDS monitoring setup complete on domain {self.domain_id}")
             
         except Exception as e:
             logger.error(f"❌ Failed to setup DDS monitoring: {e}")

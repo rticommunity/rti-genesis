@@ -1,0 +1,71 @@
+# Genesis Multi-Agent Smart Assistant Ecosystem
+# Requirements file for the example implementation
+
+# Core Genesis Library (assumed to be installed separately)
+# The Genesis library should be installed before running this example
+
+# OpenAI API for AI agents
+openai>=1.0.0
+
+# Additional Python standard library modules used:
+# - asyncio (built-in)
+# - logging (built-in) 
+# - uuid (built-in)
+# - time (built-in)
+# - datetime (built-in)
+# - typing (built-in)
+# - dataclasses (built-in)
+# - enum (built-in)
+# - signal (built-in)
+# - sys (built-in)
+# - os (built-in)
+
+# Optional dependencies for enhanced functionality:
+# If you want weather services, set OPENWEATHERMAP_API_KEY environment variable
+# No additional packages needed for weather - uses standard urllib
+
+# Development/testing dependencies (optional):
+# None required - all tests use standard library modules
+
+# Note: This example is designed to be lightweight and relies primarily on
+# the Genesis library and Python standard library modules.
+
+# Multi-Agent Example Dependencies
+
+# Core Genesis Framework
+# (These would typically be installed via the main Genesis package)
+# openai>=1.0.0
+# requests>=2.31.0
+# asyncio
+# rich>=13.0.0  # For beautiful CLI interface
+# click>=8.0.0  # For CLI command handling
+
+# Additional dependencies for enhanced UI
+colorama>=0.4.6     # Cross-platform colored terminal text
+tabulate>=0.9.0     # Pretty table formatting
+prompt-toolkit>=3.0.0  # Advanced input handling
+blessed>=1.20.0     # Terminal formatting and control
+psutil>=5.9.0       # System and process monitoring
+
+# For data processing and analysis (DataAnalyzer service)
+pandas>=2.0.0       # Data manipulation and analysis
+numpy>=1.24.0       # Numerical computing
+
+# For text processing (TextProcessor service)  
+nltk>=3.8.0         # Natural language processing
+textstat>=0.7.0     # Text statistics and readability
+
+# For weather integration (WeatherExpert agent)
+# OpenWeatherMap API key required
+
+# For finance features (FinanceAdvisor agent)
+yfinance>=0.2.0     # Yahoo Finance data (optional)
+
+# Logging and monitoring
+structlog>=23.0.0   # Structured logging
+
+# Testing and development
+pytest>=7.0.0       # Testing framework
+pytest-asyncio>=0.21.0  # Async testing support
+black>=23.0.0       # Code formatting
+flake8>=6.0.0       # Code linting 

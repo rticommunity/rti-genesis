@@ -44,7 +44,8 @@ class OpenAIGenesisAgent(MonitoredAgent):
     def __init__(self, model_name="gpt-4o", classifier_model_name="gpt-4o-mini", 
                  domain_id: int = 0, agent_name: str = "OpenAIAgent", 
                  base_service_name: str = "OpenAIChat", service_instance_tag: Optional[str] = None, 
-                 description: str = None, enable_tracing: bool = False):
+                 description: str = None, enable_tracing: bool = False, 
+                 enable_agent_communication: bool = True):
         """Initialize the agent with the specified models
         
         Args:
@@ -56,6 +57,7 @@ class OpenAIGenesisAgent(MonitoredAgent):
             service_instance_tag: Optional tag for unique RPC service name instance
             description: Optional description of the agent
             enable_tracing: Whether to enable detailed tracing logs (default: False)
+            enable_agent_communication: Whether to enable agent-to-agent communication (default: True)
         """
         # Store tracing configuration
         self.enable_tracing = enable_tracing
@@ -69,14 +71,15 @@ class OpenAIGenesisAgent(MonitoredAgent):
             "classifier_model_name": classifier_model_name
         }
         
-        # Initialize monitored agent base class
+        # Initialize monitored agent base class with agent communication enabled
         super().__init__(
             agent_name=agent_name,
             base_service_name=base_service_name,
             service_instance_tag=service_instance_tag,
-            agent_type="AGENT",  # This is a primary agent (changed from SPECIALIZED_AGENT for testing)
+            agent_type="AGENT",  # This is a primary agent
             description=description or f"An OpenAI-powered agent using {model_name} model, providing {base_service_name} service",
-            domain_id=domain_id
+            domain_id=domain_id,
+            enable_agent_communication=enable_agent_communication
         )
         
         # Get API key from environment
@@ -94,6 +97,9 @@ class OpenAIGenesisAgent(MonitoredAgent):
         self.generic_client = GenericFunctionClient(function_registry=self.app.function_registry)
         self.function_cache = {}  # Cache for discovered functions
         
+        # Initialize agent cache for agent-as-tool pattern
+        self.agent_cache = {}  # Cache for discovered agents that can be called as tools
+        
         # Register discovery callback with the function registry for asynchronous edge discovery
         self.app.function_registry.add_discovery_callback(self._on_function_discovered)
         
@@ -101,11 +107,18 @@ class OpenAIGenesisAgent(MonitoredAgent):
         self.function_classifier = FunctionClassifier(llm_client=self.client)
         
         # Set system prompts for different scenarios
-        self.function_based_system_prompt = """You are a helpful assistant that can perform various operations using remote services.
-You have access to a set of functions that can help you solve problems.
-When a function is available that can help with a task, you should use it rather than trying to solve the problem yourself.
-This is especially important for mathematical calculations and data processing tasks.
-Always explain your reasoning and the steps you're taking."""
+        self.function_based_system_prompt = """You are a helpful assistant that can perform various operations using remote services and consult specialized agents.
+You have access to:
+1. Functions that can help you solve problems (calculations, data processing, etc.)
+2. Specialized agents that have expertise in specific domains (weather, finance, etc.)
+
+When a function or specialized agent is available that can help with a task, you should use it rather than trying to solve the problem yourself.
+This is especially important for:
+- Mathematical calculations (use calculator functions)
+- Domain-specific queries (consult specialized agents)
+- Data processing tasks (use appropriate functions)
+
+Always explain your reasoning and the steps you're taking when using tools or consulting agents."""
 
         self.general_system_prompt = """You are a helpful and engaging AI assistant. You can:
 - Answer questions and provide information
@@ -193,8 +206,13 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         self.function_cache = {}
 
         if not functions:
-            logger.debug("===== TRACING: No functions currently listed by GenericFunctionClient. General prompt will be used. =====")
-            self.system_prompt = self.general_system_prompt
+            logger.debug("===== TRACING: No functions currently listed by GenericFunctionClient. =====")
+            # Only use general prompt if BOTH functions and agents are unavailable
+            if not self.agent_cache:
+                logger.debug("===== TRACING: No functions or agents available. General prompt will be used. =====")
+                self.system_prompt = self.general_system_prompt
+            else:
+                logger.debug("===== TRACING: No functions but agents are available. Function-based prompt maintained. =====")
             return
         
         logger.debug(f"===== TRACING: {len(functions)} functions listed by GenericFunctionClient. Populating cache. System prompt set to function-based. =====")
@@ -296,6 +314,194 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                     # NOTE: Removed direct FUNCTION_CONNECTION edge to function UUID
                     # The service provider will handle SERVICE_TO_FUNCTION edges
     
+    async def _ensure_agents_discovered(self):
+        """
+        Ensure agents are discovered and available as tools based on their capabilities.
+        This method populates the agent_cache with discovered agents that can be called as tools
+        based on their advertised functionality, NOT their names.
+        """
+        logger.debug("===== TRACING: Ensuring agents are discovered for capability-based agent-as-tool pattern =====")
+        
+        # Skip if agent communication is not enabled
+        if not hasattr(self, 'agent_communication') or not self.agent_communication:
+            logger.debug("===== TRACING: Agent communication not enabled, skipping agent discovery =====")
+            return
+        
+        # Get discovered agents from the communication mixin
+        discovered_agents = self.get_discovered_agents()
+        
+        # Track which agents are newly discovered
+        previously_cached_agents = set(self.agent_cache.keys())
+        
+        # Reset agent cache for fresh population
+        self.agent_cache = {}
+        
+        if not discovered_agents:
+            logger.debug("===== TRACING: No agents currently discovered. Agent tools will not be available. =====")
+            return
+        
+        logger.debug(f"===== TRACING: {len(discovered_agents)} agents discovered. Creating capability-based tools. =====")
+        
+        # Switch to function-based system prompt when agents are available as tools
+        # This ensures the LLM knows it has specialized agents available
+        logger.debug("===== TRACING: Agents discovered - switching to function-based system prompt =====")
+        self.system_prompt = self.function_based_system_prompt
+        
+        newly_discovered_agents = []
+        
+        for agent_id, agent_info in discovered_agents.items():
+            # Skip self to avoid circular calls
+            if agent_id == self.app.agent_id:
+                continue
+            
+            # Extract capability information
+            agent_name = agent_info.get('name', agent_id)
+            agent_type = agent_info.get('agent_type', 'AGENT')
+            service_name = agent_info.get('service_name', 'UnknownService')
+            description = agent_info.get('description', f'Agent {agent_name}')
+            capabilities = agent_info.get('capabilities', [])
+            specializations = agent_info.get('specializations', [])
+            
+            # Create capability-based tool names instead of name-based ones
+            tool_names = self._generate_capability_based_tool_names(
+                agent_info, capabilities, specializations, service_name
+            )
+            
+            # Create tool entries for each capability/specialization
+            for tool_name, tool_description in tool_names.items():
+                self.agent_cache[tool_name] = {
+                    "agent_id": agent_id,
+                    "agent_name": agent_name,
+                    "agent_type": agent_type,
+                    "service_name": service_name,
+                    "description": description,
+                    "tool_description": tool_description,
+                    "capabilities": capabilities,
+                    "specializations": specializations,
+                    "is_capability_based": True
+                }
+                
+                # Check if this is a newly discovered tool
+                if tool_name not in previously_cached_agents:
+                    newly_discovered_agents.append({
+                        "tool_name": tool_name,
+                        "agent_id": agent_id,
+                        "agent_info": agent_info,
+                        "capability_description": tool_description
+                    })
+                
+                logger.debug(f"===== TRACING: Created capability-based tool: {tool_name} -> {agent_id} =====")
+        
+        # Publish edge discovery events for newly discovered agent tools
+        if newly_discovered_agents:
+            logger.debug(f"===== TRACING: Publishing capability-based agent tool discovery events for {len(newly_discovered_agents)} tools =====")
+            
+            for tool_data in newly_discovered_agents:
+                self.publish_component_lifecycle_event(
+                    category="EDGE_DISCOVERY",
+                    reason=f"capability_tool={tool_data['tool_name']} agent={tool_data['agent_id']} client={self.app.agent_id}",
+                    capabilities=json.dumps({
+                        "agent_type": self.agent_type,
+                        "service": self.base_service_name,
+                        "edge_type": "capability_based_agent_tool",
+                        "target_agent_id": tool_data['agent_id'],
+                        "client_id": self.app.agent_id,
+                        "tool_name": tool_data['tool_name'],
+                        "capability_description": tool_data['capability_description']
+                    }),
+                    source_id=self.app.agent_id,
+                    target_id=tool_data['agent_id'],
+                    connection_type="CAPABILITY_BASED_TOOL"
+                )
+        
+        logger.debug(f"===== TRACING: Agent cache populated with {len(self.agent_cache)} capability-based agent tools =====")
+    
+    def _generate_capability_based_tool_names(self, agent_info, capabilities, specializations, service_name):
+        """
+        Generate tool names based on agent capabilities and specializations instead of agent names.
+        This ensures the LLM can discover functionality rather than needing to know agent names.
+        """
+        tool_names = {}
+        
+        # Generate tools based on specializations (most specific)
+        for specialization in specializations:
+            tool_name = f"get_{specialization.lower().replace(' ', '_').replace('-', '_')}_info"
+            tool_description = f"Get information and assistance related to {specialization}. " + \
+                             f"This tool connects to a specialized {specialization} agent."
+            tool_names[tool_name] = tool_description
+        
+        # Generate tools based on service type
+        if service_name and service_name != 'UnknownService':
+            # Create service-based tool name
+            service_clean = service_name.lower().replace('service', '').replace(' ', '_').replace('-', '_')
+            if service_clean:
+                tool_name = f"use_{service_clean}_service"
+                tool_description = f"Access {service_name} capabilities. " + \
+                                 f"Description: {agent_info.get('description', 'Specialized service')}"
+                tool_names[tool_name] = tool_description
+        
+        # Generate tools based on capabilities
+        for capability in capabilities:
+            capability_clean = capability.lower().replace(' ', '_').replace('-', '_')
+            tool_name = f"request_{capability_clean}"
+            tool_description = f"Request {capability} functionality from a specialized agent. " + \
+                             f"Service: {service_name}"
+            tool_names[tool_name] = tool_description
+        
+        # Fallback: if no specific capabilities/specializations, create a generic tool
+        if not tool_names:
+            agent_type_clean = agent_info.get('agent_type', 'agent').lower().replace('_', '_')
+            tool_name = f"consult_{agent_type_clean}"
+            tool_description = f"Consult a {agent_info.get('agent_type', 'general')} agent. " + \
+                             f"Service: {service_name}. " + \
+                             f"Description: {agent_info.get('description', 'General purpose agent')}"
+            tool_names[tool_name] = tool_description
+        
+        logger.debug(f"===== TRACING: Generated {len(tool_names)} capability-based tools: {list(tool_names.keys())} =====")
+        return tool_names
+    
+    def _convert_agents_to_tools(self):
+        """
+        Convert discovered agents into OpenAI tool schemas format based on capabilities.
+        This is the critical method that enables agents to be called as tools by the LLM
+        based on their advertised functionality, not their names.
+        """
+        logger.debug("===== TRACING: Converting capability-based agents to OpenAI tool schemas =====")
+        agent_tools = []
+        
+        for tool_name, agent_info in self.agent_cache.items():
+            # Use the capability-based tool description
+            tool_description = agent_info.get('tool_description', agent_info['description'])
+            
+            # Create OpenAI tool schema for the capability-based agent tool
+            tool_schema = {
+                "type": "function",
+                "function": {
+                    "name": tool_name,
+                    "description": tool_description,
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": f"Question or request for this {tool_name} capability"
+                            },
+                            "context": {
+                                "type": "string",
+                                "description": "Optional context from previous interactions in the conversation",
+                                "default": ""
+                            }
+                        },
+                        "required": ["query"]
+                    }
+                }
+            }
+            agent_tools.append(tool_schema)
+            logger.debug(f"===== TRACING: Added capability-based agent tool schema: {tool_name} =====")
+        
+        logger.debug(f"===== TRACING: Generated {len(agent_tools)} capability-based agent tool schemas =====")
+        return agent_tools
+    
     def _get_function_schemas_for_openai(self, relevant_functions: Optional[List[str]] = None):
         """Convert discovered functions to OpenAI function schemas format"""
         logger.debug("===== TRACING: Converting function schemas for OpenAI =======")
@@ -318,6 +524,26 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             logger.debug(f"===== TRACING: Added schema for function: {name} =====")
         
         return function_schemas
+    
+    def _get_all_tool_schemas_for_openai(self, relevant_functions: Optional[List[str]] = None):
+        """
+        Get ALL tool schemas for OpenAI - both functions AND agents.
+        This is the unified method that enables the agent-as-tool pattern.
+        """
+        logger.debug("===== TRACING: Getting ALL tool schemas (functions + agents) for OpenAI =====")
+        
+        # Get function tool schemas
+        function_tools = self._get_function_schemas_for_openai(relevant_functions)
+        
+        # Get agent tool schemas
+        agent_tools = self._convert_agents_to_tools()
+        
+        # Combine both types of tools
+        all_tools = function_tools + agent_tools
+        
+        logger.debug(f"===== TRACING: Combined {len(function_tools)} function tools + {len(agent_tools)} agent tools = {len(all_tools)} total tools =====")
+        
+        return all_tools
     
     async def _call_function(self, function_name: str, **kwargs) -> Any:
         """Call a function using the generic client"""
@@ -351,6 +577,63 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             logger.error(traceback.format_exc())
             raise
     
+    async def _call_agent(self, agent_tool_name: str, **kwargs) -> Any:
+        """Call an agent using the agent-to-agent communication system"""
+        logger.debug(f"===== TRACING: Calling agent tool {agent_tool_name} =====")
+        logger.debug(f"===== TRACING: Agent arguments: {json.dumps(kwargs, indent=2)} =====")
+        
+        if agent_tool_name not in self.agent_cache:
+            error_msg = f"Agent tool not found: {agent_tool_name}"
+            logger.error(f"===== TRACING: {error_msg} =====")
+            raise ValueError(error_msg)
+        
+        agent_info = self.agent_cache[agent_tool_name]
+        target_agent_id = agent_info["agent_id"]
+        query = kwargs.get("query", "")
+        context = kwargs.get("context", "")
+        
+        try:
+            # Use monitored agent communication if available
+            if hasattr(self, 'send_agent_request_monitored'):
+                logger.debug(f"===== TRACING: Using monitored agent communication =====")
+                start_time = time.time()
+                result = await self.send_agent_request_monitored(
+                    target_agent_id=target_agent_id,
+                    message=query,
+                    conversation_id=context if context else None,
+                    timeout_seconds=30.0
+                )
+                end_time = time.time()
+            else:
+                # Fallback to basic agent communication
+                logger.debug(f"===== TRACING: Using basic agent communication =====")
+                start_time = time.time()
+                result = await self.send_agent_request(
+                    target_agent_id=target_agent_id,
+                    message=query,
+                    conversation_id=context if context else None,
+                    timeout_seconds=30.0
+                )
+                end_time = time.time()
+            
+            logger.debug(f"===== TRACING: Agent call completed in {end_time - start_time:.2f} seconds =====")
+            logger.debug(f"===== TRACING: Agent result: {result} =====")
+            
+            # Extract result message if in dict format
+            if isinstance(result, dict):
+                if "message" in result:
+                    return result["message"]
+                elif "response" in result:
+                    return result["response"]
+                else:
+                    return str(result)
+            return str(result)
+            
+        except Exception as e:
+            logger.error(f"===== TRACING: Error calling agent {agent_tool_name}: {str(e)} =====")
+            logger.error(traceback.format_exc())
+            raise
+    
     async def process_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """Process a user request and return a response"""
         user_message = request.get("message", "")
@@ -359,6 +642,9 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         try:
             # Ensure functions are discovered
             await self._ensure_functions_discovered()
+            
+            # Ensure agents are discovered (critical for agent-as-tool pattern)
+            await self._ensure_agents_discovered()
             
             # Generate chain and call IDs for tracking
             chain_id = str(uuid.uuid4())
@@ -454,7 +740,7 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             
             # Get function schemas for relevant functions
             relevant_function_names = [func["name"] for func in relevant_functions]
-            function_schemas = self._get_function_schemas_for_openai(relevant_function_names)
+            function_schemas = self._get_all_tool_schemas_for_openai(relevant_function_names)
             
             if not function_schemas:
                 logger.warning("===== TRACING: No relevant functions found, processing without functions =====")
@@ -523,66 +809,107 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             if message.tool_calls:
                 logger.debug(f"===== TRACING: Model requested function call(s): {len(message.tool_calls)} =======")
                 
-                # Process each function call
-                function_responses = []
+                # Process each tool call (function or agent)
+                tool_responses = []
                 for tool_call in message.tool_calls:
-                    function_name = tool_call.function.name
-                    function_args = json.loads(tool_call.function.arguments)
+                    tool_name = tool_call.function.name
+                    tool_args = json.loads(tool_call.function.arguments)
                     
-                    logger.debug(f"===== TRACING: Processing function call: {function_name} =====")
+                    logger.debug(f"===== TRACING: Processing tool call: {tool_name} =====")
                     
-                    # Call the function
+                    # Determine if this is a function call or agent call
+                    is_function_call = tool_name in self.function_cache
+                    is_agent_call = tool_name in self.agent_cache
+                    
                     try:
-                        # Create chain event for function call start
-                        self._publish_function_call_start(
-                            chain_id=chain_id,
-                            call_id=call_id,
-                            function_name=function_name,
-                            function_id=self.function_cache[function_name]["function_id"],
-                            target_provider_id=self.function_cache[function_name].get("provider_id")
-                        )
+                        if is_function_call:
+                            logger.debug(f"===== TRACING: Tool {tool_name} is a FUNCTION call =====")
+                            
+                            # Create chain event for function call start
+                            self._publish_function_call_start(
+                                chain_id=chain_id,
+                                call_id=call_id,
+                                function_name=tool_name,
+                                function_id=self.function_cache[tool_name]["function_id"],
+                                target_provider_id=self.function_cache[tool_name].get("provider_id")
+                            )
+                            
+                            # Call the function through the generic client
+                            start_time = time.time()
+                            tool_result = await self._call_function(tool_name, **tool_args)
+                            end_time = time.time()
+                            
+                            # Create chain event for function call completion
+                            self._publish_function_call_complete(
+                                chain_id=chain_id,
+                                call_id=call_id,
+                                function_name=tool_name,
+                                function_id=self.function_cache[tool_name]["function_id"],
+                                source_provider_id=self.function_cache[tool_name].get("provider_id")
+                            )
+                            
+                            logger.debug(f"===== TRACING: Function call completed in {end_time - start_time:.2f} seconds =====")
+                            
+                        elif is_agent_call:
+                            logger.debug(f"===== TRACING: Tool {tool_name} is an AGENT call =====")
+                            
+                            # Create chain event for agent call start
+                            agent_info = self.agent_cache[tool_name]
+                            self._publish_agent_chain_event(
+                                chain_id=chain_id,
+                                call_id=call_id,
+                                event_type="AGENT_REQUEST_START",
+                                source_id=self.app.agent_id,
+                                target_id=agent_info["agent_id"]
+                            )
+                            
+                            # Call the agent through the agent communication system
+                            start_time = time.time()
+                            tool_result = await self._call_agent(tool_name, **tool_args)
+                            end_time = time.time()
+                            
+                            # Create chain event for agent call completion
+                            self._publish_agent_chain_event(
+                                chain_id=chain_id,
+                                call_id=call_id,
+                                event_type="AGENT_RESPONSE_RECEIVED",
+                                source_id=agent_info["agent_id"],
+                                target_id=self.app.agent_id
+                            )
+                            
+                            logger.debug(f"===== TRACING: Agent call completed in {end_time - start_time:.2f} seconds =====")
+                            
+                        else:
+                            logger.error(f"===== TRACING: Tool {tool_name} not found in function cache or agent cache =====")
+                            raise ValueError(f"Tool not found: {tool_name}")
                         
-                        # Call the function through the generic client
-                        start_time = time.time()
-                        function_result = await self._call_function(function_name, **function_args)
-                        end_time = time.time()
-                        
-                        # Create chain event for function call completion
-                        self._publish_function_call_complete(
-                            chain_id=chain_id,
-                            call_id=call_id,
-                            function_name=function_name,
-                            function_id=self.function_cache[function_name]["function_id"],
-                            source_provider_id=self.function_cache[function_name].get("provider_id")
-                        )
-                        
-                        logger.debug(f"===== TRACING: Function call completed in {end_time - start_time:.2f} seconds =====")
-                        logger.debug(f"===== TRACING: Function result: {function_result} =====")
+                        logger.debug(f"===== TRACING: Tool result: {tool_result} =====")
                         
                         # Extract result value if in dict format
-                        if isinstance(function_result, dict) and "result" in function_result:
-                            function_result = function_result["result"]
+                        if isinstance(tool_result, dict) and "result" in tool_result:
+                            tool_result = tool_result["result"]
                             
-                        function_responses.append({
+                        tool_responses.append({
                             "tool_call_id": tool_call.id,
                             "role": "tool",
-                            "name": function_name,
-                            "content": str(function_result)
+                            "name": tool_name,
+                            "content": str(tool_result)
                         })
-                        logger.debug(f"===== TRACING: Function {function_name} returned: {function_result} =====")
+                        logger.debug(f"===== TRACING: Tool {tool_name} returned: {tool_result} =====")
+                        
                     except Exception as e:
-                        logger.error(f"===== TRACING: Error calling function {function_name}: {str(e)} =====")
-                        function_responses.append({
+                        logger.error(f"===== TRACING: Error calling tool {tool_name}: {str(e)} =====")
+                        tool_responses.append({
                             "tool_call_id": tool_call.id,
                             "role": "tool",
-                            "name": function_name,
+                            "name": tool_name,
                             "content": f"Error: {str(e)}"
                         })
                 
-                # If we have function responses, send them back to the model
-                if function_responses:
-                    # Create a new conversation with the function responses
-                    logger.debug("===== TRACING: Sending function responses back to OpenAI =====")
+                # If we have tool responses, send them back to the model
+                if tool_responses:
+                    # Create a new conversation with the tool responses
+                    logger.debug("===== TRACING: Sending tool responses back to OpenAI =====")
                     
                     # Create chain event for second LLM call start
                     self._publish_llm_call_start(
@@ -597,7 +924,7 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                             {"role": "system", "content": self.system_prompt},
                             {"role": "user", "content": user_message},
                             message,  # The assistant's message requesting the function call
-                            *function_responses  # The function responses
+                            *tool_responses  # The tool responses
                         ]
                     )
                     
@@ -613,9 +940,9 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                     logger.debug(f"===== TRACING: Final response: {final_message} =====")
                     return {"message": final_message, "status": 0}
             
-            # If no function call, just return the response
+            # If no tool call, just return the response
             text_response = message.content
-            logger.debug(f"===== TRACING: Response (no function call): {text_response} =====")
+            logger.debug(f"===== TRACING: Response (no tool call): {text_response} =====")
             return {"message": text_response, "status": 0}
                 
         except Exception as e:

@@ -464,15 +464,7 @@ class MonitoredInterface(GenesisInterface):
     @monitor_method("INTERFACE_REQUEST")
     async def send_request(self, request_data: Dict[str, Any], timeout_seconds: float = 10.0) -> Optional[Dict[str, Any]]:
         """Send request to agent with monitoring"""
-        # Check if we are connected before sending
-        if not self.requester or not self._connected_agent_id:
-            logger.error("❌ MonitoredInterface cannot send request, not connected to an agent.")
-            # Check if the agent we thought we were connected to just departed
-            if self._connected_agent_id and self._connected_agent_id not in self.available_agents:
-                logger.warning("Connection lost as the target agent departed.")
-                self._connected_agent_id = None # Ensure state reflects disconnection
-            return None
-        
+        # Use parent class validation (only checks self.requester)
         return await super().send_request(request_data, timeout_seconds)
     
     async def close(self):
