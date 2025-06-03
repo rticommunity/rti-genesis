@@ -115,10 +115,6 @@ class MCPServiceBase():
             registry=self.registry
         )
         self.my_enhanced_service_MCP_Instance.mcp_session = self.mcp_session
-        print("self  :", self)
-        print("self.my_enhanced_service_MCP_Instance  :", self.my_enhanced_service_MCP_Instance)
-        print("self.my_enhanced_service_MCP_Instance.mcp_session  :", self.my_enhanced_service_MCP_Instance.mcp_session)
-        print("instance of mcp_session :", self.mcp_session)
 
         
 
@@ -139,10 +135,6 @@ class MCPServiceBase():
         func_src = f"""
 @genesis_function()
 async def {tool.name}(self, {param_sig}, request_info=None) -> dict:
-    print(">>>1")
-    print("instance  :", self)
-    # import pdb; pdb.set_trace()
-    print("instance of mcp_session :", self.mcp_session)
     \"\"\"{tool.description}
     Args:
 {chr(10).join(doc_params)}
@@ -150,11 +142,8 @@ async def {tool.name}(self, {param_sig}, request_info=None) -> dict:
     Returns:
         dict: result from MCP call
     \"\"\"
-    print(">>>2")
     try:
-        print(">>>3")
         tool_args = {{{', '.join([f"'{k}': {k}" for k in params.keys()])}}}
-        print(">>>4")
         result = await self.mcp_session.call_tool('{tool.name}', tool_args)
         return result.content[0].text
     except Exception as e:
