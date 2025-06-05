@@ -147,7 +147,7 @@ async def {tool.name}(self, {param_sig}, request_info=None) -> dict:
         result = await self.mcp_session.call_tool('{tool.name}', tool_args)
         return result.content[0].text
     except Exception as e:
-        logger.error(f"Error in {tool.name} operation: {str(e)}")
+        logger.error(f"Error in {tool.name} operation: {{str(e)}}")
         raise
 """
         func_src = textwrap.dedent(func_src)
