@@ -40,7 +40,7 @@ async def main():
     try:
         # Create an instance of the calculator service
         service = HelloWorld()
-        await service.connect_to_mcp_server("http://nuc:8000/mcp")
+        await service.connect_to_mcp_server("http://localhost:8000/mcp")
         service._advertise_functions()
         await service.run()
     except KeyboardInterrupt:
