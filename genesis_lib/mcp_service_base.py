@@ -7,7 +7,7 @@ to export any MCP tool offered by an MCP server using streamale http as a
 genesis_function. The result is that any MCP tool can be used as a genesis function,
 allowing for easy integration with the GENESIS framework.
 
-This mean that any MCP tool offered via an extension of this class will :
+This means that any MCP tool offered via an extension of this class will:
 - have function registration and discovery
 - come with Monitoring event publication
 - have error handling
