@@ -320,15 +320,20 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         This method populates the agent_cache with discovered agents that can be called as tools
         based on their advertised functionality, NOT their names.
         """
-        logger.debug("===== TRACING: Ensuring agents are discovered for capability-based agent-as-tool pattern =====")
+        if self.enable_tracing:
+            logger.debug("===== TRACING: Ensuring agents are discovered for capability-based agent-as-tool pattern =====")
         
         # Skip if agent communication is not enabled
         if not hasattr(self, 'agent_communication') or not self.agent_communication:
-            logger.debug("===== TRACING: Agent communication not enabled, skipping agent discovery =====")
+            if self.enable_tracing:
+                logger.debug("===== TRACING: Agent communication not enabled, skipping agent discovery =====")
             return
         
         # Get discovered agents from the communication mixin
         discovered_agents = self.get_discovered_agents()
+        
+        if self.enable_tracing:
+            logger.debug(f"===== TRACING: Raw discovered agents from get_discovered_agents(): {discovered_agents} =====")
         
         # Track which agents are newly discovered
         previously_cached_agents = set(self.agent_cache.keys())
@@ -337,14 +342,17 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         self.agent_cache = {}
         
         if not discovered_agents:
-            logger.debug("===== TRACING: No agents currently discovered. Agent tools will not be available. =====")
+            if self.enable_tracing:
+                logger.debug("===== TRACING: No agents currently discovered. Agent tools will not be available. =====")
             return
         
-        logger.debug(f"===== TRACING: {len(discovered_agents)} agents discovered. Creating capability-based tools. =====")
+        if self.enable_tracing:
+            logger.debug(f"===== TRACING: {len(discovered_agents)} agents discovered. Creating capability-based tools. =====")
         
         # Switch to function-based system prompt when agents are available as tools
         # This ensures the LLM knows it has specialized agents available
-        logger.debug("===== TRACING: Agents discovered - switching to function-based system prompt =====")
+        if self.enable_tracing:
+            logger.debug("===== TRACING: Agents discovered - switching to function-based system prompt =====")
         self.system_prompt = self.function_based_system_prompt
         
         newly_discovered_agents = []
@@ -352,7 +360,12 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         for agent_id, agent_info in discovered_agents.items():
             # Skip self to avoid circular calls
             if agent_id == self.app.agent_id:
+                if self.enable_tracing:
+                    logger.debug(f"===== TRACING: Skipping self agent {agent_id} =====")
                 continue
+            
+            if self.enable_tracing:
+                logger.debug(f"===== TRACING: Processing discovered agent {agent_id}: {agent_info} =====")
             
             # Extract capability information
             agent_name = agent_info.get('name', agent_id)
@@ -362,10 +375,16 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             capabilities = agent_info.get('capabilities', [])
             specializations = agent_info.get('specializations', [])
             
+            if self.enable_tracing:
+                logger.debug(f"===== TRACING: Agent {agent_name} capabilities: {capabilities}, specializations: {specializations} =====")
+            
             # Create capability-based tool names instead of name-based ones
             tool_names = self._generate_capability_based_tool_names(
                 agent_info, capabilities, specializations, service_name
             )
+            
+            if self.enable_tracing:
+                logger.debug(f"===== TRACING: Generated {len(tool_names)} tools for agent {agent_name}: {list(tool_names.keys())} =====")
             
             # Create tool entries for each capability/specialization
             for tool_name, tool_description in tool_names.items():
@@ -390,11 +409,13 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                         "capability_description": tool_description
                     })
                 
-                logger.debug(f"===== TRACING: Created capability-based tool: {tool_name} -> {agent_id} =====")
+                if self.enable_tracing:
+                    logger.debug(f"===== TRACING: Created capability-based tool: {tool_name} -> {agent_id} =====")
         
         # Publish edge discovery events for newly discovered agent tools
         if newly_discovered_agents:
-            logger.debug(f"===== TRACING: Publishing capability-based agent tool discovery events for {len(newly_discovered_agents)} tools =====")
+            if self.enable_tracing:
+                logger.debug(f"===== TRACING: Publishing capability-based agent tool discovery events for {len(newly_discovered_agents)} tools =====")
             
             for tool_data in newly_discovered_agents:
                 self.publish_component_lifecycle_event(
@@ -414,7 +435,10 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                     connection_type="CAPABILITY_BASED_TOOL"
                 )
         
-        logger.debug(f"===== TRACING: Agent cache populated with {len(self.agent_cache)} capability-based agent tools =====")
+        if self.enable_tracing:
+            logger.debug(f"===== TRACING: Agent cache populated with {len(self.agent_cache)} capability-based agent tools =====")
+            for tool_name, tool_info in self.agent_cache.items():
+                logger.debug(f"===== TRACING: Tool '{tool_name}' -> Agent {tool_info['agent_id']} ({tool_info['agent_name']}) =====")
     
     def _generate_capability_based_tool_names(self, agent_info, capabilities, specializations, service_name):
         """
@@ -423,12 +447,17 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         """
         tool_names = {}
         
+        if self.enable_tracing:
+            logger.debug(f"===== TRACING: Generating tools for agent with capabilities: {capabilities}, specializations: {specializations} =====")
+        
         # Generate tools based on specializations (most specific)
         for specialization in specializations:
             tool_name = f"get_{specialization.lower().replace(' ', '_').replace('-', '_')}_info"
             tool_description = f"Get information and assistance related to {specialization}. " + \
                              f"This tool connects to a specialized {specialization} agent."
             tool_names[tool_name] = tool_description
+            if self.enable_tracing:
+                logger.debug(f"===== TRACING: Added specialization tool: {tool_name} =====")
         
         # Generate tools based on service type
         if service_name and service_name != 'UnknownService':
@@ -439,6 +468,8 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                 tool_description = f"Access {service_name} capabilities. " + \
                                  f"Description: {agent_info.get('description', 'Specialized service')}"
                 tool_names[tool_name] = tool_description
+                if self.enable_tracing:
+                    logger.debug(f"===== TRACING: Added service tool: {tool_name} =====")
         
         # Generate tools based on capabilities
         for capability in capabilities:
@@ -447,6 +478,8 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             tool_description = f"Request {capability} functionality from a specialized agent. " + \
                              f"Service: {service_name}"
             tool_names[tool_name] = tool_description
+            if self.enable_tracing:
+                logger.debug(f"===== TRACING: Added capability tool: {tool_name} =====")
         
         # Fallback: if no specific capabilities/specializations, create a generic tool
         if not tool_names:
@@ -456,50 +489,62 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                              f"Service: {service_name}. " + \
                              f"Description: {agent_info.get('description', 'General purpose agent')}"
             tool_names[tool_name] = tool_description
+            if self.enable_tracing:
+                logger.debug(f"===== TRACING: Added fallback tool: {tool_name} =====")
         
-        logger.debug(f"===== TRACING: Generated {len(tool_names)} capability-based tools: {list(tool_names.keys())} =====")
+        if self.enable_tracing:
+            logger.debug(f"===== TRACING: Generated {len(tool_names)} capability-based tools: {list(tool_names.keys())} =====")
         return tool_names
     
     def _convert_agents_to_tools(self):
         """
-        Convert discovered agents into OpenAI tool schemas format based on capabilities.
-        This is the critical method that enables agents to be called as tools by the LLM
-        based on their advertised functionality, not their names.
+        Convert discovered agents into OpenAI tool schemas using UNIVERSAL AGENT SCHEMA.
+        
+        This implements the simplified agent-to-agent pattern where:
+        1. ALL agents use the same universal schema: message -> response
+        2. NO manual tool schema definition required in individual agents
+        3. Genesis handles ALL tool execution automatically
+        
+        This eliminates the complexity of manual schema definition while maintaining
+        capability-based tool names for LLM understanding.
         """
-        logger.debug("===== TRACING: Converting capability-based agents to OpenAI tool schemas =====")
+        logger.debug("===== TRACING: Converting agents to universal tool schemas =====")
         agent_tools = []
         
         for tool_name, agent_info in self.agent_cache.items():
-            # Use the capability-based tool description
-            tool_description = agent_info.get('tool_description', agent_info['description'])
+            agent_name = agent_info.get('agent_name', 'Unknown Agent')
+            capabilities = agent_info.get('capabilities', [])
             
-            # Create OpenAI tool schema for the capability-based agent tool
+            # Create capability-based description for the LLM
+            if capabilities:
+                capability_desc = f"Specialized agent for {', '.join(capabilities[:3])}"
+                if len(capabilities) > 3:
+                    capability_desc += f" and {len(capabilities)-3} more capabilities"
+            else:
+                capability_desc = f"General purpose agent ({agent_name})"
+            
+            # UNIVERSAL AGENT SCHEMA - Same for ALL agents
             tool_schema = {
                 "type": "function",
                 "function": {
                     "name": tool_name,
-                    "description": tool_description,
+                    "description": f"{capability_desc}. Send natural language queries and receive responses.",
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "query": {
+                            "message": {
                                 "type": "string",
-                                "description": f"Question or request for this {tool_name} capability"
-                            },
-                            "context": {
-                                "type": "string",
-                                "description": "Optional context from previous interactions in the conversation",
-                                "default": ""
+                                "description": "Natural language query or request to send to the agent"
                             }
                         },
-                        "required": ["query"]
+                        "required": ["message"]
                     }
                 }
             }
             agent_tools.append(tool_schema)
-            logger.debug(f"===== TRACING: Added capability-based agent tool schema: {tool_name} =====")
+            logger.debug(f"===== TRACING: Added universal agent tool: {tool_name} =====")
         
-        logger.debug(f"===== TRACING: Generated {len(agent_tools)} capability-based agent tool schemas =====")
+        logger.debug(f"===== TRACING: Generated {len(agent_tools)} universal agent tools =====")
         return agent_tools
     
     def _get_function_schemas_for_openai(self, relevant_functions: Optional[List[str]] = None):
@@ -538,7 +583,7 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         # Get agent tool schemas
         agent_tools = self._convert_agents_to_tools()
         
-        # Combine both types of tools
+        # Combine both function and agent tools
         all_tools = function_tools + agent_tools
         
         logger.debug(f"===== TRACING: Combined {len(function_tools)} function tools + {len(agent_tools)} agent tools = {len(all_tools)} total tools =====")
@@ -578,7 +623,15 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             raise
     
     async def _call_agent(self, agent_tool_name: str, **kwargs) -> Any:
-        """Call an agent using the agent-to-agent communication system"""
+        """
+        Call an agent using the UNIVERSAL AGENT SCHEMA.
+        
+        All agents now use the same simple interface:
+        - Input: message (string)
+        - Output: response (string)
+        
+        This eliminates the need for agents to handle custom tool schemas.
+        """
         logger.debug(f"===== TRACING: Calling agent tool {agent_tool_name} =====")
         logger.debug(f"===== TRACING: Agent arguments: {json.dumps(kwargs, indent=2)} =====")
         
@@ -589,8 +642,17 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         
         agent_info = self.agent_cache[agent_tool_name]
         target_agent_id = agent_info["agent_id"]
-        query = kwargs.get("query", "")
-        context = kwargs.get("context", "")
+        
+        # Extract message from universal schema (simplified from query/context pattern)
+        message = kwargs.get("message", "")
+        if not message:
+            # Fallback for backward compatibility with old query/context pattern
+            query = kwargs.get("query", "")
+            context = kwargs.get("context", "")
+            message = f"{query} {context}".strip() if context else query
+        
+        if not message:
+            raise ValueError("No message provided for agent call")
         
         try:
             # Use monitored agent communication if available
@@ -599,8 +661,8 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                 start_time = time.time()
                 result = await self.send_agent_request_monitored(
                     target_agent_id=target_agent_id,
-                    message=query,
-                    conversation_id=context if context else None,
+                    message=message,
+                    conversation_id=None,  # Simplified - no separate conversation tracking
                     timeout_seconds=30.0
                 )
                 end_time = time.time()
@@ -610,8 +672,8 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                 start_time = time.time()
                 result = await self.send_agent_request(
                     target_agent_id=target_agent_id,
-                    message=query,
-                    conversation_id=context if context else None,
+                    message=message,
+                    conversation_id=None,  # Simplified - no separate conversation tracking
                     timeout_seconds=30.0
                 )
                 end_time = time.time()
@@ -619,7 +681,7 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             logger.debug(f"===== TRACING: Agent call completed in {end_time - start_time:.2f} seconds =====")
             logger.debug(f"===== TRACING: Agent result: {result} =====")
             
-            # Extract result message if in dict format
+            # Extract result message if in dict format (universal response handling)
             if isinstance(result, dict):
                 if "message" in result:
                     return result["message"]
@@ -640,11 +702,19 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         logger.debug(f"===== TRACING: Processing request: {user_message} =====")
         
         try:
+            # Enhanced tracing: Discovery status before processing
+            if self.enable_tracing:
+                self._trace_discovery_status("BEFORE PROCESSING")
+            
             # Ensure functions are discovered
             await self._ensure_functions_discovered()
             
             # Ensure agents are discovered (critical for agent-as-tool pattern)
             await self._ensure_agents_discovered()
+            
+            # Enhanced tracing: Discovery status after discovery
+            if self.enable_tracing:
+                self._trace_discovery_status("AFTER DISCOVERY")
             
             # Generate chain and call IDs for tracking
             chain_id = str(uuid.uuid4())
@@ -661,6 +731,10 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                     model_identifier=f"openai.{self.model_config['model_name']}"
                 )
                 
+                # Enhanced tracing: OpenAI API call details
+                if self.enable_tracing:
+                    self._trace_openai_call("General conversation (no tools)", [], user_message)
+                
                 # Process with general conversation
                 response = self.client.chat.completions.create(
                     model=self.model_config['model_name'],
@@ -669,6 +743,10 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                         {"role": "user", "content": user_message}
                     ]
                 )
+                
+                # Enhanced tracing: OpenAI response analysis
+                if self.enable_tracing:
+                    self._trace_openai_response(response)
                 
                 # Create chain event for LLM call completion
                 self._publish_llm_call_complete(
@@ -701,12 +779,20 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                 for name, info in self.function_cache.items()
             ]
             
+            # Enhanced tracing: Function classification details
+            if self.enable_tracing:
+                logger.debug(f"🧠 TRACE: Available functions for classification: {[f['name'] for f in available_functions]}")
+            
             # Classify functions based on user query
             relevant_functions = self.function_classifier.classify_functions(
                 user_message,
                 available_functions,
                 self.model_config['classifier_model_name']
             )
+            
+            # Enhanced tracing: Classification results
+            if self.enable_tracing:
+                logger.debug(f"🧠 TRACE: Classifier returned: {[f['name'] for f in relevant_functions]}")
             
             # Create chain event for classification LLM call completion
             self._publish_llm_call_complete(
@@ -742,6 +828,13 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             relevant_function_names = [func["name"] for func in relevant_functions]
             function_schemas = self._get_all_tool_schemas_for_openai(relevant_function_names)
             
+            # Enhanced tracing: Tool schema generation
+            if self.enable_tracing:
+                logger.debug(f"🛠️ TRACE: Generated {len(function_schemas)} total tool schemas")
+                for i, tool in enumerate(function_schemas):
+                    tool_name = tool.get('function', {}).get('name', 'Unknown')
+                    logger.debug(f"🛠️ TRACE: Tool {i+1}: {tool_name}")
+            
             if not function_schemas:
                 logger.warning("===== TRACING: No relevant functions found, processing without functions =====")
                 
@@ -752,6 +845,10 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                     model_identifier=f"openai.{self.model_config['model_name']}"
                 )
                 
+                # Enhanced tracing: OpenAI API call details
+                if self.enable_tracing:
+                    self._trace_openai_call("No relevant functions", [], user_message)
+                
                 # Process without functions
                 response = self.client.chat.completions.create(
                     model=self.model_config['model_name'],
@@ -760,6 +857,10 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                         {"role": "user", "content": user_message}
                     ]
                 )
+                
+                # Enhanced tracing: OpenAI response analysis
+                if self.enable_tracing:
+                    self._trace_openai_response(response)
                 
                 # Create chain event for LLM call completion
                 self._publish_llm_call_complete(
@@ -783,6 +884,10 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                 model_identifier=f"openai.{self.model_config['model_name']}"
             )
             
+            # Enhanced tracing: OpenAI API call details
+            if self.enable_tracing:
+                self._trace_openai_call("Function execution", function_schemas, user_message)
+            
             response = self.client.chat.completions.create(
                 model=self.model_config['model_name'],
                 messages=[
@@ -794,6 +899,10 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             )
 
             logger.debug(f"=====!!!!! TRACING: OpenAI response: {response} !!!!!=====")
+            
+            # Enhanced tracing: OpenAI response analysis
+            if self.enable_tracing:
+                self._trace_openai_response(response)
             
             # Create chain event for LLM call completion
             self._publish_llm_call_complete(
@@ -918,6 +1027,10 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                         model_identifier=f"openai.{self.model_config['model_name']}"
                     )
                     
+                    # Enhanced tracing: Second OpenAI API call details
+                    if self.enable_tracing:
+                        self._trace_openai_call("Tool response processing", [], user_message, tool_responses)
+                    
                     second_response = self.client.chat.completions.create(
                         model=self.model_config['model_name'],
                         messages=[
@@ -927,6 +1040,10 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                             *tool_responses  # The tool responses
                         ]
                     )
+                    
+                    # Enhanced tracing: Second OpenAI response analysis
+                    if self.enable_tracing:
+                        self._trace_openai_response(second_response)
                     
                     # Create chain event for second LLM call completion
                     self._publish_llm_call_complete(
@@ -938,11 +1055,21 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                     # Extract the final response
                     final_message = second_response.choices[0].message.content
                     logger.debug(f"===== TRACING: Final response: {final_message} =====")
+                    
+                    # Enhanced tracing: Final discovery status
+                    if self.enable_tracing:
+                        self._trace_discovery_status("AFTER PROCESSING")
+                    
                     return {"message": final_message, "status": 0}
             
             # If no tool call, just return the response
             text_response = message.content
             logger.debug(f"===== TRACING: Response (no tool call): {text_response} =====")
+            
+            # Enhanced tracing: Final discovery status
+            if self.enable_tracing:
+                self._trace_discovery_status("AFTER PROCESSING")
+            
             return {"message": text_response, "status": 0}
                 
         except Exception as e:
@@ -950,6 +1077,68 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             logger.error(traceback.format_exc())
             return {"message": f"Error: {str(e)}", "status": 1}
     
+    def _trace_discovery_status(self, phase: str):
+        """Enhanced tracing: Discovery status at different phases"""
+        logger.debug(f"🔍 TRACE: === Discovery Status: {phase} ===")
+        logger.debug(f"🔧 TRACE: Function cache: {len(self.function_cache)} functions")
+        for name, info in self.function_cache.items():
+            logger.debug(f"🔧 TRACE: - {name}: {info.get('description', 'No description')}")
+        
+        logger.debug(f"🤝 TRACE: Agent cache: {len(self.agent_cache)} agent tools")
+        for name, info in self.agent_cache.items():
+            logger.debug(f"🤝 TRACE: - {name}: {info.get('agent_name', 'Unknown agent')}")
+        
+        if hasattr(self, 'agent_communication') and self.agent_communication:
+            discovered = self.get_discovered_agents()
+            logger.debug(f"🌐 TRACE: Raw discovered agents: {len(discovered)}")
+            for agent_id, agent_info in discovered.items():
+                logger.debug(f"🌐 TRACE: - {agent_id}: {agent_info.get('prefered_name', 'Unknown')}")
+        
+        logger.debug(f"🔍 TRACE: === End Discovery Status ===")
+
+    def _trace_openai_call(self, context: str, tools: list, user_message: str, tool_responses: list = None):
+        """Enhanced tracing: OpenAI API call details"""
+        logger.debug(f"🚀 TRACE: === CALLING OPENAI API: {context} ===")
+        logger.debug(f"🚀 TRACE: User message: {user_message}")
+        
+        if tools:
+            logger.debug(f"🚀 TRACE: OpenAI tools provided: {len(tools)} tools")
+            for i, tool in enumerate(tools):
+                tool_name = tool.get('function', {}).get('name', 'Unknown')
+                logger.debug(f"🚀 TRACE: Tool {i+1}: {tool_name}")
+        else:
+            logger.debug(f"🚀 TRACE: NO TOOLS PROVIDED TO OPENAI!")
+        
+        if tool_responses:
+            logger.debug(f"🚀 TRACE: Tool responses included: {len(tool_responses)} responses")
+            for i, response in enumerate(tool_responses):
+                tool_name = response.get('name', 'Unknown')
+                logger.debug(f"🚀 TRACE: Tool response {i+1}: {tool_name}")
+
+    def _trace_openai_response(self, response):
+        """Enhanced tracing: OpenAI response analysis"""
+        logger.debug(f"🎯 TRACE: === OPENAI RESPONSE RECEIVED ===")
+        logger.debug(f"🎯 TRACE: Response type: {type(response)}")
+        
+        if hasattr(response, 'choices') and response.choices:
+            message = response.choices[0].message
+            logger.debug(f"🎯 TRACE: Response message type: {type(message)}")
+            
+            content = getattr(message, 'content', None)
+            if content:
+                logger.debug(f"🎯 TRACE: Response content length: {len(content)} characters")
+                logger.debug(f"🎯 TRACE: Response content preview: {content[:100]}{'...' if len(content) > 100 else ''}")
+            else:
+                logger.debug(f"🎯 TRACE: No content in response")
+            
+            if hasattr(message, 'tool_calls') and message.tool_calls:
+                logger.debug(f"🎯 TRACE: *** TOOL CALLS DETECTED: {len(message.tool_calls)} ***")
+                for i, tool_call in enumerate(message.tool_calls):
+                    logger.debug(f"🎯 TRACE: Tool call {i+1}: {tool_call.function.name}")
+                    logger.debug(f"🎯 TRACE: Tool call args: {tool_call.function.arguments}")
+            else:
+                logger.debug(f"🎯 TRACE: *** NO TOOL CALLS - DIRECT RESPONSE ***")
+
     async def close(self):
         """Clean up resources"""
         try:

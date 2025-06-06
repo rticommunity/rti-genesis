@@ -1,197 +1,204 @@
 # Genesis Multi-Agent Demo V2
 
-A complete demonstration of the Genesis framework's multi-agent capabilities, featuring real agent-to-agent communication, function calling, and interactive chat.
+A complete demonstration of the Genesis framework's advanced multi-agent capabilities, featuring **multiple specialized agents**, **agent-to-agent communication**, **function calling**, and **interactive chat**.
 
-## Features
+## 🌟 Features
 
-- **🤖 Real AI Agent**: PersonalAssistant powered by OpenAI GPT models
+- **🤖 Multiple AI Agents**: PersonalAssistant (general) and WeatherAgent (specialized)
+- **🔗 Agent-to-Agent Communication**: Agents can discover and call each other as tools
 - **🔧 Function Services**: Calculator service for mathematical operations
-- **💬 Interactive Chat**: Smooth conversational interface
-- **🔍 Auto-Discovery**: Agents and services discover each other automatically
+- **🌤️ Real API Integration**: Weather data via OpenWeatherMap API (optional)
+- **💬 Interactive Agent Selection**: Choose which agent to connect to
+- **🔍 Auto-Discovery**: All agents and services discover each other automatically
 - **📊 Full Monitoring**: Complete Genesis framework monitoring and logging
 - **🚀 One-Click Launch**: Everything starts with a single command
 
-## Quick Start
+## 🏗️ Architecture
+
+### Multi-Agent Ecosystem
+```
+User Interface
+    ├── PersonalAssistant (General Agent)
+    │   ├── Can call → WeatherAgent (for weather queries)
+    │   └── Can call → Calculator Service (for math)
+    └── WeatherAgent (Weather Specialist)
+        └── Direct weather expertise
+```
+
+### Demo Scenarios
+
+1. **Agent-to-Agent Delegation**
+   - Connect to PersonalAssistant
+   - Ask: "What's the weather in London?"
+   - PersonalAssistant → discovers and calls → WeatherAgent
+
+2. **Direct Specialization**
+   - Connect to WeatherAgent  
+   - Ask: "How's the weather in Tokyo?"
+   - Direct weather expertise without delegation
+
+3. **Function Calling**
+   - Connect to PersonalAssistant
+   - Ask: "What is 123 + 456?"
+   - PersonalAssistant → calls → Calculator Service
+
+## 🚀 Quick Start
 
 ### Prerequisites
 
-1. **OpenAI API Key**: Set your OpenAI API key:
+1. **OpenAI API Key**: Required for both agents
    ```bash
    export OPENAI_API_KEY="your-api-key-here"
    ```
 
-2. **Python Environment**: Ensure you're in the Genesis virtual environment:
+2. **Weather API Key**: Optional for real weather data
    ```bash
-   # From Genesis_LIB root directory
-   source venv/bin/activate
+   export OPENWEATHERMAP_API_KEY="your-weather-api-key"
    ```
+   Get a free key at: https://openweathermap.org/api
+   
+   Without this key, WeatherAgent uses realistic mock data.
 
-3. **Directory**: Navigate to this demo directory:
+3. **Python Environment**: Ensure dependencies are installed
    ```bash
    cd examples/MultiAgentV2
+   pip install openai aiohttp  # for weather API
    ```
 
-## Running the Demo
-
-### Option 1: Quick Test (Automated)
-
-Run the automated test that demonstrates all features:
+### 🎮 Run Interactive Demo
 
 ```bash
-./run_multi_agent_demo.sh
-```
-
-This will:
-- Start calculator service
-- Start PersonalAssistant agent
-- Run automated tests (joke request, math calculation)
-- Show the complete interaction flow
-- Clean up automatically
-
-### Option 2: Interactive Chat (Manual)
-
-Have a real conversation with the PersonalAssistant:
-
-```bash
+cd examples/MultiAgentV2
 ./run_interactive_demo.sh
 ```
 
-This will:
-- Start calculator service and PersonalAssistant
-- Launch an interactive chat interface
-- Let you have real conversations with the AI agent
-- Allow you to request calculations that use the function service
-- Provide a conversation summary when you exit
+The demo will:
+1. ✅ Start Calculator Service
+2. ✅ Start PersonalAssistant  
+3. ✅ Start WeatherAgent
+4. ✅ Launch Interactive CLI with agent selection
 
-#### Interactive Demo Usage
+### 🧪 Run Quick Test (No Interaction)
 
-Once the interactive demo starts, you can:
-
-- **Ask questions**: "What's the capital of France?"
-- **Request jokes**: "Tell me a funny joke"
-- **Do math**: "What is 123 multiplied by 456?"
-- **Have conversations**: "How are you today?"
-- **Exit gracefully**: Type `quit`, `exit`, or `bye`
-
-Example conversation:
-```
-You: Tell me a joke about programming
-PersonalAssistant: Why do programmers prefer dark mode? Because light attracts bugs! 😄
-
-You: What is 42 times 1337?
-PersonalAssistant: Let me calculate that for you. 42 × 1337 = 56,154
-
-You: quit
-👋 Thanks for chatting! Goodbye!
+```bash
+cd examples/MultiAgentV2  
+./run_multi_agent_demo.sh
 ```
 
-## What's Happening Under the Hood
+## 💬 What You Can Try
 
-### Agent Architecture
+### With PersonalAssistant
+- **"Tell me a joke"** - Conversational AI
+- **"What is 42 * 1337?"** - Function calling to Calculator
+- **"How's the weather in Paris?"** - Agent delegation to WeatherAgent
+- **"What's 100 + 200 and also the weather in Berlin?"** - Multi-tool usage
 
-1. **PersonalAssistant** (`agents/personal_assistant.py`)
-   - OpenAI GPT-powered conversational agent
-   - Automatically discovers and calls calculator functions
-   - Handles both chat and functional requests
-   - Uses Genesis framework for all communication
+### With WeatherAgent  
+- **"What's the weather in London?"** - Current weather data
+- **"Weather forecast for Tokyo"** - Multi-day forecast
+- **"Is it sunny in California?"** - Weather conditions
+- **"Temperature in New York"** - Specific weather metrics
 
-2. **Calculator Service** (`../../test_functions/calculator_service.py`)
-   - Provides mathematical functions (add, subtract, multiply, divide)
-   - Automatically advertises capabilities via Genesis
-   - Handles concurrent requests from multiple agents
+### Multi-Agent Patterns
+- **Agent Discovery**: Both agents automatically discover each other
+- **Tool Delegation**: PersonalAssistant can call WeatherAgent when needed
+- **Service Integration**: Both agents can call Calculator Service
+- **Graceful Fallback**: WeatherAgent works with or without API key
 
-### Genesis Framework Features Demonstrated
+## 🛠️ Technical Implementation
 
-- **🔍 Service Discovery**: Agents automatically find available functions
-- **🤖 Agent Communication**: Real AI agent powered by OpenAI
-- **🔧 Function Calling**: LLM automatically calls calculator when needed
-- **📊 Monitoring**: Complete event tracking and lifecycle management
-- **🚀 RPC Services**: High-performance DDS-based communication
-- **🔗 Connection Management**: Automatic connection handling and recovery
+### Agent Types
 
-### Technical Flow
+**PersonalAssistant** (`agents/personal_assistant.py`)
+- Based on `OpenAIGenesisAgent`
+- Enables `agent_communication=True` for tool discovery
+- Can discover and call other agents as OpenAI tools
+- Handles general conversation and delegates specialized tasks
 
-1. **Startup**: Services start and announce their capabilities
-2. **Discovery**: PersonalAssistant discovers calculator functions
-3. **Connection**: Interactive CLI discovers and connects to PersonalAssistant
-4. **Conversation**: User interacts with AI agent naturally
-5. **Function Calls**: Agent automatically calls calculator when needed
-6. **Monitoring**: All interactions tracked by Genesis monitoring system
+**WeatherAgent** (`agents/weather_agent.py`)  
+- Based on `OpenAIGenesisAgent`
+- Specialized for weather queries and analysis
+- Real API integration with OpenWeatherMap
+- Fallback to realistic mock data when no API key
+- Advertises weather-specific capabilities for discovery
 
-## Architecture
+### Function Services
 
+**Calculator Service** (`../../test_functions/calculator_service.py`)
+- Provides add, subtract, multiply, divide functions
+- Automatically discovered by both agents
+- Used via OpenAI function calling
+
+### Interactive Interface
+
+**MultiAgentInteractiveCLI** (`interactive_cli.py`)
+- Based on `MonitoredInterface`
+- Groups agents by specialization (general vs weather)
+- Provides user-friendly agent selection
+- Supports rich conversational interface
+
+## 🔧 Configuration
+
+### Environment Variables
+- `OPENAI_API_KEY` - **Required** for LLM functionality
+- `OPENWEATHERMAP_API_KEY` - **Optional** for real weather data
+
+### Logging Levels
+```bash
+# Verbose logging
+export GENESIS_LOG_LEVEL=DEBUG
+
+# Quiet logging (default)
+export GENESIS_LOG_LEVEL=WARNING
 ```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│ Interactive CLI │◄──►│ PersonalAssistant│◄──►│Calculator Service│
-│                 │    │    (OpenAI)      │    │   (Math Funcs)  │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-         │                        │                        │
-         │              ┌─────────▼─────────┐              │
-         └─────────────►│  Genesis Framework │◄─────────────┘
-                        │  (DDS, Discovery,  │
-                        │   Monitoring)      │
-                        └────────────────────┘
-```
 
-## Files
+## 📊 Expected Behavior
 
-- `run_multi_agent_demo.sh` - Automated test demonstration
-- `run_interactive_demo.sh` - Interactive chat launcher  
-- `interactive_cli.py` - Smooth conversational interface
-- `test_cli.py` - Automated test client
-- `agents/personal_assistant.py` - AI agent implementation
-- `README.md` - This documentation
-- `IMPLEMENTATION_CHECKLIST.md` - Development tracking
+### Startup Sequence
+1. ✅ Calculator service advertises 4 math functions
+2. ✅ PersonalAssistant starts and discovers calculator + enables agent communication
+3. ✅ WeatherAgent starts and advertises weather capabilities  
+4. ✅ Both agents discover each other automatically
+5. ✅ Interactive CLI discovers both agents and presents selection
 
-## Troubleshooting
+### Agent Selection
+- **Auto-select** if only one agent available
+- **Manual selection** with clear descriptions of capabilities
+- **Graceful handling** of connection failures
+
+### Communication Patterns
+- **Function Calls**: Agent → Calculator Service  
+- **Agent Calls**: PersonalAssistant → WeatherAgent
+- **Direct Queries**: User → WeatherAgent
+- **Mixed Interactions**: User → PersonalAssistant → (WeatherAgent + Calculator)
+
+## 🚨 Troubleshooting
 
 ### Common Issues
+1. **No agents discovered**: Check if services started properly
+2. **OpenAI errors**: Verify `OPENAI_API_KEY` is set correctly
+3. **Weather mock data**: Expected without `OPENWEATHERMAP_API_KEY`
+4. **Connection timeouts**: Agents may need more time to discover each other
 
-1. **"No agents discovered"**
-   - Ensure OpenAI API key is set: `echo $OPENAI_API_KEY`
-   - Check that you're in the correct directory
-   - Wait a few more seconds for discovery to complete
+### Debug Mode
+```bash
+export DEBUG=true
+./run_interactive_demo.sh
+```
 
-2. **"Calculator service not found"**
-   - Ensure you're running from `examples/MultiAgentV2/`
-   - Check that `../../test_functions/calculator_service.py` exists
+## 🎯 Key Learning Points
 
-3. **Connection timeouts**
-   - Services might need more time to start
-   - Try running the demo again
-   - Check for any error messages in the logs
+This demo showcases the **complete Genesis agent-as-tool pattern**:
 
-4. **OpenAI API errors**
-   - Verify your API key is valid and has credits
-   - Check your internet connection
-   - Ensure the API key has the necessary permissions
+1. **Dynamic Discovery** - Agents find each other automatically
+2. **Capability-Based Routing** - PersonalAssistant routes weather queries to WeatherAgent
+3. **Tool Composition** - Single conversation can use multiple tools/agents
+4. **Specialization vs Generalization** - Direct specialist vs delegating generalist
+5. **Real-World Integration** - Actual APIs + service composition
+6. **User Choice** - Flexibility in how to access capabilities
 
-### Getting Help
+This demonstrates how Genesis enables building **scalable, composable AI systems** where specialized agents can work together seamlessly!
 
-If you encounter issues:
+---
 
-1. Check the error messages - they're designed to be helpful
-2. Look at the detailed logs during startup
-3. Ensure all prerequisites are met
-4. Try the quick test first, then the interactive demo
-
-## Example Interactions
-
-The PersonalAssistant can handle:
-
-- **Conversational requests**: General chat, questions, jokes
-- **Mathematical operations**: Any calculation using the calculator service
-- **Mixed conversations**: Combining chat and calculations naturally
-
-The agent automatically determines when to use functions vs. conversational AI, providing a seamless experience that showcases the full power of the Genesis framework.
-
-## Success Criteria
-
-✅ **This demo successfully shows**:
-- Real AI agents powered by OpenAI
-- Automatic service discovery and function calling
-- Interactive user experience with live conversation
-- Complete Genesis framework integration
-- Production-ready patterns for multi-agent systems
-
-This demonstrates how Genesis enables building sophisticated AI systems that just work, with no manual configuration or complex setup required.
+**🚀 This showcases the complete Genesis framework in action!**

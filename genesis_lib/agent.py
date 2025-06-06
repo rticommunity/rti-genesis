@@ -225,6 +225,10 @@ class GenesisAgent(ABC):
                 async def process_agent_request(self, request):
                     """Delegate to parent agent's process_agent_request method"""
                     return await self.parent_agent.process_agent_request(request)
+                
+                def get_agent_capabilities(self):
+                    """Delegate to parent agent's get_agent_capabilities method"""
+                    return self.parent_agent.get_agent_capabilities()
             
             # Create the communication wrapper
             print("🏗️ PRINT: Creating AgentCommunicationWrapper...")

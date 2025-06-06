@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
 """
-Interactive CLI for Genesis Multi-Agent Demo
+Interactive CLI for Genesis Multi-Agent Demo V2
 
-Provides a smooth conversational interface for chatting with available agents.
-Shows real-time agent discovery, service grouping, and user selection.
+Generic multi-agent interface that discovers agents dynamically and allows
+users to select which agent to connect to based on their advertised capabilities.
+
+Features:
+- Dynamic agent discovery based on advertised capabilities
+- User selection of which agent to connect to  
+- Generic conversation interface
+- No hardcoded agent types
+
+Copyright (c) 2025, RTI & Jason Upchurch
 """
 
 import asyncio
@@ -11,136 +19,104 @@ import logging
 import signal
 import sys
 import time
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, Any, List
 from genesis_lib.monitored_interface import MonitoredInterface
 
 # Configure logging to be less verbose for better user experience
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
-class InteractiveChatCLI(MonitoredInterface):
+class MultiAgentInteractiveCLI(MonitoredInterface):
     """
-    Interactive chat interface for conversing with available agents.
+    Interactive CLI supporting multiple agents for multi-agent demonstration.
     
     Features:
-    - Real-time agent discovery
-    - Service grouping (multiple agents offering same service)
-    - User selection interface
-    - Smooth conversation flow
+    - Discovers agents dynamically based on their advertised capabilities
+    - Allows user selection of which agent to connect to
+    - Provides smooth conversational interface
+    - No hardcoded agent knowledge
     """
     
     def __init__(self):
-        super().__init__(
-            interface_name="InteractiveChatCLI",
-            service_name="InteractiveChatService"
-        )
-        self.connected = False
-        self.selected_agent_name = "Agent"
-        self.selected_service_name = "Unknown"
-        self.conversation_history = []
+        super().__init__(interface_name="MultiAgentChatInterface", service_name="InteractiveChat")
         
-    def group_agents_by_service(self) -> Dict[str, List[Dict[str, Any]]]:
-        """Group discovered agents by their service names (like DDS RPC)"""
-        service_groups = {}
+        # Agent management
+        self.connected_agent_name: Optional[str] = None
+        self.connected_service_name: Optional[str] = None
+        self.conversation_history: List[Dict[str, str]] = []
+        
+        logger.debug("MultiAgentInteractiveCLI initialized")
+    
+    def get_agent_capabilities(self, agent_info: Dict[str, Any]) -> List[str]:
+        """Extract capabilities from agent info"""
+        capabilities = []
+        
+        # Check for capabilities in the agent info
+        if 'capabilities' in agent_info:
+            caps = agent_info['capabilities']
+            if isinstance(caps, list):
+                capabilities.extend(caps)
+            elif isinstance(caps, str):
+                capabilities.append(caps)
+        
+        # Check for specializations
+        if 'specializations' in agent_info:
+            specs = agent_info['specializations']
+            if isinstance(specs, list):
+                capabilities.extend(specs)
+            elif isinstance(specs, str):
+                capabilities.append(specs)
+        
+        # If no explicit capabilities, infer from service name
+        service_name = agent_info.get('service_name', '')
+        if service_name and not capabilities:
+            capabilities.append(service_name.replace('Service', '').lower())
+        
+        return capabilities
+    
+    def display_agent_selection(self) -> List[Dict[str, Any]]:
+        """Display available agents and return selection list"""
+        print("\n📊 Discovery Results:")
+        print("=" * 60)
+        
+        available_agents = []
+        option_num = 1
         
         for agent_id, agent_info in self.available_agents.items():
-            service_name = agent_info.get('service_name', 'UnknownService')
-            if service_name not in service_groups:
-                service_groups[service_name] = []
-            service_groups[service_name].append({
-                'agent_id': agent_id,
-                'name': agent_info.get('prefered_name', 'Unknown'),
-                'service_name': service_name,
-                'agent_info': agent_info
-            })
-        
-        return service_groups
-    
-    def display_agent_discovery_results(self) -> Dict[str, List[Dict[str, Any]]]:
-        """Display discovered agents grouped by service name"""
-        service_groups = self.group_agents_by_service()
-        
-        print("\n📊 Discovery Results:")
-        
-        if not service_groups:
-            print("   No agents discovered yet")
-            return service_groups
-        
-        # Count total agents and services
-        total_agents = sum(len(agents) for agents in service_groups.values())
-        total_services = len(service_groups)
-        
-        print(f"   Found {total_agents} agent(s) offering {total_services} service(s)")
-        print("   ✅ Discovered agents:")
-        
-        # Display each service group
-        agent_counter = 1
-        for service_name, agents in service_groups.items():
-            if len(agents) == 1:
-                # Single agent for this service
-                agent = agents[0]
-                print(f"      {agent_counter}. {agent['name']} ({agent['agent_id'][:8]}...)")
-                print(f"         Service: {service_name}")
-                print(f"         Status: available")
+            agent_name = agent_info.get('prefered_name', 'Unknown')
+            service_name = agent_info.get('service_name', 'Unknown')
+            capabilities = self.get_agent_capabilities(agent_info)
+            
+            print(f"🤖 {option_num}. {agent_name}")
+            print(f"   ID: {agent_id[:12]}...")
+            print(f"   Service: {service_name}")
+            
+            if capabilities:
+                caps_str = ", ".join(capabilities[:3])  # Show first 3 capabilities
+                if len(capabilities) > 3:
+                    caps_str += f" (+{len(capabilities)-3} more)"
+                print(f"   Capabilities: {caps_str}")
             else:
-                # Multiple agents for this service (load balanced)
-                print(f"      {service_name} service ({len(agents)} instances):")
-                for i, agent in enumerate(agents):
-                    print(f"      {agent_counter}. {agent['name']} ({agent['agent_id'][:8]}...)")
-                    print(f"         Instance: {i+1}/{len(agents)}")
-                    print(f"         Status: available")
-                    agent_counter += 1
-                    continue
-            agent_counter += 1
+                print(f"   Capabilities: General purpose")
+            
+            print()
+            
+            available_agents.append({
+                "id": agent_id,
+                "name": agent_name,
+                "service_name": service_name,
+                "capabilities": capabilities,
+                "info": agent_info
+            })
+            option_num += 1
         
-        return service_groups
-    
-    def get_user_agent_selection(self, service_groups: Dict[str, List[Dict[str, Any]]]) -> Optional[tuple]:
-        """Let user select an agent from the available services"""
-        if not service_groups:
-            return None
-        
-        # Create a flat list for easy selection
-        all_agents = []
-        for service_name, agents in service_groups.items():
-            all_agents.extend(agents)
-        
-        if len(all_agents) == 1:
-            # Only one agent available, auto-select
-            agent = all_agents[0]
-            print(f"\n🎯 Auto-selecting only available agent: {agent['name']}")
-            return (agent['agent_info'], agent['service_name'], agent['name'])
-        
-        # Multiple agents available, let user choose
-        print(f"\n🤔 Please select an agent to chat with:")
-        for i, agent in enumerate(all_agents, 1):
-            print(f"   {i}. {agent['name']} (Service: {agent['service_name']})")
-        
-        while True:
-            try:
-                choice = input(f"\nEnter your choice (1-{len(all_agents)}): ").strip()
-                
-                if choice.lower() in ['quit', 'exit', 'q']:
-                    return None
-                
-                choice_num = int(choice)
-                if 1 <= choice_num <= len(all_agents):
-                    selected_agent = all_agents[choice_num - 1]
-                    return (selected_agent['agent_info'], selected_agent['service_name'], selected_agent['name'])
-                else:
-                    print(f"❌ Please enter a number between 1 and {len(all_agents)}")
-                    
-            except ValueError:
-                print("❌ Please enter a valid number")
-            except KeyboardInterrupt:
-                print("\n👋 Selection cancelled")
-                return None
+        return available_agents
     
     async def start_chat_session(self):
-        """Start the interactive chat session with proper agent discovery and selection"""
+        """Start the interactive chat session with agent selection"""
         print("🔍 Discovering agents...")
         
-        # Wait for agent discovery with proper timing
+        # Wait for agent discovery
         timeout = 15.0
         start_time = time.time()
         
@@ -154,178 +130,156 @@ class InteractiveChatCLI(MonitoredInterface):
             print("   Make sure agents are running!")
             return False
         
-        # DEBUG: Print raw discovered agent data
-        print(f"\n🔍 DEBUG: Raw discovered agents: {self.available_agents}")
+        # Display available agents
+        available_agents = self.display_agent_selection()
         
-        # Display discovery results
-        service_groups = self.display_agent_discovery_results()
-        
-        # Let user select an agent
-        selection = self.get_user_agent_selection(service_groups)
-        if not selection:
-            print("👋 No agent selected. Exiting...")
-            return False
-        
-        agent_info, service_name, agent_name = selection
-        
-        print(f"\n🔗 Connecting to {agent_name}...")
-        print(f"   Service: {service_name}")
-        print(f"🔍 DEBUG: Full agent_info: {agent_info}")
-        
-        try:
-            print(f"🔍 DEBUG: Before connection - self.requester: {self.requester}")
-            print(f"🔍 DEBUG: Before connection - self._connected_agent_id: {getattr(self, '_connected_agent_id', 'Not set')}")
+        # Auto-select if only one agent available
+        if len(available_agents) == 1:
+            selected_agent = available_agents[0]
+            print(f"🎯 Auto-selecting only available agent: {selected_agent['name']}")
+        else:
+            # User selection
+            print("🎯 Agent Selection:")
+            print("=" * 50)
+            print("Choose which agent to connect to:")
+            print()
             
-            self.connected = await self.connect_to_agent(service_name, timeout_seconds=10.0)
+            while True:
+                try:
+                    choice = input("Enter agent number (1-{}): ".format(len(available_agents)))
+                    agent_index = int(choice) - 1
+                    if 0 <= agent_index < len(available_agents):
+                        selected_agent = available_agents[agent_index]
+                        break
+                    else:
+                        print(f"Please enter a number between 1 and {len(available_agents)}")
+                except ValueError:
+                    print("Please enter a valid number")
+                except KeyboardInterrupt:
+                    print("\n👋 Selection cancelled")
+                    return False
+        
+        # Connect to selected agent
+        print(f"\n🔗 Connecting to {selected_agent['name']}...")
+        print(f"   Service: {selected_agent['service_name']}")
+        
+        success = await self.connect_to_agent(selected_agent['service_name'])
+        
+        if success:
+            self.connected_agent_name = selected_agent['name']
+            self.connected_service_name = selected_agent['service_name']
+            print(f"✅ Connected to {selected_agent['name']}!")
             
-            print(f"🔍 DEBUG: After connection - self.connected: {self.connected}")
-            print(f"🔍 DEBUG: After connection - self.requester: {self.requester}")
-            print(f"🔍 DEBUG: After connection - self._connected_agent_id: {getattr(self, '_connected_agent_id', 'Not set')}")
-            
-        except Exception as e:
-            print(f"❌ Connection failed: {e}")
+            # Start conversation
+            await self._run_conversation_loop(selected_agent)
+            return True
+        else:
+            print(f"❌ Failed to connect to {selected_agent['name']}")
             return False
-        
-        if not self.connected:
-            print("❌ Failed to connect to agent.")
-            return False
-        
-        # Store selected agent details
-        self.selected_agent_name = agent_name
-        self.selected_service_name = service_name
-        
-        print(f"✅ Connected to {self.selected_agent_name}!")
-        print("")
-        return True
     
-    async def chat_loop(self):
-        """Main interactive chat loop"""
-        print("💬 " + "="*50)
-        print(f"   Welcome to Genesis Interactive Chat!")
-        print(f"   Connected to: {self.selected_agent_name}")
-        print(f"   Service: {self.selected_service_name}")
-        print("💬 " + "="*50)
-        print("")
-        print("📝 You can:")
-        print("   • Ask questions or have conversations")
-        print("   • Request calculations (e.g., 'What is 123 + 456?')")
-        print("   • Ask for jokes or creative content")
+    async def _run_conversation_loop(self, selected_agent: Dict[str, Any]):
+        """Run the main conversation loop"""
+        print(f"\n💬 {'='*50}")
+        print(f"   Welcome to Genesis Multi-Agent Chat!")
+        print(f"   Connected to: {self.connected_agent_name}")
+        print(f"   Service: {self.connected_service_name}")
+        print(f"💬 {'='*50}")
+        
+        # Show usage tips based on capabilities
+        capabilities = selected_agent.get('capabilities', [])
+        if capabilities:
+            print(f"\n📝 {self.connected_agent_name} Capabilities:")
+            for cap in capabilities[:5]:  # Show first 5 capabilities
+                print(f"   • {cap.title()}")
+            if len(capabilities) > 5:
+                print(f"   • ... and {len(capabilities)-5} more")
+        else:
+            print(f"\n📝 Chat Tips:")
+            print("   • Ask questions or have conversations")
+            print("   • The agent will use available tools and services")
+        
         print("   • Type 'quit', 'exit', or 'bye' to end")
-        print("")
-        print("🚀 Let's chat! (Type your message and press Enter)")
-        print("")
+        print("\n🚀 Let's chat! (Type your message and press Enter)")
         
         while True:
             try:
                 # Get user input
-                user_input = input("You: ").strip()
-                
-                # Check for exit commands
-                if user_input.lower() in ['quit', 'exit', 'bye', 'goodbye']:
-                    print("")
-                    print("👋 Thanks for chatting! Goodbye!")
-                    break
+                user_input = input(f"\nYou: ").strip()
                 
                 if not user_input:
                     continue
                 
-                # Show thinking indicator
-                print(f"{self.selected_agent_name}: Thinking... 🤔")
+                # Check for exit commands
+                if user_input.lower() in ['quit', 'exit', 'bye', 'q']:
+                    break
                 
-                # Send request to agent
-                try:
-                    response = await self.send_request(
-                        {"message": user_input}, 
-                        timeout_seconds=30.0
-                    )
+                # Send message to agent
+                print(f"{self.connected_agent_name}: Thinking... 🤔")
+                
+                response = await self.send_request({
+                    "message": user_input,
+                    "conversation_id": f"chat_{int(time.time())}"
+                })
+                
+                if response and response.get('status') == 0:
+                    agent_response = response.get('message', 'No response')
+                    print(f"{self.connected_agent_name}: {agent_response}")
                     
-                    if response and response.get('status') == 0:
-                        agent_response = response.get('message', 'No response')
-                        
-                        # Clear the "thinking" line and show response
-                        print(f"\r{self.selected_agent_name}: {agent_response}")
-                        print("")
-                        
-                        # Store in conversation history
-                        self.conversation_history.append({
-                            'user': user_input,
-                            'agent': agent_response
-                        })
-                        
-                    else:
-                        print(f"\r❌ Agent error: {response.get('message', 'Unknown error')}")
-                        print("")
-                        
-                except asyncio.TimeoutError:
-                    print(f"\r⏰ Request timed out. The agent might be busy.")
-                    print("")
-                except Exception as e:
-                    print(f"\r❌ Error sending request: {e}")
-                    print("")
+                    # Store in conversation history
+                    self.conversation_history.append({
+                        "user": user_input,
+                        "agent": agent_response,
+                        "timestamp": time.time()
+                    })
+                else:
+                    print(f"{self.connected_agent_name}: Sorry, I encountered an error processing your message.")
                     
             except KeyboardInterrupt:
-                print("")
-                print("👋 Chat interrupted. Goodbye!")
                 break
-            except EOFError:
-                print("")
-                print("👋 Chat ended. Goodbye!")
+            except Exception as e:
+                print(f"\n❌ Error: {e}")
                 break
-    
-    def print_conversation_summary(self):
-        """Print a summary of the conversation"""
+        
+        print(f"\n👋 Thanks for chatting with {self.connected_agent_name}!")
         if self.conversation_history:
-            print("")
-            print("📊 Conversation Summary:")
-            print("=" * 30)
-            for i, exchange in enumerate(self.conversation_history, 1):
-                print(f"{i}. You: {exchange['user'][:50]}{'...' if len(exchange['user']) > 50 else ''}")
-                print(f"   {self.selected_agent_name}: {exchange['agent'][:50]}{'...' if len(exchange['agent']) > 50 else ''}")
-                print("")
+            print(f"📊 Conversation summary: {len(self.conversation_history)} exchanges")
 
 async def main():
-    """Main entry point for interactive chat"""
-    print("🚀 Genesis Interactive Chat Starting...")
-    print("")
+    """Main function"""
+    # Set up graceful shutdown
+    cli = None
     
-    # Create CLI instance
-    cli = InteractiveChatCLI()
+    def signal_handler(signum, frame):
+        print(f"\n🛑 Received signal {signum}, shutting down gracefully...")
+        if cli:
+            asyncio.create_task(cli.close())
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
     
     try:
-        # Start chat session
-        if await cli.start_chat_session():
-            # Run chat loop
-            await cli.chat_loop()
-            
-            # Show conversation summary
-            cli.print_conversation_summary()
+        print("🚀 Genesis Multi-Agent Interactive Chat Starting...")
+        print()
         
-    except KeyboardInterrupt:
-        print("")
-        print("👋 Interactive chat interrupted. Shutting down...")
+        # Create and run CLI
+        cli = MultiAgentInteractiveCLI()
+        success = await cli.start_chat_session()
+        
+        if not success:
+            print("❌ Failed to start chat session")
+            return 1
+            
     except Exception as e:
-        print(f"❌ Unexpected error: {e}")
-        logger.error(f"Unexpected error: {e}", exc_info=True)
+        print(f"❌ Error: {e}")
+        return 1
     finally:
-        print("🧹 Closing connection...")
-        await cli.close()
-        print("✅ Interactive chat closed successfully.")
-
-def handle_signal(signum, frame):
-    """Handle interrupt signals gracefully"""
-    print("")
-    print("👋 Signal received. Shutting down...")
-    sys.exit(0)
+        if cli:
+            print(f"\n🧹 Closing connection...")
+            await cli.close()
+            print("✅ Interactive chat closed successfully.")
+    
+    return 0
 
 if __name__ == "__main__":
-    # Set up signal handlers for graceful shutdown
-    signal.signal(signal.SIGINT, handle_signal)
-    signal.signal(signal.SIGTERM, handle_signal)
-    
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("👋 Interactive chat terminated.")
-    except Exception as e:
-        print(f"❌ Fatal error: {e}")
-        sys.exit(1) 
+    sys.exit(asyncio.run(main())) 

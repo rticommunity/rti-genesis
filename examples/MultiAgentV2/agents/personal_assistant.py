@@ -1,20 +1,25 @@
 #!/usr/bin/env python3
 """
-Personal Assistant Agent
+PersonalAssistant for Multi-Agent Demo V2
 
-A simple demonstration of OpenAIGenesisAgent that automatically discovers
-and calls available services (like calculator) while handling conversational
-queries through OpenAI.
+A general-purpose personal assistant that can:
+- Handle general conversation and questions
+- Discover and call other specialized agents (like WeatherAgent)
+- Discover and call function services (like calculator)
+- Demonstrate agent-as-tool pattern where agents can call each other
 
-This shows the correct pattern:
-- Inherit from OpenAIGenesisAgent
-- Enable agent communication for agent-as-tool pattern  
-- Use await self.run() to start the RPC service
-- Let Genesis handle all discovery and communication
+Copyright (c) 2025, RTI & Jason Upchurch
 """
 
 import asyncio
 import logging
+import os
+import sys
+from typing import Dict, Any
+
+# Add the parent directory to the path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../..'))
+
 from genesis_lib.openai_genesis_agent import OpenAIGenesisAgent
 
 # Configure logging
@@ -23,43 +28,46 @@ logger = logging.getLogger(__name__)
 
 class PersonalAssistant(OpenAIGenesisAgent):
     """
-    A friendly, helpful personal assistant that can:
-    - Have natural conversations using OpenAI
-    - Automatically discover and call available services
-    - Handle both conversational and functional requests
+    General-purpose personal assistant for multi-agent system.
+    Can delegate to specialized agents and call function services.
     """
     
     def __init__(self):
+        print("🚀 TRACE: PersonalAssistant.__init__() starting...")
+        
+        # Initialize with enhanced tracing enabled
         super().__init__(
             model_name="gpt-4o",
             agent_name="PersonalAssistant",
             base_service_name="OpenAIAgent",
-            description="A friendly, helpful general-purpose AI assistant for everyday tasks",
-            enable_agent_communication=True  # Enable agent-as-tool pattern
+            description="General-purpose personal assistant with access to specialized agents and services",
+            enable_agent_communication=True,
+            enable_tracing=True  # Enable detailed tracing built into base class
         )
-        logger.info("PersonalAssistant initialized successfully")
+        
+        print(f"✅ TRACE: PersonalAssistant initialized with agent_id: {self.app.agent_id}")
+        logger.info("PersonalAssistant ready for multi-agent interactions")
 
 async def main():
-    """
-    Main entry point - creates and runs the PersonalAssistant.
+    """Main entry point for PersonalAssistant"""
+    print("🤖 Starting PersonalAssistant...")
+    logger.info("Starting PersonalAssistant...")
     
-    CRITICAL: Must use await self.run() to start the Genesis RPC service.
-    This is what makes the agent discoverable and able to handle requests.
-    """
-    logger.info("🤖 Starting PersonalAssistant...")
+    agent = PersonalAssistant()
     
-    assistant = PersonalAssistant()
+    # Add a small delay and then check discovery status (using built-in tracing)
+    await asyncio.sleep(2)
+    if agent.enable_tracing:
+        agent._trace_discovery_status("STARTUP CHECK")
     
-    logger.info("✅ PersonalAssistant created, starting RPC service...")
+    # Add another check after more time to see if WeatherAgent appears
+    print("\n🕐 TRACE: Waiting 8 more seconds to see if more agents are discovered...")
+    await asyncio.sleep(8)
+    print("🕐 TRACE: === DELAYED DISCOVERY CHECK ===")
+    if agent.enable_tracing:
+        agent._trace_discovery_status("DELAYED CHECK")
     
-    # CRITICAL: This starts the Genesis RPC service and makes the agent discoverable
-    await assistant.run()
+    await agent.run()
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("👋 PersonalAssistant shutting down...")
-    except Exception as e:
-        logger.error(f"❌ Error running PersonalAssistant: {e}")
-        raise 
+    asyncio.run(main()) 

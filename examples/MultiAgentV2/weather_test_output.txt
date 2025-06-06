@@ -1,0 +1,7 @@
+2025-06-02 15:47:58,757 - genesis_lib.interface - ERROR - ❌ TRACE: Timeout (5.0s) waiting for DDS replier match for service 'OpenAIAgent'
+🧪 Starting weather classifier test...
+❌ Failed to connect
+===== PRINT TRACE: FunctionRegistry.close() ENTERED =====
+🧪 Test completed
+ERROR [0x01014819,0x1646B24E,0xAFA50288:0x000001C1{Domain=0}|DELETE Topic GenesisRegistration] DDS_Topic_destroyI:!delete PRESTopic
+ERROR [0x01014819,0x1646B24E,0xAFA50288:0x000001C1{Domain=0}|DELETE Topic GenesisRegistration] DDS_DomainParticipant_delete_topic:FAILED TO DELETE | Topic

@@ -19,6 +19,7 @@ import asyncio
 import json
 import logging
 import time
+import traceback
 import uuid
 from typing import Dict, Any, Optional, List
 from abc import ABC, abstractmethod
@@ -51,7 +52,8 @@ class AgentCommunicationMixin:
         self.agent_capability_writer = None
         self.agent_capability_topic = None
         self.agent_capability_publisher = None
-        logger.debug("✅ TRACE: capability writer/topic/publisher initialized to None")
+        self.agent_capability_type = None  # Add this to store the DDS type
+        logger.debug("✅ TRACE: capability writer/topic/publisher/type initialized to None")
         
         # Initialize agent-to-agent RPC types
         self.agent_request_type = None
@@ -352,6 +354,8 @@ class AgentCommunicationMixin:
                 mask=dds.StatusMask.ALL
             )
             
+            self.agent_capability_type = agent_capability_type
+            
             logger.info("Agent capability publishing setup completed successfully")
             return True
             
@@ -360,93 +364,102 @@ class AgentCommunicationMixin:
             return False
     
     def publish_agent_capability(self, agent_capabilities: Optional[Dict[str, Any]] = None):
-        """Publish this agent's capabilities to the AgentCapability topic"""
+        """
+        Publish agent capability to the DDS network.
+        This allows other agents to discover this agent and its capabilities.
+        """
+        print(f"🚀 TRACE: publish_agent_capability() called for agent {self.agent_name}")
+        
         try:
-            print(f"🚀 PRINT: publish_agent_capability() called for agent {getattr(self, 'agent_name', 'Unknown')}")
+            # Get enhanced capabilities from the agent
+            print(f"🔍 TRACE: Getting agent capabilities...")
+            agent_capabilities = agent_capabilities or self.get_agent_capabilities()
+            print(f"🔍 TRACE: Raw agent capabilities from get_agent_capabilities(): {agent_capabilities}")
             
-            if not self.agent_capability_writer:
-                print("⚠️ PRINT: Agent capability writer not initialized")
-                logger.warning("Agent capability writer not initialized")
-                return False
+            # Create the capability message with enhanced information
+            capability = dds.DynamicData(self.agent_capability_type)
+            capability["agent_id"] = self.app.agent_id
+            capability["name"] = self.agent_name
+            capability["agent_type"] = self.agent_type
+            capability["service_name"] = self._get_agent_service_name(self.app.agent_id)
+            capability["description"] = self.description
             
-            if not hasattr(self, 'app') or not hasattr(self.app, 'agent_id'):
-                print("💥 PRINT: Cannot publish agent capability: no agent_id available")
-                logger.error("Cannot publish agent capability: no agent_id available")
-                return False
+            # Enhanced capabilities - convert to list and then serialize as JSON string
+            capabilities_list = agent_capabilities.get("capabilities", [])
+            if isinstance(capabilities_list, str):
+                capabilities_list = [capabilities_list]
+            elif not isinstance(capabilities_list, list):
+                capabilities_list = []
             
-            print(f"📝 PRINT: Creating capability sample for agent {self.app.agent_id}")
+            print(f"🔍 TRACE: Processed capabilities list: {capabilities_list}")
+            capability["capabilities"] = json.dumps(capabilities_list)  # Serialize as JSON string
             
-            # Get the type for creating the capability sample
-            config_path = get_datamodel_path()
-            type_provider = dds.QosProvider(config_path)
-            agent_capability_type = type_provider.type("genesis_lib", "AgentCapability")
+            # Enhanced specializations - convert to list and then serialize as JSON string
+            specializations_list = agent_capabilities.get("specializations", [])
+            if isinstance(specializations_list, str):
+                specializations_list = [specializations_list]
+            elif not isinstance(specializations_list, list):
+                specializations_list = []
             
-            # Create capability sample
-            capability_sample = dds.DynamicData(agent_capability_type)
+            print(f"🔍 TRACE: Processed specializations list: {specializations_list}")
+            capability["specializations"] = json.dumps(specializations_list)  # Serialize as JSON string
             
-            # Set basic fields
-            capability_sample.set_string("agent_id", self.app.agent_id)
-            capability_sample.set_string("name", getattr(self, 'agent_name', 'Unknown'))
-            capability_sample.set_string("description", getattr(self, 'description', 'Agent'))
-            capability_sample.set_string("agent_type", getattr(self, 'agent_type', 'AGENT'))
-            # Use the agent-to-agent service name instead of base service name
-            agent_service_name = self._get_agent_service_name(self.app.agent_id)
-            capability_sample.set_string("service_name", agent_service_name)
-            capability_sample.set_int64("last_seen", int(time.time() * 1000))
+            # Enhanced classification tags - convert to list and then serialize as JSON string
+            classification_tags_list = agent_capabilities.get("classification_tags", [])
+            if isinstance(classification_tags_list, str):
+                classification_tags_list = [classification_tags_list]
+            elif not isinstance(classification_tags_list, list):
+                classification_tags_list = []
             
-            print(f"📝 PRINT: Set basic fields - agent_id: {self.app.agent_id}, name: {getattr(self, 'agent_name', 'Unknown')}")
+            print(f"🔍 TRACE: Processed classification_tags list: {classification_tags_list}")
+            capability["classification_tags"] = json.dumps(classification_tags_list)  # Serialize as JSON string
             
-            # Set enhanced fields if provided
-            if agent_capabilities:
-                import json
-                
-                # Convert lists to JSON strings for DDS
-                capabilities_json = json.dumps(agent_capabilities.get("capabilities", []))
-                specializations_json = json.dumps(agent_capabilities.get("specializations", []))
-                classification_tags_json = json.dumps(agent_capabilities.get("classification_tags", []))
-                
-                # Convert model_info and performance_metrics to JSON if they exist
-                model_info_json = ""
-                if agent_capabilities.get("model_info"):
-                    model_info_json = json.dumps(agent_capabilities["model_info"])
-                
-                performance_metrics_json = ""
-                if agent_capabilities.get("performance_metrics"):
-                    performance_metrics_json = json.dumps(agent_capabilities["performance_metrics"])
-                
-                capability_sample.set_string("capabilities", capabilities_json)
-                capability_sample.set_string("specializations", specializations_json)
-                capability_sample.set_string("model_info", model_info_json)
-                capability_sample.set_string("classification_tags", classification_tags_json)
-                capability_sample.set_string("performance_metrics", performance_metrics_json)
-                capability_sample.set_int32("default_capable", 1 if agent_capabilities.get("default_capable", True) else 0)
-                
-                print(f"📊 PRINT: Enhanced fields set - capabilities: {capabilities_json}, specializations: {specializations_json}")
+            # Enhanced model info - serialize as JSON string if not None
+            model_info = agent_capabilities.get("model_info", None)
+            if model_info is not None:
+                capability["model_info"] = json.dumps(model_info)
             else:
-                # Default values
-                capability_sample.set_string("capabilities", "[]")
-                capability_sample.set_string("specializations", "[]")
-                capability_sample.set_string("model_info", "")
-                capability_sample.set_string("classification_tags", "[]")
-                capability_sample.set_string("performance_metrics", "")
-                capability_sample.set_int32("default_capable", 1)
+                capability["model_info"] = ""
             
-            print("📤 PRINT: About to write capability sample...")
+            # Enhanced performance metrics - serialize as JSON string if not None
+            performance_metrics = agent_capabilities.get("performance_metrics", None)
+            if performance_metrics is not None:
+                capability["performance_metrics"] = json.dumps(performance_metrics)
+            else:
+                capability["performance_metrics"] = ""
             
-            # Publish the capability
-            self.agent_capability_writer.write(capability_sample)
+            # Default capable flag
+            default_capable = agent_capabilities.get("default_capable", True)
+            capability["default_capable"] = 1 if default_capable else 0
+            
+            # Set timestamp
+            capability["last_seen"] = int(time.time() * 1000)
+            
+            print(f"📊 TRACE: Final DDS capability message being published:")
+            print(f"📊 TRACE:   agent_id: {capability['agent_id']}")
+            print(f"📊 TRACE:   name: {capability['name']}")
+            print(f"📊 TRACE:   agent_type: {capability['agent_type']}")
+            print(f"📊 TRACE:   service_name: {capability['service_name']}")
+            print(f"📊 TRACE:   description: {capability['description']}")
+            print(f"📊 TRACE:   capabilities: {capability['capabilities']}")
+            print(f"📊 TRACE:   specializations: {capability['specializations']}")
+            print(f"📊 TRACE:   classification_tags: {capability['classification_tags']}")
+            print(f"📊 TRACE:   model_info: {capability['model_info']}")
+            print(f"📊 TRACE:   performance_metrics: {capability['performance_metrics']}")
+            print(f"📊 TRACE:   default_capable: {capability['default_capable']}")
+            print(f"📊 TRACE:   last_seen: {capability['last_seen']}")
+            
+            # Write the capability
+            print(f"📡 TRACE: Writing capability to DDS...")
+            self.agent_capability_writer.write(capability)
             self.agent_capability_writer.flush()
-            
-            print(f"✅ PRINT: Published agent capability for {self.app.agent_id} (name: {getattr(self, 'agent_name', 'Unknown')})")
-            logger.info(f"Published agent capability for {self.app.agent_id} (name: {getattr(self, 'agent_name', 'Unknown')})")
-            return True
+            print(f"✅ TRACE: Successfully published agent capability for {self.agent_name}")
             
         except Exception as e:
-            print(f"💥 PRINT: Error publishing agent capability: {e}")
+            print(f"❌ TRACE: Error publishing agent capability for {self.agent_name}: {e}")
+            print(f"❌ TRACE: Exception details: {traceback.format_exc()}")
             logger.error(f"Error publishing agent capability: {e}")
-            import traceback
-            print(f"💥 PRINT: Traceback: {traceback.format_exc()}")
-            return False
+            logger.error(traceback.format_exc())
     
     def _on_agent_capability_received(self, capability_sample):
         """Handle discovered agent capability announcements"""
@@ -478,6 +491,12 @@ class AgentCommunicationMixin:
             performance_metrics_str = capability_sample.get_string("performance_metrics")
             default_capable = capability_sample.get_int32("default_capable")
             
+            print(f"🔍 PRINT: Raw capability data from DDS:")
+            print(f"🔍 PRINT:   capabilities_str: {capabilities_str}")
+            print(f"🔍 PRINT:   specializations_str: {specializations_str}")
+            print(f"🔍 PRINT:   classification_tags_str: {classification_tags_str}")
+            print(f"🔍 PRINT:   default_capable: {default_capable}")
+            
             # Parse JSON fields
             import json
             try:
@@ -494,6 +513,11 @@ class AgentCommunicationMixin:
                 classification_tags = []
                 model_info = None
                 performance_metrics = None
+            
+            print(f"🔍 PRINT: Parsed capability data:")
+            print(f"🔍 PRINT:   capabilities: {capabilities}")
+            print(f"🔍 PRINT:   specializations: {specializations}")
+            print(f"🔍 PRINT:   classification_tags: {classification_tags}")
             
             # Store agent information with enhanced capabilities
             agent_info = {
@@ -513,9 +537,14 @@ class AgentCommunicationMixin:
                 "default_capable": bool(default_capable)
             }
             
+            print(f"🔍 PRINT: Final agent_info being stored: {agent_info}")
+            
             # Check if this is a new agent or an update
             is_new_agent = agent_id not in self.discovered_agents
             self.discovered_agents[agent_id] = agent_info
+            
+            print(f"🔍 PRINT: Stored agent_info in discovered_agents[{agent_id}]")
+            print(f"🔍 PRINT: Current discovered_agents keys: {list(self.discovered_agents.keys())}")
             
             if is_new_agent:
                 capabilities_summary = f"Capabilities: {capabilities}, Specializations: {specializations}"
