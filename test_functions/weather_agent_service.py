@@ -55,7 +55,7 @@ class WeatherAgent(OpenAIGenesisAgent):
         super().__init__(
             model_name="gpt-4o",
             agent_name="WeatherExpert", 
-            base_service_name="WeatherService",
+            base_service_name="OpenAIAgent",
             description="Specialized weather agent with automatic tool discovery - provides real weather data and forecasts",
             enable_agent_communication=True,
             enable_tracing=True  # Enable detailed tracing

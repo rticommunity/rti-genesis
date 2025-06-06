@@ -1146,6 +1146,62 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             logger.error(traceback.format_exc())
             return {"message": f"Error: {str(e)}", "status": 1}
     
+    async def process_agent_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process a request from another agent (agent-to-agent communication).
+        
+        This method is called when another agent sends a request to this agent.
+        It delegates to the standard process_request method to handle the actual processing.
+        
+        Args:
+            request: Dictionary containing the request data with keys:
+                    - message: The request message
+                    - conversation_id: Optional conversation ID for tracking
+                    
+        Returns:
+            Dictionary containing the response data with keys:
+                    - message: The response message
+                    - status: Status code (0 for success, non-zero for error)
+                    - conversation_id: The conversation ID from the request
+        """
+        if self.enable_tracing:
+            logger.debug(f"🔍 TRACE: OpenAIGenesisAgent.process_agent_request() called with: {request}")
+        
+        try:
+            # Extract message and conversation ID from agent request
+            message = request.get("message", "")
+            conversation_id = request.get("conversation_id", "")
+            
+            if self.enable_tracing:
+                logger.debug(f"🔍 TRACE: Agent request - message: {message}")
+                logger.debug(f"🔍 TRACE: Agent request - conversation_id: {conversation_id}")
+            
+            # Process the request using our standard OpenAI processing
+            response = await self.process_request({"message": message})
+            
+            # Format response for agent-to-agent communication
+            agent_response = {
+                "message": response.get("message", "No response generated"),
+                "status": response.get("status", 0),
+                "conversation_id": conversation_id
+            }
+            
+            if self.enable_tracing:
+                logger.debug(f"🔍 TRACE: OpenAIGenesisAgent agent response: {agent_response}")
+            
+            return agent_response
+            
+        except Exception as e:
+            if self.enable_tracing:
+                logger.error(f"❌ TRACE: Error in OpenAIGenesisAgent.process_agent_request: {e}")
+                logger.error(f"❌ TRACE: Traceback: {traceback.format_exc()}")
+            
+            return {
+                "message": f"Agent processing error: {str(e)}",
+                "status": -1,
+                "conversation_id": request.get("conversation_id", "")
+            }
+    
     def _trace_discovery_status(self, phase: str):
         """Enhanced tracing: Discovery status at different phases"""
         logger.debug(f"🔍 TRACE: === Discovery Status: {phase} ===")

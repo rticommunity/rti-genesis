@@ -697,6 +697,28 @@ cd examples/HelloWorld
 ./run_hello_world.sh
 ```
 
+### Featured: Multi-Agent System with @genesis_tool
+
+Experience Genesis's revolutionary `@genesis_tool` decorator system:
+
+```bash
+# Run the comprehensive multi-agent demo
+./run_multi_agent_demo.sh
+```
+
+This demo showcases:
+- **Zero-boilerplate tool development** using `@genesis_tool` decorators
+- **Agent-to-agent delegation** (PersonalAssistant → WeatherAgent)
+- **Real API integration** with OpenWeatherMap
+- **Clean demo mode** perfect for presentations
+- **Type-safe development** with Python type hints
+
+For detailed exploration:
+```bash
+cd examples/MultiAgent
+./run_interactive_demo.sh
+```
+
 ## Development
 
 For development, we recommend:

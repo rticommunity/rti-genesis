@@ -1,96 +1,66 @@
 #!/bin/bash
 set -e
 
-echo "🚀 Genesis Multi-Agent Demo V2"
-echo "================================"
+echo "🚀 Genesis Multi-Agent Demo V3"
+echo "==============================="
+echo "Featuring @genesis_tool auto-discovery and clean demo mode"
 echo ""
 
-# Cleanup function for graceful shutdown
-cleanup() {
-    echo ""
-    echo "🧹 Shutting down services..."
-    if [ ! -z "$CALC_PID" ]; then
-        kill $CALC_PID 2>/dev/null || true
-        echo "  ✅ Calculator service stopped"
-    fi
-    if [ ! -z "$ASSISTANT_PID" ]; then
-        kill $ASSISTANT_PID 2>/dev/null || true
-        echo "  ✅ PersonalAssistant stopped"
-    fi
-    echo "👋 Demo cleanup complete"
-}
-
-# Set up signal handlers for cleanup
-trap cleanup EXIT INT TERM
-
-# Check if we're in the right directory
-if [ ! -f "agents/personal_assistant.py" ]; then
-    echo "❌ Error: Must run from MultiAgentV2 directory"
+# Check if we're in the Genesis_LIB root directory
+if [ ! -d "examples/MultiAgent" ]; then
+    echo "❌ Error: Must run from Genesis_LIB root directory"
     echo "Current directory: $(pwd)"
-    echo "Expected file: agents/personal_assistant.py"
+    echo "Expected directory: examples/MultiAgent"
     exit 1
 fi
 
-# Check if calculator service exists
-if [ ! -f "../../services/calculator_service.py" ]; then
-    echo "❌ Error: Calculator service not found at ../../services/calculator_service.py"
-    echo "Make sure you're running from examples/MultiAgentV2/"
-    exit 1
-fi
-
-echo "📊 Starting calculator service..."
-cd ../../
-python -m services.calculator_service &
-CALC_PID=$!
-echo "  ✅ Calculator service started (PID: $CALC_PID)"
-
-# Return to MultiAgentV2 directory
-cd examples/MultiAgentV2
-
-echo ""
-echo "🤖 Starting PersonalAssistant..."
-python agents/personal_assistant.py &
-ASSISTANT_PID=$!
-echo "  ✅ PersonalAssistant started (PID: $ASSISTANT_PID)"
-
-echo ""
-echo "⏳ Waiting for services to initialize..."
-sleep 3
-
-echo ""
-echo "🖥️ Starting CLI test interface..."
-echo "================================"
+echo "🎯 What this demo showcases:"
+echo "  • @genesis_tool automatic schema generation"
+echo "  • Agent-to-agent delegation (PersonalAssistant → WeatherAgent)"
+echo "  • Function service integration (Calculator)"
+echo "  • Clean demo mode for presentations"
+echo "  • Real weather API integration"
 echo ""
 
-# Run the CLI test - this will test both joke and math requests
-python test_cli.py
+echo "📁 Switching to MultiAgent demo directory..."
+cd examples/MultiAgent
 
-# Check the exit code of the CLI test
-CLI_EXIT_CODE=$?
+echo "🚀 Launching Genesis Multi-Agent Interactive Demo..."
+echo ""
+
+# Execute the demo script
+./run_interactive_demo.sh
+
+# Check the exit code
+DEMO_EXIT_CODE=$?
 
 echo ""
 echo "📋 Demo Summary"
 echo "==============="
 
-if [ $CLI_EXIT_CODE -eq 0 ]; then
+if [ $DEMO_EXIT_CODE -eq 0 ]; then
     echo "✅ Multi-Agent Demo completed successfully!"
     echo ""
-    echo "🎯 What was demonstrated:"
-    echo "  • PersonalAssistant agent discovery"
-    echo "  • CLI interface connection to agent"
-    echo "  • Conversational requests (jokes) via OpenAI"
-    echo "  • Functional requests (math) via calculator service"
-    echo "  • All using Genesis framework patterns"
+    echo "🎉 Key features demonstrated:"
+    echo "  • Zero-boilerplate @genesis_tool decorators"
+    echo "  • Automatic agent discovery and delegation"
+    echo "  • Real-time weather data integration"
+    echo "  • Professional demo mode with progress indicators"
+    echo "  • Type-safe tool development with Python hints"
     echo ""
-    echo "🚀 Genesis framework is working correctly!"
+    echo "🌟 Genesis framework transformation complete - from complex framework to 'magic decorators'!"
 else
     echo "❌ Multi-Agent Demo failed!"
     echo ""
     echo "🔍 Troubleshooting:"
     echo "  • Check OPENAI_API_KEY environment variable"
-    echo "  • Verify calculator service is running"
-    echo "  • Check PersonalAssistant agent startup logs"
-    echo "  • Ensure no firewall blocking DDS communication"
+    echo "  • Get optional OPENWEATHERMAP_API_KEY for real weather data"
+    echo "  • Run: python config/demo_config.py (to check environment)"
+    echo "  • For debug mode, edit config/demo_config.py and set ENABLE_DEMO_TRACING=True"
 fi
 
-# Cleanup will be called automatically via trap 
+echo ""
+echo "📚 Next steps:"
+echo "  • Explore examples/MultiAgent/agents/weather_agent.py for @genesis_tool examples"
+echo "  • Read examples/MultiAgent/README.md for detailed architecture"
+echo "  • Check examples/MultiAgent/USAGE.md for usage examples" 

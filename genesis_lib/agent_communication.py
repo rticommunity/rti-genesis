@@ -218,47 +218,31 @@ class AgentCommunicationMixin:
                     logger.debug("✅ TRACE: AgentCapabilityListener.__init__() completed")
                 
                 def on_data_available(self, reader):
-                    print(f"🔔 PRINT: AgentCapabilityListener.on_data_available() called for agent {getattr(self.agent_comm_mixin, 'agent_name', 'Unknown')}")
-                    logger.debug("📥 TRACE: AgentCapabilityListener.on_data_available() called")
                     try:
-                        # Read all available samples (don't take them, as per working FunctionRegistry pattern)
-                        print("📥 PRINT: Reading available samples...")
-                        logger.debug("📥 TRACE: Reading available samples...")
-                        samples = reader.read()
-                        print(f"📥 PRINT: Got {len(samples)} samples")
-                        logger.debug(f"📥 TRACE: Got {len(samples)} samples")
+                        # Check if tracing is enabled before printing
+                        enable_tracing = getattr(self.agent_comm_mixin, 'enable_tracing', False)
+                        if enable_tracing:
+                            print(f"🔔 PRINT: AgentCapabilityListener.on_data_available() called for agent {getattr(self.agent_comm_mixin, 'agent_name', 'Unknown')}")
                         
-                        for i, (sample, info) in enumerate(samples):
-                            print(f"📥 PRINT: Processing sample {i+1}/{len(samples)}")
-                            logger.debug(f"📥 TRACE: Processing sample {i+1}/{len(samples)}")
-                            
+                        # Get new data samples
+                        samples = reader.take()
+                        for data, info in samples:
                             # Check if the sample contains valid data that hasn't been read before
                             if info.state.sample_state == dds.SampleState.NOT_READ:
-                                print(f"📥 PRINT: Processing NOT_READ sample {i+1}")
-                                logger.debug(f"📥 TRACE: Processing NOT_READ sample {i+1}")
-                                
-                                if sample is None or info.state.instance_state != dds.InstanceState.ALIVE:
-                                    print(f"⏭️ PRINT: Skipping sample {i+1} (None or not ALIVE)")
-                                    logger.debug(f"⏭️ TRACE: Skipping sample {i+1} (None or not ALIVE)")
+                                if data is None or info.state.instance_state != dds.InstanceState.ALIVE:
                                     continue
                                 
                                 # Process the agent capability announcement
-                                print(f"🔄 PRINT: Processing agent capability for sample {i+1}...")
-                                logger.debug(f"🔄 TRACE: Processing agent capability for sample {i+1}...")
-                                self.agent_comm_mixin._on_agent_capability_received(sample)
-                                print(f"✅ PRINT: Processed agent capability for sample {i+1}")
-                                logger.debug(f"✅ TRACE: Processed agent capability for sample {i+1}")
+                                self.agent_comm_mixin._on_agent_capability_received(data)
                             else:
-                                print(f"⏭️ PRINT: Skipping sample {i+1} (already READ)")
-                                logger.debug(f"⏭️ TRACE: Skipping sample {i+1} (already READ)")
-                            
-                        print("✅ PRINT: AgentCapabilityListener.on_data_available() completed")
-                        logger.debug("✅ TRACE: AgentCapabilityListener.on_data_available() completed")
+                                continue
                     except Exception as e:
-                        print(f"💥 PRINT: Error processing agent capability data: {e}")
+                        if enable_tracing:
+                            print(f"💥 PRINT: Error processing agent capability data: {e}")
                         logger.error(f"💥 TRACE: Error processing agent capability data: {e}")
                         import traceback
-                        print(f"💥 PRINT: Traceback: {traceback.format_exc()}")
+                        if enable_tracing:
+                            print(f"💥 PRINT: Traceback: {traceback.format_exc()}")
                         logger.error(f"💥 TRACE: Traceback: {traceback.format_exc()}")
             
             # Create reader with durable QoS and listener
@@ -464,7 +448,10 @@ class AgentCommunicationMixin:
     def _on_agent_capability_received(self, capability_sample):
         """Handle discovered agent capability announcements"""
         try:
-            print(f"🔔 PRINT: _on_agent_capability_received() called for agent {getattr(self, 'agent_name', 'Unknown')}")
+            # Check if tracing is enabled before printing
+            enable_tracing = getattr(self, 'enable_tracing', False)
+            if enable_tracing:
+                print(f"🔔 PRINT: _on_agent_capability_received() called for agent {getattr(self, 'agent_name', 'Unknown')}")
             
             # Extract agent information from the capability sample
             agent_id = capability_sample.get_string("agent_id")
@@ -474,14 +461,17 @@ class AgentCommunicationMixin:
             description = capability_sample.get_string("description")
             last_seen = capability_sample.get_int64("last_seen")
             
-            print(f"📥 PRINT: Received capability for agent_id: {agent_id}, name: {agent_name}")
+            if enable_tracing:
+                print(f"📥 PRINT: Received capability for agent_id: {agent_id}, name: {agent_name}")
             
             # Skip our own announcements
             if hasattr(self, 'app') and agent_id == self.app.agent_id:
-                print(f"⏭️ PRINT: Skipping own announcement for {agent_id}")
+                if enable_tracing:
+                    print(f"⏭️ PRINT: Skipping own announcement for {agent_id}")
                 return
             
-            print(f"✅ PRINT: Processing capability for external agent: {agent_id}")
+            if enable_tracing:
+                print(f"✅ PRINT: Processing capability for external agent: {agent_id}")
             
             # Parse enhanced capability fields
             capabilities_str = capability_sample.get_string("capabilities")
@@ -491,11 +481,12 @@ class AgentCommunicationMixin:
             performance_metrics_str = capability_sample.get_string("performance_metrics")
             default_capable = capability_sample.get_int32("default_capable")
             
-            print(f"🔍 PRINT: Raw capability data from DDS:")
-            print(f"🔍 PRINT:   capabilities_str: {capabilities_str}")
-            print(f"🔍 PRINT:   specializations_str: {specializations_str}")
-            print(f"🔍 PRINT:   classification_tags_str: {classification_tags_str}")
-            print(f"🔍 PRINT:   default_capable: {default_capable}")
+            if enable_tracing:
+                print(f"🔍 PRINT: Raw capability data from DDS:")
+                print(f"🔍 PRINT:   capabilities_str: {capabilities_str}")
+                print(f"🔍 PRINT:   specializations_str: {specializations_str}")
+                print(f"🔍 PRINT:   classification_tags_str: {classification_tags_str}")
+                print(f"🔍 PRINT:   default_capable: {default_capable}")
             
             # Parse JSON fields
             import json
@@ -506,7 +497,8 @@ class AgentCommunicationMixin:
                 model_info = json.loads(model_info_str) if model_info_str else None
                 performance_metrics = json.loads(performance_metrics_str) if performance_metrics_str else None
             except json.JSONDecodeError as e:
-                print(f"⚠️ PRINT: Failed to parse JSON capability fields: {e}")
+                if enable_tracing:
+                    print(f"⚠️ PRINT: Failed to parse JSON capability fields: {e}")
                 logger.warning(f"Failed to parse JSON capability fields: {e}")
                 capabilities = []
                 specializations = []
@@ -514,10 +506,11 @@ class AgentCommunicationMixin:
                 model_info = None
                 performance_metrics = None
             
-            print(f"🔍 PRINT: Parsed capability data:")
-            print(f"🔍 PRINT:   capabilities: {capabilities}")
-            print(f"🔍 PRINT:   specializations: {specializations}")
-            print(f"🔍 PRINT:   classification_tags: {classification_tags}")
+            if enable_tracing:
+                print(f"🔍 PRINT: Parsed capability data:")
+                print(f"🔍 PRINT:   capabilities: {capabilities}")
+                print(f"🔍 PRINT:   specializations: {specializations}")
+                print(f"🔍 PRINT:   classification_tags: {classification_tags}")
             
             # Store agent information with enhanced capabilities
             agent_info = {
@@ -537,32 +530,39 @@ class AgentCommunicationMixin:
                 "default_capable": bool(default_capable)
             }
             
-            print(f"🔍 PRINT: Final agent_info being stored: {agent_info}")
+            if enable_tracing:
+                print(f"🔍 PRINT: Final agent_info being stored: {agent_info}")
             
             # Check if this is a new agent or an update
             is_new_agent = agent_id not in self.discovered_agents
             self.discovered_agents[agent_id] = agent_info
             
-            print(f"🔍 PRINT: Stored agent_info in discovered_agents[{agent_id}]")
-            print(f"🔍 PRINT: Current discovered_agents keys: {list(self.discovered_agents.keys())}")
+            if enable_tracing:
+                print(f"🔍 PRINT: Stored agent_info in discovered_agents[{agent_id}]")
+                print(f"🔍 PRINT: Current discovered_agents keys: {list(self.discovered_agents.keys())}")
             
             if is_new_agent:
                 capabilities_summary = f"Capabilities: {capabilities}, Specializations: {specializations}"
-                print(f"🎉 PRINT: Discovered NEW agent: {agent_name} (ID: {agent_id}, Type: {agent_type}, Service: {service_name})")
-                print(f"📊 PRINT: Agent capabilities: {capabilities_summary}")
+                if enable_tracing:
+                    print(f"🎉 PRINT: Discovered NEW agent: {agent_name} (ID: {agent_id}, Type: {agent_type}, Service: {service_name})")
+                    print(f"📊 PRINT: Agent capabilities: {capabilities_summary}")
                 logger.info(f"Discovered new agent: {agent_name} (ID: {agent_id}, Type: {agent_type}, Service: {service_name}) - {capabilities_summary}")
             else:
-                print(f"🔄 PRINT: Updated agent info: {agent_name} (ID: {agent_id})")
+                if enable_tracing:
+                    print(f"🔄 PRINT: Updated agent info: {agent_name} (ID: {agent_id})")
                 logger.debug(f"Updated agent info: {agent_name} (ID: {agent_id})")
             
-            print(f"📊 PRINT: Total discovered agents: {len(self.discovered_agents)}")
-            logger.debug(f"Total discovered agents: {len(self.discovered_agents)}")
+            if enable_tracing:
+                print(f"📊 PRINT: Total discovered agents: {len(self.discovered_agents)}")
+                logger.debug(f"Total discovered agents: {len(self.discovered_agents)}")
                 
         except Exception as e:
-            print(f"💥 PRINT: Error processing agent capability: {e}")
+            if enable_tracing:
+                print(f"💥 PRINT: Error processing agent capability: {e}")
             logger.error(f"Error processing agent capability: {e}")
             import traceback
-            print(f"💥 PRINT: Traceback: {traceback.format_exc()}")
+            if enable_tracing:
+                print(f"💥 PRINT: Traceback: {traceback.format_exc()}")
     
     def get_agents_by_type(self, agent_type: str) -> List[Dict[str, Any]]:
         """Get all discovered agents of a specific type"""
@@ -857,9 +857,10 @@ class AgentCommunicationMixin:
         return True
     
     async def _process_agent_request(self, request, info):
-        """Process an incoming agent request"""
+        """Process an agent-to-agent request and send reply"""
         try:
-            print(f"🔄 PRINT: _process_agent_request() called for agent {getattr(self, 'agent_name', 'Unknown')}")
+            # Check if tracing is enabled before printing
+            enable_tracing = getattr(self, 'enable_tracing', False)
             
             # Extract request data
             request_data = {
@@ -867,16 +868,20 @@ class AgentCommunicationMixin:
                 "conversation_id": request.get_string("conversation_id")
             }
             
-            print(f"📥 PRINT: Extracted request data: {request_data}")
+            if enable_tracing:
+                print(f"📥 PRINT: Extracted request data: {request_data}")
             logger.info(f"Received agent request: {request_data['message']}")
             
             # Process the request using the abstract method
             try:
-                print(f"🔄 PRINT: About to call process_agent_request() method...")
+                if enable_tracing:
+                    print(f"🔄 PRINT: About to call process_agent_request() method...")
                 response_data = await self.process_agent_request(request_data)
-                print(f"✅ PRINT: process_agent_request() returned: {response_data}")
+                if enable_tracing:
+                    print(f"✅ PRINT: process_agent_request() returned: {response_data}")
             except Exception as e:
-                print(f"💥 PRINT: Error in process_agent_request(): {e}")
+                if enable_tracing:
+                    print(f"💥 PRINT: Error in process_agent_request(): {e}")
                 logger.error(f"Error processing agent request: {e}")
                 response_data = {
                     "message": f"Error processing request: {str(e)}",
@@ -884,7 +889,8 @@ class AgentCommunicationMixin:
                     "conversation_id": request_data.get("conversation_id", "")
                 }
             
-            print(f"📤 PRINT: About to create reply sample with data: {response_data}")
+            if enable_tracing:
+                print(f"📤 PRINT: About to create reply sample with data: {response_data}")
             
             # Create reply sample
             reply_sample = dds.DynamicData(self.agent_reply_type)
@@ -892,16 +898,20 @@ class AgentCommunicationMixin:
             reply_sample.set_int32("status", response_data.get("status", 0))
             reply_sample.set_string("conversation_id", response_data.get("conversation_id", ""))
             
-            print(f"📤 PRINT: About to send reply via agent_replier...")
+            if enable_tracing:
+                print(f"📤 PRINT: About to send reply via agent_replier...")
             
             # Send reply
             self.agent_replier.send_reply(reply_sample, info)
             
-            print(f"✅ PRINT: Reply sent successfully: {response_data.get('message', '')}")
+            if enable_tracing:
+                print(f"✅ PRINT: Reply sent successfully: {response_data.get('message', '')}")
             logger.info(f"Sent reply to agent request: {response_data.get('message', '')}")
             
         except Exception as e:
-            print(f"💥 PRINT: Error in _process_agent_request(): {e}")
+            enable_tracing = getattr(self, 'enable_tracing', False)
+            if enable_tracing:
+                print(f"💥 PRINT: Error in _process_agent_request(): {e}")
             logger.error(f"Error processing agent request: {e}")
             # Send error reply
             try:
@@ -910,9 +920,11 @@ class AgentCommunicationMixin:
                 reply_sample.set_int32("status", -1)
                 reply_sample.set_string("conversation_id", request_data.get("conversation_id", ""))
                 self.agent_replier.send_reply(reply_sample, info)
-                print(f"✅ PRINT: Error reply sent")
+                if enable_tracing:
+                    print(f"✅ PRINT: Error reply sent")
             except Exception as reply_error:
-                print(f"💥 PRINT: Error sending error reply: {reply_error}")
+                if enable_tracing:
+                    print(f"💥 PRINT: Error sending error reply: {reply_error}")
                 logger.error(f"Error sending error reply: {reply_error}")
     
     async def _handle_agent_requests(self):
@@ -925,21 +937,26 @@ class AgentCommunicationMixin:
             # Use the same pattern as GenesisRPCService.run() - receive_requests with timeout
             requests = self.agent_replier.receive_requests(max_wait=dds.Duration(1))  # 1 second timeout
             
-            if requests:  # Only print if we have requests
+            # Check if tracing is enabled before printing
+            enable_tracing = getattr(self, 'enable_tracing', False)
+            
+            if requests and enable_tracing:  # Only print if we have requests AND tracing is enabled
                 print(f"🔔 PRINT: _handle_agent_requests() found {len(requests)} requests for agent {getattr(self, 'agent_name', 'Unknown')}")
             
             for request_sample in requests:
                 request = request_sample.data
                 request_info = request_sample.info
                 
-                print(f"🔄 PRINT: Processing agent request via polling: {request.get_string('message')}")
+                if enable_tracing:
+                    print(f"🔄 PRINT: Processing agent request via polling: {request.get_string('message')}")
                 logger.debug(f"Processing agent request: {request.get_string('message')}")
                 
                 try:
                     # Process the request using our async method
                     await self._process_agent_request(request, request_info)
                 except Exception as e:
-                    print(f"💥 PRINT: Error processing agent request in polling: {e}")
+                    if enable_tracing:
+                        print(f"💥 PRINT: Error processing agent request in polling: {e}")
                     logger.error(f"Error processing agent request: {e}")
                     # Send error reply
                     try:
@@ -948,9 +965,11 @@ class AgentCommunicationMixin:
                         reply_sample.set_int32("status", -1)
                         reply_sample.set_string("conversation_id", request.get_string("conversation_id"))
                         self.agent_replier.send_reply(reply_sample, request_info)
-                        print("✅ PRINT: Error reply sent via polling")
+                        if enable_tracing:
+                            print("✅ PRINT: Error reply sent via polling")
                     except Exception as reply_error:
-                        print(f"💥 PRINT: Error sending error reply in polling: {reply_error}")
+                        if enable_tracing:
+                            print(f"💥 PRINT: Error sending error reply in polling: {reply_error}")
                         logger.error(f"Error sending error reply: {reply_error}")
                         
         except Exception as e:
