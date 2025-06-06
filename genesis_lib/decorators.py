@@ -35,10 +35,12 @@ Example:
 Copyright (c) 2025, RTI & Jason Upchurch
 """
 
-import json, inspect, typing, re
-from typing import Any, Callable, Dict, Optional, Type, Union, get_origin, get_args
+import json, inspect, typing, re, functools, logging
+from typing import Any, Callable, Dict, Optional, Type, Union, get_origin, get_args, get_type_hints
 
-__all__ = ["genesis_function", "infer_schema_from_annotations", "validate_args"]
+logger = logging.getLogger(__name__)
+
+__all__ = ["genesis_function", "genesis_tool", "infer_schema_from_annotations", "validate_args"]
 
 # --------------------------------------------------------------------------- #
 # Helpers                                                                     #
@@ -208,3 +210,139 @@ def genesis_function(
         }
         return fn
     return decorator
+
+def genesis_tool(description: str = None, 
+                operation_type: str = "GENERAL",
+                schema_format: str = "auto"):
+    """
+    Decorator for marking agent methods as auto-discoverable tools.
+    
+    This decorator enables automatic tool schema generation and injection
+    into LLM clients (OpenAI, Anthropic, etc.) without manual schema definition.
+    
+    Args:
+        description: Human-readable description of the tool (uses docstring if None)
+        operation_type: Type of operation for classification
+        schema_format: Target schema format ("openai", "anthropic", "auto")
+    
+    Returns:
+        Decorated method with Genesis tool metadata
+    """
+    def decorator(func):
+        # Get function signature and type hints
+        sig = inspect.signature(func)
+        type_hints = get_type_hints(func)
+        
+        # Auto-generate description from docstring if not provided
+        if description is None:
+            auto_description = func.__doc__ or f"Execute {func.__name__}"
+        else:
+            auto_description = description
+        
+        # Extract parameters with enhanced type detection
+        parameters = {}
+        required_params = []
+        
+        for param_name, param in sig.parameters.items():
+            # Skip special parameters
+            if param_name in ['self', 'cls', 'request_info']:
+                continue
+            
+            # Get type hint
+            param_type = type_hints.get(param_name, str)
+            
+            # Convert Python types to schema types
+            schema_type, schema_props = _python_type_to_schema(param_type)
+            
+            param_info = {
+                "type": schema_type,
+                "description": f"Parameter {param_name}",
+                **schema_props
+            }
+            
+            # Handle default values
+            if param.default == inspect.Parameter.empty:
+                required_params.append(param_name)
+            else:
+                param_info["default"] = param.default
+            
+            parameters[param_name] = param_info
+        
+        # Extract return type information
+        return_type = type_hints.get('return', str)
+        return_schema_type, return_schema_props = _python_type_to_schema(return_type)
+        
+        # Store comprehensive metadata on function
+        func.__genesis_tool_meta__ = {
+            "description": auto_description,
+            "parameters": parameters,
+            "required": required_params,
+            "operation_type": operation_type,
+            "schema_format": schema_format,
+            "return_type": return_schema_type,
+            "return_properties": return_schema_props,
+            "function_name": func.__name__
+        }
+        
+        # Mark as Genesis tool for discovery
+        func.__is_genesis_tool__ = True
+        
+        logger.debug(f"Genesis tool registered: {func.__name__} with {len(parameters)} parameters")
+        
+        return func
+    
+    return decorator
+
+def _python_type_to_schema(python_type) -> tuple[str, dict]:
+    """
+    Convert Python type hints to schema types and properties.
+    
+    Args:
+        python_type: Python type hint
+        
+    Returns:
+        Tuple of (schema_type, additional_properties)
+    """
+    # Handle basic types
+    if python_type == str:
+        return "string", {}
+    elif python_type == int:
+        return "integer", {}
+    elif python_type == float:
+        return "number", {}
+    elif python_type == bool:
+        return "boolean", {}
+    elif python_type == list:
+        return "array", {"items": {"type": "string"}}
+    elif python_type == dict:
+        return "object", {}
+    
+    # Handle generic types (List[str], Dict[str, int], etc.)
+    origin = get_origin(python_type)
+    args = get_args(python_type)
+    
+    if origin is list and args:
+        item_type, item_props = _python_type_to_schema(args[0])
+        return "array", {"items": {"type": item_type, **item_props}}
+    elif origin is dict and args:
+        if len(args) >= 2:
+            value_type, value_props = _python_type_to_schema(args[1])
+            return "object", {
+                "additionalProperties": {"type": value_type, **value_props}
+            }
+        return "object", {}
+    elif origin is tuple:
+        # Handle Tuple types as arrays
+        return "array", {"items": {"type": "string"}}
+    
+    # Handle Optional types (Union with None)
+    if hasattr(python_type, '__origin__') and python_type.__origin__ is type(type(None).__class__):
+        # This is a Union type, check if it's Optional
+        if len(args) == 2 and type(None) in args:
+            non_none_type = args[0] if args[1] is type(None) else args[1]
+            schema_type, props = _python_type_to_schema(non_none_type)
+            props["nullable"] = True
+            return schema_type, props
+    
+    # Default fallback
+    return "string", {"description": f"Type: {python_type}"}

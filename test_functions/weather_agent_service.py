@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """
-WeatherAgent for Multi-Agent Demo V2
+WeatherAgent for Multi-Agent Demo V3 - Using @genesis_tool Auto-Discovery
 
-A specialized weather agent that provides real weather data and can be called
-by other agents as a tool. Demonstrates agent-as-tool pattern where:
-- Users can connect directly to WeatherAgent for weather queries
-- PersonalAssistant can discover and call WeatherAgent as a specialized tool
+A specialized weather agent that uses the new @genesis_tool decorator
+for automatic tool discovery and schema generation, eliminating manual
+OpenAI tool schema definition.
+
+Key improvements:
+- @genesis_tool decorator automatically generates OpenAI schemas
+- No manual tool schema definition required
+- Cleaner, simpler code focused on domain logic
+- Automatic tool injection into OpenAI client
 
 Copyright (c) 2025, RTI & Jason Upchurch
 """
@@ -23,6 +28,7 @@ import traceback
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../..'))
 
 from genesis_lib.openai_genesis_agent import OpenAIGenesisAgent
+from genesis_lib.decorators import genesis_tool
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -30,14 +36,18 @@ logger = logging.getLogger(__name__)
 
 class WeatherAgent(OpenAIGenesisAgent):
     """
-    Specialized weather agent for multi-agent system.
-    Provides real weather data and can be called by other agents.
+    Specialized weather agent using automatic tool discovery.
+    
+    This agent demonstrates the new @genesis_tool decorator functionality:
+    - Automatic OpenAI tool schema generation
+    - Zero manual schema definition 
+    - Focus on domain logic instead of Genesis plumbing
     """
     
     def __init__(self):
         print("🚀 TRACE: WeatherAgent.__init__() starting...")
         
-        # Get weather API key first (before parent init so it's available in get_agent_capabilities)
+        # Get weather API key first
         self.weather_api_key = os.getenv('OPENWEATHERMAP_API_KEY')
         print(f"🔑 TRACE: Weather API Key: {'✅ Available' if self.weather_api_key else '❌ Missing'}")
         
@@ -46,34 +56,79 @@ class WeatherAgent(OpenAIGenesisAgent):
             model_name="gpt-4o",
             agent_name="WeatherExpert", 
             base_service_name="WeatherService",
-            description="Specialized weather agent providing real weather data, forecasts, and meteorological analysis",
+            description="Specialized weather agent with automatic tool discovery - provides real weather data and forecasts",
             enable_agent_communication=True,
             enable_tracing=True  # Enable detailed tracing
         )
         
-        # Override function discovery behavior for specialized agent
-        print(f"🔧 TRACE: Disabling external function discovery for specialized WeatherAgent")
-        # WeatherAgent is self-contained and doesn't need external function services
-        
-        # Weather-specific system prompt
-        self.weather_system_prompt = """You are WeatherExpert, a specialized weather agent with access to real weather data.
-
-When users ask about weather, provide detailed, accurate weather information including:
-- Current conditions (temperature, humidity, wind, pressure)
-- Weather descriptions (sunny, cloudy, rainy, etc.)
-- Forecasts when requested
-- Weather-related advice and insights
-
-If you have access to real weather API, use it. Otherwise, provide realistic weather estimates based on typical patterns for the location and season.
-
-Be helpful, informative, and weather-focused in your responses."""
-
-        # Override the general system prompt with weather-specific one
-        self.system_prompt = self.weather_system_prompt
-        
         print(f"✅ TRACE: WeatherAgent initialized with agent_id: {self.app.agent_id}")
         logger.info(f"✅ WeatherAgent initialized")
         logger.info(f"🌤️ Weather API: {'✅ REAL' if self.weather_api_key else '❌ MOCK'}")
+
+    # =============================================================================
+    # AUTO-DISCOVERED TOOLS - Genesis automatically converts these to OpenAI tools
+    # =============================================================================
+
+    @genesis_tool(description="Get current weather conditions for any location worldwide")
+    async def get_current_weather(self, location: str) -> dict:
+        """
+        Get current weather conditions for a specific location.
+        
+        Args:
+            location: The city and country, e.g. 'London, UK' or 'Denver, Colorado'
+            
+        Returns:
+            Current weather data including temperature, description, humidity, pressure, wind
+        """
+        logger.info(f"🌤️ Getting current weather for {location}")
+        return await self.get_weather_data(location, forecast=False)
+
+    @genesis_tool(description="Get multi-day weather forecast for any location")
+    async def get_weather_forecast(self, location: str, days: int = 5) -> dict:
+        """
+        Get weather forecast for a specific location.
+        
+        Args:
+            location: The city and country, e.g. 'London, UK' or 'Denver, Colorado'
+            days: Number of days to forecast (1-7, default: 5)
+            
+        Returns:
+            Weather forecast data for the specified number of days
+        """
+        logger.info(f"🌤️ Getting {days}-day weather forecast for {location}")
+        return await self.get_weather_data(location, forecast=True)
+
+    @genesis_tool(description="Analyze weather conditions and provide clothing/activity recommendations")
+    def analyze_weather_conditions(self, location: str, temperature: float, description: str, humidity: int) -> str:
+        """
+        Analyze weather conditions and provide insights and recommendations.
+        
+        Args:
+            location: The location being analyzed
+            temperature: Current temperature in Celsius
+            description: Weather description (e.g., 'sunny', 'rainy', 'cloudy')
+            humidity: Humidity percentage (0-100)
+            
+        Returns:
+            Human-readable weather analysis and recommendations
+        """
+        logger.info(f"📊 Analyzing weather conditions for {location}")
+        
+        analysis = f"Weather analysis for {location}:\n"
+        analysis += f"- Temperature: {temperature}°C ({self._temp_category(temperature)})\n"
+        analysis += f"- Conditions: {description.title()}\n"
+        analysis += f"- Humidity: {humidity}% ({self._humidity_category(humidity)})\n"
+        
+        # Add recommendations
+        recommendations = self._get_weather_recommendations(temperature, description, humidity, 0)
+        if recommendations:
+            analysis += f"\nRecommendations: {recommendations}"
+        
+        return analysis
+
+    # =============================================================================
+    # DOMAIN LOGIC METHODS (not auto-discovered tools)
+    # =============================================================================
 
     def get_agent_capabilities(self):
         """Return weather-specific agent capabilities"""
@@ -191,7 +246,7 @@ Be helpful, informative, and weather-focused in your responses."""
             "humidity": random.randint(40, 90),
             "pressure": random.randint(1010, 1025),
             "wind_speed": random.uniform(5, 20),
-            "data_source": "Mock data (no API key)"
+            "data_source": "Mock data (auto-generated)"
         }
         
         if forecast:
@@ -208,271 +263,69 @@ Be helpful, informative, and weather-focused in your responses."""
             return {
                 "location": location,
                 "forecast": forecasts,
-                "data_source": "Mock data (no API key)"
+                "data_source": "Mock data (auto-generated)"
             }
         
         return base_weather
 
-    async def process_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Process a weather request using OpenAI with internal weather tool calls.
-        This agent uses OpenAI's tool calling feature to access weather APIs internally.
-        """
-        print(f"🔍 TRACE: WeatherAgent.process_request() called with: {request}")
-        
-        try:
-            # Extract message
-            message = request.get("message", "")
-            conversation_id = request.get("conversation_id", "")
-            print(f"🔍 TRACE: Processing weather request: {message}")
-            
-            # Check if we have proper OpenAI client setup
-            if not hasattr(self, 'client') or self.client is None:
-                print(f"❌ TRACE: No OpenAI client found!")
-                return {
-                    "message": "Weather service configuration error: OpenAI client not initialized",
-                    "status": 1
-                }
-            
-            print(f"✅ TRACE: OpenAI client available: {type(self.client)}")
-            
-            # Define internal weather tools for OpenAI
-            weather_tools = [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "get_current_weather",
-                        "description": "Get current weather conditions for a specific location using OpenWeatherMap API",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "location": {
-                                    "type": "string",
-                                    "description": "The city and state/country, e.g. 'Denver, Colorado' or 'London, UK'"
-                                }
-                            },
-                            "required": ["location"]
-                        }
-                    }
-                },
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "get_weather_forecast",
-                        "description": "Get weather forecast for a specific location using OpenWeatherMap API",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "location": {
-                                    "type": "string",
-                                    "description": "The city and state/country, e.g. 'Denver, Colorado' or 'London, UK'"
-                                }
-                            },
-                            "required": ["location"]
-                        }
-                    }
-                }
-            ]
-            
-            print(f"🔧 TRACE: Defined {len(weather_tools)} internal weather tools for OpenAI")
-            
-            # Create weather-specific system prompt
-            weather_system_prompt = """You are WeatherExpert, a specialized weather agent with access to real weather data.
+    # =============================================================================
+    # HELPER METHODS for weather analysis
+    # =============================================================================
 
-When users ask about weather, use the provided weather tools to get accurate, real-time data:
-- Use get_current_weather for current conditions
-- Use get_weather_forecast for future weather predictions
-- Always extract the location correctly from the user's request
-- Provide detailed, helpful weather information
-- If no location is specified, ask for clarification
-
-Provide natural, conversational responses based on the real weather data you retrieve."""
-
-            # Call OpenAI with internal weather tools
-            print(f"🚀 TRACE: Calling OpenAI with internal weather tools...")
-            
-            try:
-                response = self.client.chat.completions.create(
-                    model=self.model_config.get("model", "gpt-4o"),
-                    messages=[
-                        {"role": "system", "content": weather_system_prompt},
-                        {"role": "user", "content": message}
-                    ],
-                    tools=weather_tools,
-                    tool_choice="auto",
-                    temperature=0.1
-                )
-                
-                assistant_message = response.choices[0].message
-                print(f"🤖 TRACE: OpenAI response received, tool_calls: {bool(assistant_message.tool_calls)}")
-                
-                if assistant_message.tool_calls:
-                    # OpenAI wants to make weather tool calls - execute them internally
-                    print(f"🔧 TRACE: Processing {len(assistant_message.tool_calls)} tool call(s)")
-                    
-                    tool_messages = [
-                        {"role": "system", "content": weather_system_prompt},
-                        {"role": "user", "content": message},
-                        {
-                            "role": "assistant",
-                            "content": assistant_message.content,
-                            "tool_calls": [
-                                {
-                                    "id": tc.id,
-                                    "type": tc.type,
-                                    "function": {
-                                        "name": tc.function.name,
-                                        "arguments": tc.function.arguments
-                                    }
-                                } for tc in assistant_message.tool_calls
-                            ]
-                        }
-                    ]
-                    
-                    # Execute each tool call internally
-                    for tool_call in assistant_message.tool_calls:
-                        function_name = tool_call.function.name
-                        function_args = json.loads(tool_call.function.arguments)
-                        
-                        print(f"🛠️ TRACE: Executing internal tool: {function_name}({function_args})")
-                        
-                        if function_name == "get_current_weather":
-                            weather_data = await self.get_weather_data(function_args["location"], forecast=False)
-                        elif function_name == "get_weather_forecast":
-                            weather_data = await self.get_weather_data(function_args["location"], forecast=True)
-                        else:
-                            weather_data = {"error": f"Unknown tool: {function_name}"}
-                        
-                        # Add tool result to conversation
-                        tool_messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": json.dumps(weather_data)
-                        })
-                        
-                        print(f"✅ TRACE: Tool {function_name} executed successfully")
-                    
-                    # Get final response from OpenAI with tool results
-                    print(f"🔄 TRACE: Getting final response from OpenAI with tool results...")
-                    final_response = self.client.chat.completions.create(
-                        model=self.model_config.get("model", "gpt-4o"),
-                        messages=tool_messages,
-                        temperature=0.3
-                    )
-                    
-                    final_message = final_response.choices[0].message.content
-                    print(f"✅ TRACE: Final weather response generated with tool data")
-                    
-                else:
-                    # OpenAI responded directly without tool calls
-                    final_message = assistant_message.content
-                    print(f"✅ TRACE: Direct response from OpenAI (no tools needed)")
-                
-                print(f"🌤️ TRACE: Weather processing completed successfully")
-                return {
-                    "message": final_message,
-                    "status": 0,
-                    "conversation_id": conversation_id
-                }
-                
-            except Exception as openai_error:
-                print(f"❌ TRACE: OpenAI processing failed: {openai_error}")
-                print(f"❌ TRACE: Error type: {type(openai_error)}")
-                
-                # Fallback to direct weather data if OpenAI fails
-                print(f"🧪 TRACE: Falling back to direct weather data due to OpenAI failure")
-                
-                # Extract location from message for fallback
-                location = "Denver, Colorado"  # Default
-                if 'london' in message.lower():
-                    location = "London, UK"
-                elif 'tokyo' in message.lower():
-                    location = "Tokyo, Japan"
-                elif 'paris' in message.lower():
-                    location = "Paris, France"
-                
-                # Get weather data directly
-                weather_data = await self.get_weather_data(location, forecast=False)
-                
-                if "error" not in weather_data:
-                    fallback_message = (
-                        f"Current weather in {weather_data['location']}: "
-                        f"{weather_data['temperature']}°C, {weather_data['description']}, "
-                        f"humidity {weather_data['humidity']}%, "
-                        f"wind {weather_data['wind_speed']} m/s. "
-                        f"(Note: Using direct API access due to processing error)"
-                    )
-                else:
-                    fallback_message = f"Sorry, I encountered an error getting weather data: {weather_data.get('error', 'Unknown error')}"
-                
-                return {
-                    "message": fallback_message,
-                    "status": 0,
-                    "conversation_id": conversation_id
-                }
-            
-        except Exception as e:
-            print(f"❌ TRACE: Error in WeatherAgent.process_request: {e}")
-            print(f"❌ TRACE: Traceback: {traceback.format_exc()}")
-            return {
-                "message": f"Weather service error: {str(e)}",
-                "status": 1,
-                "conversation_id": request.get("conversation_id", "")
-            }
-
-    async def process_agent_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Process a request from another agent (agent-to-agent communication).
-        This is called when PersonalAssistant sends weather requests to WeatherAgent.
-        """
-        print(f"🔍 TRACE: WeatherAgent.process_agent_request() called with: {request}")
-        
-        try:
-            # Extract message from agent request
-            message = request.get("message", "")
-            conversation_id = request.get("conversation_id", "")
-            
-            print(f"🔍 TRACE: Agent request - message: {message}")
-            print(f"🔍 TRACE: Agent request - conversation_id: {conversation_id}")
-            
-            # Process the weather request using our OpenAI processing
-            response = await self.process_request({"message": message})
-            
-            # Format response for agent-to-agent communication
-            agent_response = {
-                "message": response.get("message", "Weather information not available"),
-                "status": response.get("status", 0),
-                "conversation_id": conversation_id
-            }
-            
-            print(f"🔍 TRACE: WeatherAgent agent response: {agent_response}")
-            return agent_response
-            
-        except Exception as e:
-            print(f"❌ TRACE: Error in WeatherAgent.process_agent_request: {e}")
-            print(f"❌ TRACE: Traceback: {traceback.format_exc()}")
-            return {
-                "message": f"Weather service error: {str(e)}",
-                "status": -1,
-                "conversation_id": request.get("conversation_id", "")
-            }
-
-    # Add a method to check agent discovery
-    def check_agent_discovery_status(self):
-        """Debug method to check agent discovery status"""
-        print(f"🔍 TRACE: === WeatherAgent Discovery Status ===")
-        print(f"🔍 TRACE: Agent ID: {self.app.agent_id}")
-        print(f"🔍 TRACE: Agent capabilities: {self.get_agent_capabilities()}")
-        
-        if hasattr(self, 'agent_communication') and self.agent_communication:
-            discovered = self.agent_communication.get_discovered_agents()
-            print(f"🔍 TRACE: Discovered agents: {len(discovered)}")
-            for agent_id, agent_info in discovered.items():
-                print(f"🔍 TRACE: - Agent {agent_id}: {agent_info.get('name', 'Unknown')} (type: {agent_info.get('agent_type', 'Unknown')})")
+    def _temp_category(self, temp: float) -> str:
+        """Categorize temperature"""
+        if temp < 0:
+            return "freezing"
+        elif temp < 10:
+            return "cold"
+        elif temp < 20:
+            return "cool"
+        elif temp < 30:
+            return "warm"
         else:
-            print(f"🔍 TRACE: Agent communication not enabled")
+            return "hot"
+
+    def _humidity_category(self, humidity: int) -> str:
+        """Categorize humidity"""
+        if humidity < 30:
+            return "dry"
+        elif humidity < 60:
+            return "comfortable"
+        elif humidity < 80:
+            return "humid"
+        else:
+            return "very humid"
+
+    def _wind_category(self, wind_speed: float) -> str:
+        """Categorize wind speed"""
+        if wind_speed < 5:
+            return "calm"
+        elif wind_speed < 15:
+            return "moderate"
+        elif wind_speed < 25:
+            return "strong"
+        else:
+            return "very strong"
+
+    def _get_weather_recommendations(self, temp: float, desc: str, humidity: int, wind: float) -> str:
+        """Get weather-based recommendations"""
+        recommendations = []
         
-        print(f"🔍 TRACE: === End Discovery Status ===")
+        if temp < 5:
+            recommendations.append("Dress warmly, wear layers")
+        elif temp > 30:
+            recommendations.append("Stay hydrated, seek shade")
+        
+        if "rain" in desc.lower():
+            recommendations.append("Bring umbrella or raincoat")
+        
+        if humidity > 80:
+            recommendations.append("Expect muggy conditions")
+        
+        if wind > 20:
+            recommendations.append("Expect windy conditions")
+        
+        return "; ".join(recommendations) if recommendations else "No special recommendations"
 
     async def _ensure_functions_discovered(self):
         """
@@ -481,11 +334,10 @@ Provide natural, conversational responses based on the real weather data you ret
         """
         print(f"🔧 TRACE: WeatherAgent._ensure_functions_discovered() - SKIPPING (specialized agent)")
         # Do nothing - WeatherAgent doesn't need external functions
-        return
 
 async def main():
     """Main entry point for WeatherAgent"""
-    logger.info("🌤️ Starting WeatherAgent...")
+    logger.info("🌤️ Starting WeatherAgent with automatic tool discovery...")
     
     # Check for API key
     weather_api_key = os.getenv('OPENWEATHERMAP_API_KEY')
@@ -496,14 +348,10 @@ async def main():
     # Create and run weather agent
     agent = WeatherAgent()
     
-    # Add delayed discovery check
-    print("\n🕐 TRACE: Waiting 10 seconds to see what agents WeatherAgent discovers...")
-    await asyncio.sleep(10)
-    print("🕐 TRACE: === WEATHERAGENT DISCOVERY CHECK ===")
-    agent.check_agent_discovery_status()
-    
     try:
         logger.info("🚀 WeatherAgent starting...")
+        logger.info("🛠️ Auto-discovery will find @genesis_tool decorated methods")
+        logger.info("📡 Agent will be discoverable as 'WeatherExpert' service")
         await agent.run()
     except KeyboardInterrupt:
         logger.info("⏹️ WeatherAgent stopped by user")

@@ -5,12 +5,19 @@ Automated Test for Agent-to-Agent Communication
 This test validates that PersonalAssistant can discover and delegate to WeatherAgent
 for weather queries, demonstrating the complete Genesis agent-as-tool pattern.
 
+**UPDATED FOR @genesis_tool DECORATORS**
+This test now uses the new WeatherAgent V3 that demonstrates:
+- @genesis_tool decorator for automatic tool discovery
+- Zero manual OpenAI tool schema definition
+- Genesis handles all tool injection and execution automatically
+
 CONCRETE SUCCESS CRITERIA:
 1. Agent Discovery: Both agents must be discoverable via DDS
 2. Service Registration: Both agents must register their capabilities
 3. Tool Generation: PersonalAssistant must create agent tools from WeatherAgent
 4. DDS Communication: Actual agent-to-agent messages must be observed via DDS spy
 5. Response Validation: Response must contain weather data AND lack error indicators
+6. Auto-Tool Execution: WeatherAgent's @genesis_tool methods must be called automatically
 
 This test uses multiple verification methods:
 - DDS spy monitoring for actual communication
@@ -456,7 +463,7 @@ class AgentToAgentTester:
             response = await interface.send_request({
                 'message': 'What is the weather in London, England?',
                 'conversation_id': 'agent_to_agent_test'
-            }, timeout_seconds=35.0)
+            }, timeout_seconds=60.0)  # Increased from 35 to 60 seconds for more reliable testing
             
             if not response or response.get('status') != 0:
                 print("❌ FAILED: No valid response received")

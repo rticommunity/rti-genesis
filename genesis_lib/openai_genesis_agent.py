@@ -30,6 +30,7 @@ from typing import Dict, Any, List, Optional
 from genesis_lib.monitored_agent import MonitoredAgent
 from genesis_lib.function_classifier import FunctionClassifier
 from genesis_lib.generic_function_client import GenericFunctionClient
+from genesis_lib.schema_generators import get_schema_generator
 
 # Configure logging
 # logging.basicConfig(  # REMOVE THIS BLOCK
@@ -572,10 +573,10 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
     
     def _get_all_tool_schemas_for_openai(self, relevant_functions: Optional[List[str]] = None):
         """
-        Get ALL tool schemas for OpenAI - both functions AND agents.
-        This is the unified method that enables the agent-as-tool pattern.
+        Get ALL tool schemas for OpenAI - functions, agents, AND internal tools.
+        This is the unified method that enables the complete tool ecosystem.
         """
-        logger.debug("===== TRACING: Getting ALL tool schemas (functions + agents) for OpenAI =====")
+        logger.debug("===== TRACING: Getting ALL tool schemas (functions + agents + internal tools) for OpenAI =====")
         
         # Get function tool schemas
         function_tools = self._get_function_schemas_for_openai(relevant_functions)
@@ -583,12 +584,47 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         # Get agent tool schemas
         agent_tools = self._convert_agents_to_tools()
         
-        # Combine both function and agent tools
-        all_tools = function_tools + agent_tools
+        # Get internal tool schemas from @genesis_tool decorated methods
+        internal_tools = self._get_internal_tool_schemas_for_openai()
         
-        logger.debug(f"===== TRACING: Combined {len(function_tools)} function tools + {len(agent_tools)} agent tools = {len(all_tools)} total tools =====")
+        # Combine all tool types
+        all_tools = function_tools + agent_tools + internal_tools
+        
+        logger.debug(f"===== TRACING: Combined {len(function_tools)} function tools + {len(agent_tools)} agent tools + {len(internal_tools)} internal tools = {len(all_tools)} total tools =====")
         
         return all_tools
+
+    def _get_internal_tool_schemas_for_openai(self) -> List[Dict[str, Any]]:
+        """
+        Generate OpenAI tool schemas for internal @genesis_tool decorated methods.
+        
+        Returns:
+            List of OpenAI-compatible tool schemas
+        """
+        if not hasattr(self, 'internal_tools_cache') or not self.internal_tools_cache:
+            return []
+        
+        if self.enable_tracing:
+            logger.debug(f"===== TRACING: Generating OpenAI schemas for {len(self.internal_tools_cache)} internal tools =====")
+        
+        internal_schemas = []
+        schema_generator = get_schema_generator("openai")
+        
+        for tool_name, tool_info in self.internal_tools_cache.items():
+            metadata = tool_info["metadata"]
+            
+            try:
+                # Generate OpenAI schema from Genesis tool metadata
+                openai_schema = schema_generator.generate_tool_schema(metadata)
+                internal_schemas.append(openai_schema)
+                
+                if self.enable_tracing:
+                    logger.debug(f"===== TRACING: Generated schema for internal tool: {tool_name} =====")
+                    
+            except Exception as e:
+                logger.error(f"Error generating schema for internal tool {tool_name}: {e}")
+                
+        return internal_schemas
     
     async def _call_function(self, function_name: str, **kwargs) -> Any:
         """Call a function using the generic client"""
@@ -712,6 +748,9 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             # Ensure agents are discovered (critical for agent-as-tool pattern)
             await self._ensure_agents_discovered()
             
+            # Ensure internal tools are discovered (@genesis_tool decorated methods)
+            await self._ensure_internal_tools_discovered()
+            
             # Enhanced tracing: Discovery status after discovery
             if self.enable_tracing:
                 self._trace_discovery_status("AFTER DISCOVERY")
@@ -722,45 +761,55 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             
             # If no functions are available, proceed with basic response
             if not self.function_cache:
-                logger.debug("===== TRACING: No functions available, proceeding with general conversation =====")
+                logger.debug("===== TRACING: No external functions available, checking for internal tools or agents =====")
                 
-                # Create chain event for LLM call start
-                self._publish_llm_call_start(
-                    chain_id=chain_id,
-                    call_id=call_id,
-                    model_identifier=f"openai.{self.model_config['model_name']}"
-                )
+                # Check if we have internal tools or agents available
+                has_internal_tools = hasattr(self, 'internal_tools_cache') and self.internal_tools_cache
+                has_agents = bool(self.agent_cache)
                 
-                # Enhanced tracing: OpenAI API call details
-                if self.enable_tracing:
-                    self._trace_openai_call("General conversation (no tools)", [], user_message)
-                
-                # Process with general conversation
-                response = self.client.chat.completions.create(
-                    model=self.model_config['model_name'],
-                    messages=[
-                        {"role": "system", "content": self.general_system_prompt},
-                        {"role": "user", "content": user_message}
-                    ]
-                )
-                
-                # Enhanced tracing: OpenAI response analysis
-                if self.enable_tracing:
-                    self._trace_openai_response(response)
-                
-                # Create chain event for LLM call completion
-                self._publish_llm_call_complete(
-                    chain_id=chain_id,
-                    call_id=call_id,
-                    model_identifier=f"openai.{self.model_config['model_name']}"
-                )
-                
-                return {
-                    "message": response.choices[0].message.content,
-                    "status": 0
-                }
+                if not has_internal_tools and not has_agents:
+                    logger.debug("===== TRACING: No tools or agents available, using general conversation =====")
+                    
+                    # Create chain event for LLM call start
+                    self._publish_llm_call_start(
+                        chain_id=chain_id,
+                        call_id=call_id,
+                        model_identifier=f"openai.{self.model_config['model_name']}"
+                    )
+                    
+                    # Enhanced tracing: OpenAI API call details
+                    if self.enable_tracing:
+                        self._trace_openai_call("General conversation (no tools)", [], user_message)
+                    
+                    # Process with general conversation
+                    response = self.client.chat.completions.create(
+                        model=self.model_config['model_name'],
+                        messages=[
+                            {"role": "system", "content": self.general_system_prompt},
+                            {"role": "user", "content": user_message}
+                        ]
+                    )
+                    
+                    # Enhanced tracing: OpenAI response analysis
+                    if self.enable_tracing:
+                        self._trace_openai_response(response)
+                    
+                    # Create chain event for LLM call completion
+                    self._publish_llm_call_complete(
+                        chain_id=chain_id,
+                        call_id=call_id,
+                        model_identifier=f"openai.{self.model_config['model_name']}"
+                    )
+                    
+                    return {
+                        "message": response.choices[0].message.content,
+                        "status": 0
+                    }
+                else:
+                    logger.debug(f"===== TRACING: No external functions but have internal tools ({has_internal_tools}) or agents ({has_agents}), proceeding with tool processing =====")
+                    # Continue to tool processing - we have internal tools or agents to offer
             
-            # Phase 1: Function Classification
+            # Phase 1: Function Classification (or tool selection if no external functions)
             # Create chain event for classification LLM call start
             self._publish_llm_call_start(
                 chain_id=chain_id,
@@ -768,7 +817,7 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                 model_identifier=f"openai.{self.model_config['classifier_model_name']}.classifier"
             )
             
-            # Get available functions
+            # Get available functions for classification
             available_functions = [
                 {
                     "name": name,
@@ -781,18 +830,28 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             
             # Enhanced tracing: Function classification details
             if self.enable_tracing:
-                logger.debug(f"🧠 TRACE: Available functions for classification: {[f['name'] for f in available_functions]}")
+                logger.debug(f"🧠 TRACE: Available external functions for classification: {[f['name'] for f in available_functions]}")
             
-            # Classify functions based on user query
-            relevant_functions = self.function_classifier.classify_functions(
-                user_message,
-                available_functions,
-                self.model_config['classifier_model_name']
-            )
-            
-            # Enhanced tracing: Classification results
-            if self.enable_tracing:
-                logger.debug(f"🧠 TRACE: Classifier returned: {[f['name'] for f in relevant_functions]}")
+            if available_functions:
+                # Classify functions based on user query (only if we have external functions)
+                relevant_functions = self.function_classifier.classify_functions(
+                    user_message,
+                    available_functions,
+                    self.model_config['classifier_model_name']
+                )
+                
+                # Enhanced tracing: Classification results
+                if self.enable_tracing:
+                    logger.debug(f"🧠 TRACE: Classifier returned: {[f['name'] for f in relevant_functions]}")
+                
+                # Get function schemas for relevant functions
+                relevant_function_names = [func["name"] for func in relevant_functions]
+            else:
+                # No external functions to classify
+                if self.enable_tracing:
+                    logger.debug(f"🧠 TRACE: No external functions to classify, using all available tools")
+                relevant_functions = []
+                relevant_function_names = []
             
             # Create chain event for classification LLM call completion
             self._publish_llm_call_complete(
@@ -824,8 +883,7 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                     })
                 )
             
-            # Get function schemas for relevant functions
-            relevant_function_names = [func["name"] for func in relevant_functions]
+            # Get ALL tool schemas (external functions + internal tools + agents)
             function_schemas = self._get_all_tool_schemas_for_openai(relevant_function_names)
             
             # Enhanced tracing: Tool schema generation
@@ -926,9 +984,10 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                     
                     logger.debug(f"===== TRACING: Processing tool call: {tool_name} =====")
                     
-                    # Determine if this is a function call or agent call
+                    # Determine if this is a function call, agent call, or internal tool call
                     is_function_call = tool_name in self.function_cache
                     is_agent_call = tool_name in self.agent_cache
+                    is_internal_tool_call = hasattr(self, 'internal_tools_cache') and tool_name in self.internal_tools_cache
                     
                     try:
                         if is_function_call:
@@ -958,6 +1017,16 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                             )
                             
                             logger.debug(f"===== TRACING: Function call completed in {end_time - start_time:.2f} seconds =====")
+                            
+                        elif is_internal_tool_call:
+                            logger.debug(f"===== TRACING: Tool {tool_name} is an INTERNAL TOOL call =====")
+                            
+                            # Call the internal tool directly
+                            start_time = time.time()
+                            tool_result = await self._call_internal_tool(tool_name, **tool_args)
+                            end_time = time.time()
+                            
+                            logger.debug(f"===== TRACING: Internal tool call completed in {end_time - start_time:.2f} seconds =====")
                             
                         elif is_agent_call:
                             logger.debug(f"===== TRACING: Tool {tool_name} is an AGENT call =====")
@@ -989,7 +1058,7 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                             logger.debug(f"===== TRACING: Agent call completed in {end_time - start_time:.2f} seconds =====")
                             
                         else:
-                            logger.error(f"===== TRACING: Tool {tool_name} not found in function cache or agent cache =====")
+                            logger.error(f"===== TRACING: Tool {tool_name} not found in function cache, agent cache, or internal tools cache =====")
                             raise ValueError(f"Tool not found: {tool_name}")
                         
                         logger.debug(f"===== TRACING: Tool result: {tool_result} =====")
@@ -1087,6 +1156,14 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         logger.debug(f"🤝 TRACE: Agent cache: {len(self.agent_cache)} agent tools")
         for name, info in self.agent_cache.items():
             logger.debug(f"🤝 TRACE: - {name}: {info.get('agent_name', 'Unknown agent')}")
+        
+        # Add internal tools tracing
+        internal_tools_count = len(getattr(self, 'internal_tools_cache', {}))
+        logger.debug(f"🛠️ TRACE: Internal tools cache: {internal_tools_count} internal tools")
+        if hasattr(self, 'internal_tools_cache'):
+            for name, info in self.internal_tools_cache.items():
+                func_name = info.get('function_name', name)
+                logger.debug(f"🛠️ TRACE: - {name}: {func_name}")
         
         if hasattr(self, 'agent_communication') and self.agent_communication:
             discovered = self.get_discovered_agents()
@@ -1190,6 +1267,107 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                 event_type="AGENT_STATUS",
                 status_data={"error": str(e)}
             )
+            raise
+
+    async def _ensure_internal_tools_discovered(self):
+        """
+        Discover and register internal methods decorated with @genesis_tool.
+        
+        This method automatically scans the agent for methods decorated with @genesis_tool,
+        generates appropriate tool schemas, and stores them for automatic injection
+        into OpenAI (or other LLM) clients.
+        """
+        if self.enable_tracing:
+            logger.debug("===== TRACING: Discovering internal @genesis_tool methods =====")
+        
+        # Initialize internal tools cache if not exists
+        if not hasattr(self, 'internal_tools_cache'):
+            self.internal_tools_cache = {}
+        
+        # Scan all methods for @genesis_tool decorator
+        tool_methods = []
+        for attr_name in dir(self):
+            if attr_name.startswith('_'):  # Skip private methods
+                continue
+                
+            attr = getattr(self, attr_name)
+            if callable(attr) and hasattr(attr, '__is_genesis_tool__'):
+                tool_meta = getattr(attr, '__genesis_tool_meta__', {})
+                if tool_meta:
+                    tool_methods.append((attr_name, attr, tool_meta))
+                    if self.enable_tracing:
+                        logger.debug(f"===== TRACING: Found @genesis_tool method: {attr_name} =====")
+        
+        if not tool_methods:
+            if self.enable_tracing:
+                logger.debug("===== TRACING: No @genesis_tool methods found =====")
+            return
+        
+        if self.enable_tracing:
+            logger.debug(f"===== TRACING: Processing {len(tool_methods)} @genesis_tool methods =====")
+        
+        # Generate tool schemas for discovered methods
+        for method_name, method, tool_meta in tool_methods:
+            # Store method reference and metadata
+            self.internal_tools_cache[method_name] = {
+                "method": method,
+                "metadata": tool_meta,
+                "function_name": tool_meta.get("function_name", method_name)
+            }
+            
+            if self.enable_tracing:
+                logger.debug(f"===== TRACING: Registered internal tool: {method_name} =====")
+                logger.debug(f"===== TRACING: Tool metadata: {tool_meta} =====")
+        
+        # Update system prompt to include internal tools
+        if self.internal_tools_cache:
+            if self.enable_tracing:
+                logger.debug("===== TRACING: Internal tools available, ensuring function-based prompt =====")
+            self.system_prompt = self.function_based_system_prompt
+
+    async def _call_internal_tool(self, tool_name: str, **kwargs) -> Any:
+        """
+        Call an internal @genesis_tool decorated method.
+        
+        Args:
+            tool_name: Name of the internal tool/method to call
+            **kwargs: Arguments to pass to the method
+            
+        Returns:
+            Result from the internal method
+        """
+        if self.enable_tracing:
+            logger.debug(f"===== TRACING: Calling internal tool {tool_name} =====")
+            logger.debug(f"===== TRACING: Tool arguments: {json.dumps(kwargs, indent=2)} =====")
+        
+        if not hasattr(self, 'internal_tools_cache') or tool_name not in self.internal_tools_cache:
+            error_msg = f"Internal tool not found: {tool_name}"
+            logger.error(f"===== TRACING: {error_msg} =====")
+            raise ValueError(error_msg)
+        
+        tool_info = self.internal_tools_cache[tool_name]
+        method = tool_info["method"]
+        
+        try:
+            start_time = time.time()
+            
+            # Call the internal method
+            if asyncio.iscoroutinefunction(method):
+                result = await method(**kwargs)
+            else:
+                result = method(**kwargs)
+                
+            end_time = time.time()
+            
+            if self.enable_tracing:
+                logger.debug(f"===== TRACING: Internal tool call completed in {end_time - start_time:.2f} seconds =====")
+                logger.debug(f"===== TRACING: Internal tool result: {result} =====")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"===== TRACING: Error calling internal tool {tool_name}: {str(e)} =====")
+            logger.error(traceback.format_exc())
             raise
 
 async def run_test():
