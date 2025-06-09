@@ -61,10 +61,16 @@ cleanup() {
         echo "   ✅ PersonalAssistant stopped"
     fi
     
+    if [ ! -z "$DDSSPY_PID" ]; then
+        kill $DDSSPY_PID 2>/dev/null || true
+        echo "   ✅ DDS Spy stopped"
+    fi
+    
     # Wait for processes to clean up
     if [ ! -z "$CALC_PID" ]; then wait $CALC_PID 2>/dev/null || true; fi
     if [ ! -z "$WEATHER_PID" ]; then wait $WEATHER_PID 2>/dev/null || true; fi
     if [ ! -z "$PERSONAL_PID" ]; then wait $PERSONAL_PID 2>/dev/null || true; fi
+    if [ ! -z "$DDSSPY_PID" ]; then wait $DDSSPY_PID 2>/dev/null || true; fi
     
     echo "   ✅ Cleanup complete"
 }
@@ -72,7 +78,21 @@ cleanup() {
 # Set up cleanup on script exit
 trap cleanup EXIT
 
+# 0. Start DDS Spy to capture all DDS traffic
+echo "🔍 Starting DDS Spy to monitor all traffic..."
+if [ ! -z "$NDDSHOME" ]; then
+    mkdir -p logs
+    $NDDSHOME/bin/rtiddsspy -printSample > logs/dds_spy_output.log 2>&1 &
+    DDSSPY_PID=$!
+    echo "   ✅ DDS Spy started (PID: $DDSSPY_PID)"
+    echo "   📝 DDS traffic will be logged to: logs/dds_spy_output.log"
+else
+    echo "   ⚠️ NDDSHOME not set - skipping DDS Spy"
+    DDSSPY_PID=""
+fi
+
 # 1. Start Calculator Service (function service)
+echo ""
 echo "🧮 Starting Calculator service..."
 cd ../../
 python -m test_functions.calculator_service &
@@ -111,6 +131,9 @@ echo "🎯 Available Services:"
 echo "   • PersonalAssistant (General agent with delegation)"
 echo "   • WeatherAgent (Specialized @genesis_tool example)"
 echo "   • Calculator Service (Function service integration)"
+if [ ! -z "$DDSSPY_PID" ]; then
+    echo "   • DDS Spy (Monitoring all DDS traffic)"
+fi
 echo ""
 echo "🧪 Ready for Demo Scenarios:"
 echo "   1. Weather Delegation: 'What's the weather in Tokyo?'"
@@ -122,9 +145,10 @@ echo ""
 # Prompt user for interface choice
 echo "🎯 Choose your interface:"
 echo "   1. Interactive CLI (recommended for exploration)"
-echo "   2. Quick automated test (for validation)"
+echo "   2. Web GUI Interface (modern web-based interface with network visualization)"
+echo "   3. Quick automated test (for validation)"
 echo ""
-read -p "Your choice (1 or 2): " interface_choice
+read -p "Your choice (1, 2, or 3): " interface_choice
 
 case $interface_choice in
     1)
@@ -135,6 +159,23 @@ case $interface_choice in
         python interfaces/interactive_cli.py
         ;;
     2)
+        echo ""
+        echo "🌐 Starting Web GUI Interface..."
+        echo "🎯 Features:"
+        echo "   • Interactive chat with agents"
+        echo "   • Real-time network topology visualization"
+        echo "   • Live monitoring of agent communications"
+        echo "   • Dynamic agent discovery and selection"
+        echo ""
+        echo "📡 Web interface will be available at: http://127.0.0.1:5000"
+        echo "💡 Open your browser to interact with the Genesis system"
+        if [ ! -z "$DDSSPY_PID" ]; then
+            echo "🔍 DDS traffic is being logged to: logs/dds_spy_output.log"
+        fi
+        echo ""
+        python interfaces/gui_interface.py
+        ;;
+    3)
         echo ""
         echo "🧪 Running Quick Test..."
         echo ""
@@ -150,6 +191,20 @@ esac
 echo ""
 echo "👋 Genesis Multi-Agent Demo completed!"
 echo "🌟 Thank you for exploring @genesis_tool auto-discovery!"
+
+# Show DDS spy log summary if it was running
+if [ ! -z "$DDSSPY_PID" ] && [ -f "logs/dds_spy_output.log" ]; then
+    echo ""
+    echo "📊 DDS Traffic Summary:"
+    echo "========================"
+    echo "Total DDS samples captured: $(grep -c "sample" logs/dds_spy_output.log 2>/dev/null || echo "0")"
+    echo "ComponentLifecycleEvent samples: $(grep -c "ComponentLifecycleEvent" logs/dds_spy_output.log 2>/dev/null || echo "0")"
+    echo "ChainEvent samples: $(grep -c "ChainEvent" logs/dds_spy_output.log 2>/dev/null || echo "0")"
+    echo ""
+    echo "📝 Full DDS traffic log available at: logs/dds_spy_output.log"
+    echo "💡 Use this log to debug any missing monitoring data"
+    echo "========================"
+fi
 
 # =============================================================================
 # TRACING CONTROL
