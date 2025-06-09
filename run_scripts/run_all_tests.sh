@@ -310,6 +310,13 @@ cleanup() {
     pkill -f "python.*openai_chat_agent" || true
     pkill -f "python.*interface_cli" || true
     pkill -f "python.*test_agent" || true
+    # Multi-agent test cleanup
+    pkill -f "python.*personal_assistant.py" || true
+    pkill -f "python.*weather_agent.py" || true
+    pkill -f "python.*test_interactive_multi_agent.py" || true
+    # Agent-to-agent test service cleanup
+    pkill -f "python.*personal_assistant_service.py" || true
+    pkill -f "python.*weather_agent_service.py" || true
     [ "$DEBUG" = "true" ] && echo "Cleanup complete"
 }
 
@@ -323,7 +330,11 @@ echo "Starting Genesis-LIB test suite..."
 # Check for and clean up any existing DDS processes
 check_and_cleanup_dds || { echo "Test suite aborted due to DDS process issues"; exit 1; }
 
-# Interface -> Agent -> Service Pipeline Test (Moved to be first after cleanup)
+# Agent-to-Agent Communication Test (FIRST - Comprehensive Core Genesis Test)
+echo "🚀 Running comprehensive agent-to-agent communication test..."
+run_with_timeout "test_agent_to_agent_communication.py" 120 || { echo "Test failed: test_agent_to_agent_communication.py - CORE GENESIS FUNCTIONALITY BROKEN"; exit 1; }
+
+# Interface -> Agent -> Service Pipeline Test (Moved to be second after agent-to-agent)
 run_with_timeout "run_interface_agent_service_test.sh" 75 || { echo "Test failed: run_interface_agent_service_test.sh"; exit 1; }
 
 # Math Interface/Agent Simple Test (Checks RPC and Durability)

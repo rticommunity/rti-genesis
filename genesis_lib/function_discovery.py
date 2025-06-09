@@ -420,32 +420,35 @@ class FunctionRegistry:
         Initialize the function registry.
         
         Args:
-            participant: DDS participant (if None, will create one)
-            domain_id: DDS domain ID
-            enable_discovery_listener: If True, creates DDS reader to discover external functions. Defaults to True.
+            participant: DDS participant to use (creates one if None)
+            domain_id: DDS domain ID to use if creating a participant
+            enable_discovery_listener: Whether to enable the discovery listener
         """
-        self.functions = {}  # Dict[str, FunctionInfo]
-        self.function_by_name = {}  # Dict[str, str] mapping names to IDs
-        self.function_by_category = {}  # Dict[str, List[str]] mapping categories to IDs
-        self.discovered_functions = {}  # Dict[str, Dict] of functions from other providers
-        self.service_base = None  # Reference to EnhancedServiceBase
+        logger.debug("Initializing FunctionRegistry")
         
-        # Event to signal when the first function capability has been discovered
-        self._discovery_event = asyncio.Event()
-        
-        # Initialize function matcher with LLM support
-        self.matcher = FunctionMatcher()
+        # Store configuration
+        self.domain_id = domain_id
         self.enable_discovery_listener = enable_discovery_listener
         
-        # Create DDS participant if not provided
-        if participant is None:
-            participant = dds.DomainParticipant(domain_id)
+        # Initialize storage
+        self.functions = {}  # function_id -> FunctionInfo
+        self.function_by_name = {}  # name -> function_id
+        self.discovered_functions = {}  # function_id -> dict with function details
+        self.service_base = None  # Reference to service base for callbacks
         
-        # Store participant reference
-        self.participant = participant
+        # Add callback mechanism for function discovery
+        self.discovery_callbacks = []  # List of callback functions to call when functions are discovered
+        
+        # Create or use provided participant
+        if participant is None:
+            self.participant = dds.DomainParticipant(domain_id)
+            self._owns_participant = True
+        else:
+            self.participant = participant
+            self._owns_participant = False
         
         # Create publisher (always needed for advertising own functions)
-        self.publisher = dds.Publisher(participant)
+        self.publisher = dds.Publisher(self.participant)
         
         # Get types from XML
         config_path = get_datamodel_path()
@@ -456,7 +459,7 @@ class FunctionRegistry:
         # Try to find the topic first, create if not found
         try:
             # find_topics returns all topics for the participant
-            all_topics = participant.find_topics()
+            all_topics = self.participant.find_topics()
             found_topic = None
             for topic in all_topics:
                 # Check if the topic name matches
@@ -473,7 +476,7 @@ class FunctionRegistry:
                  # Topic not found, create it
                 logger.debug("===== DDS TRACE: FunctionCapability topic not found, creating new one... =====")
                 self.capability_topic = dds.DynamicData.Topic(
-                    participant=participant,
+                    participant=self.participant,
                     topic_name="FunctionCapability",
                     topic_type=self.capability_type
                 )
@@ -506,7 +509,7 @@ class FunctionRegistry:
 
         if self.enable_discovery_listener:
             # Create subscriber
-            self.subscriber = dds.Subscriber(participant)
+            self.subscriber = dds.Subscriber(self.participant)
             
             # Get types for execution (only if discovery is enabled)
             self.execution_request_type = self.type_provider.type("genesis_lib", "FunctionExecutionRequest")
@@ -534,7 +537,7 @@ class FunctionRegistry:
             self.execution_client = rpc.Requester(
                 request_type=self.execution_request_type,
                 reply_type=self.execution_reply_type,
-                participant=participant,
+                participant=self.participant,
                 service_name="FunctionExecution"
             )
         else:
@@ -546,6 +549,14 @@ class FunctionRegistry:
             # though it's already initialized above.
             self.discovered_functions = {}
             logger.info("FunctionRegistry initialized with discovery listener DISABLED.")
+        
+        # Initialize function matcher with LLM support
+        self.matcher = FunctionMatcher()
+        
+        # Event to signal when the first function capability has been discovered
+        self._discovery_event = asyncio.Event()
+        
+        logger.debug("FunctionRegistry initialized successfully")
     
     def register_function(self, 
                          func: Callable,
@@ -611,14 +622,6 @@ class FunctionRegistry:
             logger.debug(f"Storing function info for '{func.__name__}' in registry")
             self.functions[function_id] = function_info
             self.function_by_name[function_info.name] = function_id
-            
-            # Update category index
-            logger.debug(f"Updating category index for '{func.__name__}'")
-            for category in function_info.categories:
-                if category not in self.function_by_category:
-                    self.function_by_category[category] = []
-                self.function_by_category[category].append(function_id)
-                logger.debug(f"Added function '{func.__name__}' to category '{category}'")
             
             # Advertise function capability
             logger.info(f"Advertising function capability for '{func.__name__}'")
@@ -773,6 +776,10 @@ class FunctionRegistry:
                 logger.debug("===== DDS TRACE: Discovery event set (first function discovered). =====")
             else:
                 logger.debug(f"===== DDS TRACE: _discovery_event already set (function_id: {function_id}). =====")
+
+            # Call discovery callbacks
+            for callback in self.discovery_callbacks:
+                callback(function_id, self.discovered_functions[function_id])
 
         except KeyError as e:
             logger.error(f"===== DDS TRACE: Missing key in capability data (function_id: {function_id_str}): {e} ====")
@@ -940,6 +947,27 @@ class FunctionRegistry:
 
         logger.debug("===== DDS TRACE: FunctionRegistry.close() - Cleanup completed. =====")
         self._closed = True
+
+    def add_discovery_callback(self, callback):
+        """
+        Add a callback function to be called when functions are discovered.
+        
+        Args:
+            callback: Function to call with (function_id, function_info) when a function is discovered
+        """
+        self.discovery_callbacks.append(callback)
+        logger.debug(f"Added discovery callback: {callback}")
+    
+    def remove_discovery_callback(self, callback):
+        """
+        Remove a discovery callback.
+        
+        Args:
+            callback: Function to remove from callbacks
+        """
+        if callback in self.discovery_callbacks:
+            self.discovery_callbacks.remove(callback)
+            logger.debug(f"Removed discovery callback: {callback}")
 
 class FunctionCapabilityListener(dds.DynamicData.NoOpDataReaderListener):
     """Listener for function capability advertisements"""

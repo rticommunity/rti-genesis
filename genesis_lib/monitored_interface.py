@@ -412,6 +412,30 @@ class MonitoredInterface(GenesisInterface):
         service_name = agent_info['service_name']
         logger.debug(f"<MonitoredInterface Handler> Agent Discovered: {prefered_name} ({service_name}) - ID: {instance_id}")
         self.available_agents[instance_id] = agent_info
+        
+        # CRITICAL FIX: Publish EDGE_DISCOVERY event for interface-to-agent connection
+        interface_id = str(self.app.participant.instance_handle)
+        
+        # Publish edge discovery event
+        self.publish_component_lifecycle_event(
+            previous_state="DISCOVERING",
+            new_state="DISCOVERING", 
+            reason=f"Interface {interface_id} discovered agent {prefered_name} ({instance_id})",
+            capabilities=json.dumps({
+                "edge_type": "interface_to_agent",
+                "interface_name": self.interface_name,
+                "agent_name": prefered_name,
+                "service_name": service_name,
+                "connection_established": True
+            }),
+            event_category="EDGE_DISCOVERY",
+            source_id=interface_id,
+            target_id=instance_id,
+            connection_type="INTERFACE_TO_AGENT"
+        )
+        
+        logger.debug(f"Published EDGE_DISCOVERY event: Interface {interface_id} -> Agent {instance_id}")
+        
         # For this simple test, signal that *an* agent is found
         # A real app might have more complex logic here (e.g., find specific name)
         # Or expose the event/agents list publicly for the app to manage.
@@ -440,15 +464,7 @@ class MonitoredInterface(GenesisInterface):
     @monitor_method("INTERFACE_REQUEST")
     async def send_request(self, request_data: Dict[str, Any], timeout_seconds: float = 10.0) -> Optional[Dict[str, Any]]:
         """Send request to agent with monitoring"""
-        # Check if we are connected before sending
-        if not self.requester or not self._connected_agent_id:
-            logger.error("❌ MonitoredInterface cannot send request, not connected to an agent.")
-            # Check if the agent we thought we were connected to just departed
-            if self._connected_agent_id and self._connected_agent_id not in self.available_agents:
-                logger.warning("Connection lost as the target agent departed.")
-                self._connected_agent_id = None # Ensure state reflects disconnection
-            return None
-        
+        # Use parent class validation (only checks self.requester)
         return await super().send_request(request_data, timeout_seconds)
     
     async def close(self):

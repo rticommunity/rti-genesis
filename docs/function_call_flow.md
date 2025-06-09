@@ -1,77 +1,95 @@
 # GENESIS Function Call Flow
 
-This document describes the flow of function calls in the GENESIS distributed system.
+This document describes the unified flow of function calls and agent communication in the GENESIS distributed system.
 
 ```mermaid
 sequenceDiagram
     participant UI as Interface
-    participant PA as Primary Agent
-    participant SA as Specialized Agent
-    participant F as Function
+    participant GA as General Agent
+    participant SA as Specialist Agent
+    participant F as Function/Service
 
     Note over UI,F: Discovery Phase
-    PA->>UI: Publishes Capabilities
-    SA->>PA: Publishes Capabilities
-    F->>SA: Publishes Function Capabilities
-    UI->>PA: Subscribes to Capabilities
-    PA->>SA: Subscribes to Capabilities
+    GA->>UI: Publishes Agent Capabilities
+    SA->>GA: Publishes Agent Capabilities (via AgentCapability)
+    F->>SA: Publishes Function Capabilities (via FunctionRegistry)
+    UI->>GA: Subscribes to Agent Capabilities
+    GA->>SA: Subscribes to Agent Capabilities
+    SA->>F: Subscribes to Function Capabilities
     
-    Note over UI,F: Function Registration
-    PA->>UI: Capability Advertisement
-    SA->>PA: Capability Advertisement
-    F->>SA: Function Advertisement
+    Note over UI,F: Capability Advertisement
+    GA->>UI: Agent Capability Advertisement
+    SA->>GA: Agent Capability Advertisement (specializations, tags)
+    F->>SA: Function Advertisement (capabilities, descriptions)
     
-    Note over UI,F: Function Execution
-    UI->>PA: Query
+    Note over UI,F: Unified Request Execution
+    UI->>GA: User Query
     
-    %% Function Classification Loop
-    activate PA
-    PA-->>PA: Function Classification
-    deactivate PA
+    %% Agent Classification Loop
+    activate GA
+    GA-->>GA: Agent Classification
+    Note right of GA: Uses AgentClassifier to analyze request:<br/>- Specialization matching<br/>- Capability matching<br/>- Classification tags<br/>- Keyword analysis
+    deactivate GA
     
-    %% Function Injection Loop
-    activate PA
-    PA-->>PA: Function Injection
-    deactivate PA
+    %% Agent Injection Decision
+    activate GA
+    GA-->>GA: Agent Injection Decision
+    Note right of GA: Route to specialist agent<br/>OR handle locally
+    deactivate GA
     
-    %% Function Call Loop
-    activate PA
-    PA-->>PA: Function Call (ILM)
-    deactivate PA
+    alt Specialized Request (Agent Injection)
+        GA->>SA: Agent-to-Agent Request (via AgentAgentRequest/Reply)
+        
+        %% Specialist Agent Processing
+        activate SA
+        SA-->>SA: Function Classification
+        Note right of SA: Uses FunctionClassifier to find<br/>appropriate functions/services
+        deactivate SA
+        
+        %% Function Injection Loop
+        activate SA
+        SA-->>SA: Function Injection
+        Note right of SA: Route to appropriate service<br/>based on function capabilities
+        deactivate SA
+        
+        SA->>F: Function Call (via DDS RPC)
+        F-->>SA: Function Return
+        
+        %% Response Integration
+        activate SA
+        SA-->>SA: Response Integration
+        Note right of SA: Integrate function results<br/>with domain expertise
+        deactivate SA
+        
+        SA-->>GA: Specialist Result (via AgentAgentReply)
+        
+        %% General Agent Response Integration
+        activate GA
+        GA-->>GA: Response Integration
+        Note right of GA: Integrate specialist response<br/>with general context
+        deactivate GA
+        
+    else General Request (Local Processing)
+        %% Function Classification Loop
+        activate GA
+        GA-->>GA: Function Classification
+        deactivate GA
+        
+        %% Function Injection Loop
+        activate GA
+        GA-->>GA: Function Injection
+        deactivate GA
+        
+        GA->>F: Function Call (via DDS RPC)
+        F-->>GA: Function Return
+        
+        %% Response Integration Loop
+        activate GA
+        GA-->>GA: Response Integration
+        deactivate GA
+    end
     
-    PA->>SA: Genesis Function Call (Agent)
-
-     %% Function Classification Loop
-    activate SA
-    SA-->>SA: Function Classification
-    deactivate SA
-    
-    %% Function Injection Loop
-    activate SA
-    SA-->>SA: Function Injection
-    deactivate SA
-    
-    %% Function Call Loop
-    activate SA
-    SA-->>SA: Function Call (ILM)
-    deactivate SA
-
-    SA->>F: Function Call (Function)
-    F-->>SA: Function Return
-
-    %% Response Integration Loop
-    activate SA
-    SA-->>SA: Response Integration (ILM internal)
-    deactivate SA
-
-    SA-->>PA: Processed Result
-    
-    %% Response Integration Loop
-    activate PA
-    PA-->>PA: Response Integration (ILM internal)
-    deactivate PA
-    
-    PA-->>UI: Response Integration
+    GA-->>UI: Final Response
     
     %% Response Processing Loop
     activate UI
@@ -79,94 +97,158 @@ sequenceDiagram
     deactivate UI
     
     Note over UI,F: Continuous Monitoring
-    PA-->>UI: Liveliness Updates
-    SA-->>PA: Liveliness Updates
+    GA-->>UI: Agent Liveliness Updates
+    SA-->>GA: Agent Liveliness Updates
     F-->>SA: Function Status Updates
 ```
 
 ## Flow Description
 
 1. **Discovery Phase**
-   - Agents and Functions publish their capabilities through DDS
-   - Interface subscribes to capability advertisements
-   - Functions are discovered and registered in the function registry
+   - **Agent Discovery**: Agents publish their capabilities through `AgentCapability` DDS topic with rich metadata including specializations, classification tags, and performance metrics
+   - **Function Discovery**: Functions/Services publish their capabilities through `FunctionRegistry` DDS topic
+   - **Subscription**: Interface subscribes to agent capabilities, agents subscribe to both agent and function capabilities
+   - **Registry**: Both agent and function metadata are maintained in distributed registries
 
-2. **Function Registration**
-   - Functions and Agents register their capabilities through DDS
-   - Capabilities are advertised up the chain to make them available to other components
-   - Registry maintains function and agent metadata and status
+2. **Capability Advertisement**
+   - **Agent Capabilities**: Agents advertise specializations, capabilities, classification tags, model info, and default_capable status
+   - **Function Capabilities**: Functions advertise descriptions, parameters, and domain-specific metadata
+   - **Hierarchical Advertisement**: Capabilities flow up the chain to make specialized agents and functions discoverable
 
-3. **Function Execution**
-   - Interface sends query through DDS to Primary Agent
-   - For each agent in the chain:
-     - Agent performs internal function classification
-     - Agent performs function injection
-     - Agent makes function call decision:
-       - Either calls another agent via DDS ("Genesis Function Call")
-       - Or calls a function directly via DDS ("Function Call")
-   - Results flow back through the chain:
-     - Each agent performs internal response integration
-     - Processed results are passed via DDS to the previous agent
-   - Final response is delivered to the interface
+3. **Unified Request Execution**
+   - Interface sends query to General Agent via DDS RPC
+   - **Agent Classification**: General Agent uses `AgentClassifier` to analyze the request:
+     - Exact capability matching
+     - Specialization domain matching  
+     - Classification tag matching
+     - Keyword analysis
+     - LLM-based semantic matching (optional)
+   - **Routing Decision**: Agent injection vs local processing
+   
+   **Path A - Agent Injection (Specialized Requests):**
+   - General Agent routes to Specialist Agent via `AgentAgentRequest`/`AgentAgentReply`
+   - Specialist Agent performs function classification and injection
+   - Specialist Agent calls appropriate functions/services
+   - Results integrated with domain expertise and returned to General Agent
+   
+   **Path B - Local Processing (General Requests):**
+   - General Agent performs function classification and injection directly
+   - General Agent calls functions/services directly
+   - Results integrated and returned to interface
 
-4. **Continuous Monitoring**
-   - Components monitor liveliness through DDS
-   - Status updates flow up the chain via DDS
-   - Interface maintains current availability state
+4. **Response Integration**
+   - Each agent integrates results with their domain knowledge and context
+   - Routing metadata (explanations, agent IDs) preserved for transparency
+   - Final unified response delivered to interface
 
-## Agent Chaining Patterns
+5. **Continuous Monitoring**
+   - Agent liveliness monitored through DDS and `AgentCapability` updates
+   - Function status monitored through `FunctionRegistry` updates  
+   - Real-time availability state maintained across the distributed system
 
-The GENESIS system supports natural agent chaining patterns where queries can flow through multiple specialized agents before reaching a function. Each agent in the chain can:
-- Discover and invoke other agents or functions through DDS
-- Transform or enhance requests and responses
-- Add specialized processing or domain knowledge
+## Agent Communication Patterns
 
-### Common Chain Patterns
+The GENESIS system now supports unified agent communication and function calling patterns. The architecture provides both **Agent Injection** (agent-to-agent communication) and **Function Injection** (agent-to-function communication) using the same classification principles.
+
+### Communication Patterns
 
 1. **Direct Function Access**
 ```
-Interface <-> Primary Agent <-> Function
+Interface <-> General Agent <-> Function/Service
 ```
 Used for simple function invocation where no specialized processing is needed.
 
-2. **Single Specialization**
+2. **Agent Injection Pattern**
 ```
-Interface <-> Primary Agent <-> Specialized Agent <-> Function
+Interface <-> General Agent <-> Specialist Agent <-> Function/Service
 ```
-Used when domain-specific knowledge or processing is required.
+Used when domain-specific knowledge or processing is required. The General Agent intelligently routes specialized requests to appropriate expert agents.
 
-3. **Multi-Specialization**
+3. **Multi-Agent Collaboration**
 ```
-Interface <-> Primary Agent <-> Specialized Agent A <-> Specialized Agent B <-> Function
+Interface <-> General Agent <-> Specialist Agent A <-> Specialist Agent B <-> Function/Service
 ```
-Used for complex workflows requiring multiple domains of expertise.
+Used for complex workflows requiring multiple domains of expertise through agent-to-agent communication.
 
-### Chain Discovery
+4. **Hybrid Function & Agent Injection**
+```
+Interface <-> General Agent [Agent Classifier] --> Weather Agent [Function Classifier] --> Weather Service
+                           [Function Classifier] --> Calculator Service
+```
+General agents can route to both specialist agents AND functions based on request analysis.
 
-- Each agent publishes its capabilities through the Function Registry
-- Agents can discover both functions and other agents through the same mechanism
-- The Function Classification System applies to both functions and agents
-- Provider IDs in function_id field distinguish between agents and direct functions
+### Unified Discovery Architecture
 
-### Chain Formation
+- **Agent Discovery**: Via `AgentCapability` topic with specializations, classification tags, and capabilities
+- **Function Discovery**: Via `FunctionRegistry` topic with function descriptions and metadata
+- **Dual Classification**: 
+  - `AgentClassifier` for routing to appropriate agents
+  - `FunctionClassifier` for routing to appropriate functions
+- **Consistent Pattern**: Both use capability matching, keyword analysis, and domain classification
 
-Agents can form chains dynamically based on:
-- Query requirements
-- Available specialized agents
-- Function requirements
-- Performance considerations
-- Security constraints
+### Dynamic Routing Formation
+
+**Agent Classification** considers:
+- Request specialization requirements (weather, finance, health, etc.)
+- Agent capability matching (exact capability names)
+- Classification tag matching (keyword analysis)
+- Agent availability and performance metrics
+- Default capable agents as fallback
+
+**Function Classification** considers:
+- Function descriptions and parameters
+- Domain-specific metadata
+- Function availability and status
+- Performance characteristics
+
+### Routing Decision Tree
+
+```
+User Request → General Agent
+    ↓
+[Agent Classifier Analysis]
+    ↓
+Specialized Request? 
+    ├─ YES → Route to Specialist Agent → [Function Classifier] → Function/Service
+    └─ NO  → [Function Classifier] → Function/Service (local)
+```
+
+This creates a **fractal architecture** where the same classification and routing patterns apply at both the agent level and function level, enabling sophisticated multi-layer delegation and specialization.
 
 ## Implementation Details
 
-The flow is implemented through several key components:
+The unified flow is implemented through several key components:
 
-- `GenesisApp`: Base class providing DDS infrastructure
-- `FunctionRegistry`: Handles function registration and discovery
-- `FunctionClassifier`: Classifies functions based on capabilities
+### Core Infrastructure
+- `GenesisApp`: Base class providing DDS infrastructure for both agents and functions
+- `GenesisAgent`: Enhanced base agent class with optional agent communication capabilities
+- `AgentCommunicationMixin`: Provides agent-to-agent communication functionality
+
+### Discovery and Classification Systems
+- `FunctionRegistry`: Handles function registration and discovery via DDS
+- `AgentClassifier`: Intelligent routing system for agent-to-agent communication
+  - Specialization matching
+  - Capability analysis  
+  - Classification tag matching
+  - Keyword domain analysis
+- `FunctionClassifier`: Classifies and routes function requests
 - `FunctionMatcher`: Matches function requests to available functions
 
+### Communication Types
+- `AgentAgentRequest`/`AgentAgentReply`: DDS types for agent-to-agent communication
+- `InterfaceAgentRequest`/`InterfaceAgentReply`: DDS types for interface-to-agent communication
+- `AgentCapability`: Enhanced capability advertisement with rich metadata
+
+### Agent Types  
+- **General Agents**: Can handle general requests and intelligently route specialized requests
+- **Specialist Agents**: Domain experts that handle specific types of requests
+- **Monitored Agents**: Include monitoring and observability for agent interactions
+
 For more details, see the implementation in:
-- `genesis_lib/genesis_app.py`
-- `genesis_lib/function_classification.py`
-- `test_functions/` directory for example functions 
+- `genesis_lib/genesis_app.py` - Core DDS infrastructure
+- `genesis_lib/agent.py` - Enhanced agent base classes
+- `genesis_lib/agent_communication.py` - Agent-to-agent communication
+- `genesis_lib/agent_classifier.py` - Intelligent routing system
+- `genesis_lib/function_classification.py` - Function routing system
+- `test_functions/` - Example functions and agent tests
+- `docs/agent_to_agent_communication.md` - Detailed architecture documentation 

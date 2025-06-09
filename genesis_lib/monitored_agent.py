@@ -34,7 +34,11 @@ EVENT_TYPE_MAP = {
     "AGENT_DISCOVERY": 0,  # FUNCTION_DISCOVERY enum value
     "AGENT_REQUEST": 1,    # FUNCTION_CALL enum value
     "AGENT_RESPONSE": 2,   # FUNCTION_RESULT enum value
-    "AGENT_STATUS": 3      # FUNCTION_STATUS enum value
+    "AGENT_STATUS": 3,     # FUNCTION_STATUS enum value
+    "AGENT_TO_AGENT_REQUEST": 5,    # AGENT_TO_AGENT_REQUEST enum value
+    "AGENT_TO_AGENT_RESPONSE": 6,   # AGENT_TO_AGENT_RESPONSE enum value
+    "AGENT_CONNECTION_ESTABLISHED": 7,  # AGENT_CONNECTION_ESTABLISHED enum value
+    "AGENT_CONNECTION_LOST": 8      # AGENT_CONNECTION_LOST enum value
 }
 
 # Agent type mapping
@@ -64,7 +68,8 @@ class MonitoredAgent(GenesisAgent):
     
     def __init__(self, agent_name: str, base_service_name: str, 
                  agent_type: str = "AGENT", service_instance_tag: Optional[str] = None, 
-                 agent_id: str = None, description: str = None, domain_id: int = 0):
+                 agent_id: str = None, description: str = None, domain_id: int = 0,
+                 enable_agent_communication: bool = False):
         """
         Initialize the monitored agent.
         
@@ -76,48 +81,69 @@ class MonitoredAgent(GenesisAgent):
             agent_id: Optional UUID for the agent (if None, will generate one)
             description: Optional description of the agent
             domain_id: Optional DDS domain ID
+            enable_agent_communication: Whether to enable agent-to-agent communication capabilities
         """
-        logger.info(f"MonitoredAgent {agent_name} STARTING initializing with agent_id {agent_id}")
+        logger.info(f"🚀 TRACE: MonitoredAgent {agent_name} STARTING initializing with agent_id {agent_id}")
+        
         # Initialize base class (GenesisAgent) with the new service name parameters
+        logger.info("🏗️ TRACE: Calling super().__init__() for GenesisAgent...")
         super().__init__(
             agent_name=agent_name,
             base_service_name=base_service_name,
             service_instance_tag=service_instance_tag,
-            agent_id=agent_id
+            agent_id=agent_id,
+            enable_agent_communication=enable_agent_communication
         )
-        logger.info(f"MonitoredAgent {agent_name} initialized with base class")
+        logger.info(f"✅ TRACE: MonitoredAgent {agent_name} initialized with base class")
+        
         # Store additional parameters as instance variables
+        logger.debug("📝 TRACE: Setting instance variables...")
         self.agent_type = agent_type
         self.description = description or f"A {agent_type} providing {base_service_name} service"
         self.domain_id = domain_id
         self.monitor = None
         self.subscription = None
+        logger.debug("✅ TRACE: Instance variables set")
         
         # Initialize function client and cache
+        logger.debug("🔧 TRACE: Initializing function client...")
         self._initialize_function_client()
+        logger.debug("✅ TRACE: Function client initialized")
+        
+        logger.debug("📦 TRACE: Initializing function cache...")
         self.function_cache: Dict[str, Dict[str, Any]] = {}
+        logger.debug("✅ TRACE: Function cache initialized")
         
         # Initialize agent capabilities
+        logger.debug("🎯 TRACE: Initializing agent capabilities...")
         self.agent_capabilities = {
             "agent_type": agent_type,
             "service": base_service_name,
             "functions": [],  # Will be populated during function discovery
             "supported_tasks": []  # To be populated by subclasses
         }
+        logger.debug("✅ TRACE: Agent capabilities initialized")
         
         # Get types from XML
+        logger.debug("📄 TRACE: Getting types from XML...")
         config_path = get_datamodel_path()
         self.type_provider = dds.QosProvider(config_path)
         self.request_type = self.type_provider.type("genesis_lib", "InterfaceAgentRequest")
         self.reply_type = self.type_provider.type("genesis_lib", "InterfaceAgentReply")
+        logger.debug("✅ TRACE: Types from XML loaded")
         
         # Set up monitoring
+        logger.info("📊 TRACE: Setting up monitoring...")
         self._setup_monitoring()
+        logger.info("✅ TRACE: Monitoring setup completed")
         
         # Create subscription match listener
+        logger.debug("👂 TRACE: Setting up subscription listener...")
         self._setup_subscription_listener()
+        logger.debug("✅ TRACE: Subscription listener setup completed")
 
         # Publish agent discovery event
+        logger.debug("📢 TRACE: Publishing agent discovery event...")
         self.publish_component_lifecycle_event(
             category="NODE_DISCOVERY",
             message=f"Agent {agent_name} discovered",
@@ -132,8 +158,10 @@ class MonitoredAgent(GenesisAgent):
                 "agent_id": self.app.agent_id
             })
         )
+        logger.debug("✅ TRACE: Agent discovery event published")
 
         # Publish agent ready event
+        logger.debug("📢 TRACE: Publishing agent ready event...")
         self.publish_component_lifecycle_event(
             category="AGENT_READY",
             message=f"{agent_name} ready for requests",
@@ -148,8 +176,9 @@ class MonitoredAgent(GenesisAgent):
                 "agent_id": self.app.agent_id
             })
         )
+        logger.debug("✅ TRACE: Agent ready event published")
         
-        logger.info(f"Monitored agent {agent_name} initialized with type {agent_type}, agent_id={self.app.agent_id}, dds_guid={self.app.dds_guid}")
+        logger.info(f"✅ TRACE: Monitored agent {agent_name} initialized with type {agent_type}, agent_id={self.app.agent_id}, dds_guid={self.app.dds_guid}")
     
     def _initialize_function_client(self) -> None:
         """Initialize the GenericFunctionClient if not already done."""
@@ -411,11 +440,17 @@ class MonitoredAgent(GenesisAgent):
             # Create event
             event = dds.DynamicData(self.component_lifecycle_type)
             
-            # Set component ID (use provided ID or agent name)
-            event["component_id"] = component_id if component_id else self.agent_name
+            # Set component ID (use provided ID or agent UUID for consistency with edge discovery)
+            event["component_id"] = component_id if component_id else self.app.agent_id
             
-            # Set component type (AGENT for agent)
-            event["component_type"] = 2
+            # Set component type based on agent_type
+            # Mapping: 0=INTERFACE, 1=PRIMARY_AGENT, 2=SPECIALIZED_AGENT, 3=FUNCTION
+            if self.agent_type == "AGENT":
+                event["component_type"] = 1  # PRIMARY_AGENT
+            elif self.agent_type == "SPECIALIZED_AGENT":
+                event["component_type"] = 2  # SPECIALIZED_AGENT
+            else:
+                event["component_type"] = 1  # Default to PRIMARY_AGENT
             
             # Set states based on category or provided states
             if previous_state and new_state:
@@ -661,69 +696,6 @@ class MonitoredAgent(GenesisAgent):
             self.current_state = "DEGRADED"
             raise
 
-    def wait_for_agent(self) -> bool:
-        """
-        Wait for an agent to become available.
-        Now includes edge discovery events for multiple connections.
-        """
-        try:
-            logger.debug("Starting wait_for_agent")
-            # Wait for agent using base class implementation
-            result = super().wait_for_agent()
-            logger.debug(f"Base wait_for_agent returned: {result}")
-
-            if result:
-                # Get all discovered agents' information
-                agent_infos = self.app.get_all_agent_info()
-                logger.debug(f"Got agent infos: {agent_infos}")
-                
-                for agent_info in agent_infos:
-                    if agent_info:
-                        # Format the edge discovery reason string exactly as expected by the monitor
-                        # This format is critical for the monitor to recognize it as an edge discovery event
-                        provider_id = str(agent_info.get('instance_handle', ''))
-                        client_id = str(self.app.participant.instance_handle)
-                        function_id = str(uuid.uuid4())
-                        
-                        # Format exactly as monitor expects for edge discovery
-                        reason = f"provider={provider_id} client={client_id} function={function_id} name={self.base_service_name}"
-                        logger.debug(f"Publishing edge discovery event with reason: {reason}")
-
-                        # Publish edge discovery event while in DISCOVERING state
-                        self.publish_component_lifecycle_event(
-                            category="EDGE_DISCOVERY",
-                            message=reason,
-                            capabilities=json.dumps({
-                                "agent_type": self.agent_type,
-                                "service": self.base_service_name,
-                                "edge_type": "agent_function",
-                                "provider_id": provider_id,
-                                "client_id": client_id,
-                                "function_id": function_id
-                            }),
-                            source_id=self.app.agent_id,
-                            target_id=self.app.agent_id
-                        )
-                        logger.debug("Published edge discovery event")
-
-                        # Add a small delay to ensure events are distinguishable
-                        time.sleep(0.1)
-
-            return result
-
-        except Exception as e:
-            logger.error(f"Error in wait_for_agent: {str(e)}")
-            # Transition to degraded state on error
-            self.publish_component_lifecycle_event(
-                category="DEGRADED",
-                message=f"Error discovering functions: {str(e)}",
-                source_id=self.app.agent_id,
-                target_id=self.app.agent_id
-            )
-            return False
-
-
-    
     def _get_requester_guid(self, function_client) -> str:
         """
         Extract the DDS GUID of the requester from a function client.
@@ -1175,4 +1147,274 @@ class MonitoredAgent(GenesisAgent):
         chain_event["status"] = 0
         
         self.chain_event_writer.write(chain_event)
-        self.chain_event_writer.flush() 
+        self.chain_event_writer.flush()
+
+    # Agent-to-Agent Communication Monitoring Methods
+    
+    async def send_agent_request_monitored(self, target_agent_id: str, message: str, 
+                                         conversation_id: Optional[str] = None,
+                                         timeout_seconds: float = 10.0) -> Optional[Dict[str, Any]]:
+        """
+        Send agent request with monitoring.
+        
+        Args:
+            target_agent_id: ID of the target agent
+            message: Request message
+            conversation_id: Optional conversation ID for tracking
+            timeout_seconds: Request timeout
+            
+        Returns:
+            Reply data or None if failed
+        """
+        if not hasattr(self, 'agent_communication') or not self.agent_communication:
+            logger.error("Agent communication not enabled. Use enable_agent_communication=True")
+            return None
+            
+        # Generate unique call ID for tracking
+        call_id = str(uuid.uuid4())
+        chain_id = conversation_id or str(uuid.uuid4())
+        
+        # Publish agent request start event
+        self._publish_agent_request_start(
+            chain_id=chain_id,
+            call_id=call_id,
+            target_agent_id=target_agent_id,
+            message=message
+        )
+        
+        try:
+            # Send the actual request
+            response = await self.agent_communication.send_agent_request(
+                target_agent_id=target_agent_id,
+                message=message,
+                conversation_id=conversation_id,
+                timeout_seconds=timeout_seconds
+            )
+            
+            # Publish agent response event
+            self._publish_agent_response_received(
+                chain_id=chain_id,
+                call_id=call_id,
+                target_agent_id=target_agent_id,
+                response=response
+            )
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"Error in monitored agent request: {e}")
+            
+            # Publish error event
+            self._publish_agent_request_error(
+                chain_id=chain_id,
+                call_id=call_id,
+                target_agent_id=target_agent_id,
+                error=str(e)
+            )
+            
+            return None
+    
+    def _publish_agent_request_start(self, chain_id: str, call_id: str, 
+                                   target_agent_id: str, message: str):
+        """Publish monitoring event for agent request start"""
+        try:
+            # Publish monitoring event
+            self.publish_monitoring_event(
+                event_type="AGENT_TO_AGENT_REQUEST",
+                metadata={
+                    "chain_id": chain_id,
+                    "call_id": call_id,
+                    "source_agent_id": self.app.agent_id,
+                    "target_agent_id": target_agent_id,
+                    "timestamp": int(time.time() * 1000),
+                    "message_preview": message[:100] + "..." if len(message) > 100 else message
+                },
+                call_data={
+                    "agent_request": {
+                        "target_agent": target_agent_id,
+                        "message_length": len(message),
+                        "conversation_id": chain_id
+                    }
+                }
+            )
+            
+            # Publish chain event
+            self._publish_agent_chain_event(
+                chain_id=chain_id,
+                call_id=call_id,
+                event_type="AGENT_REQUEST_START",
+                source_id=self.app.agent_id,
+                target_id=target_agent_id
+            )
+            
+        except Exception as e:
+            logger.error(f"Error publishing agent request start event: {e}")
+    
+    def _publish_agent_response_received(self, chain_id: str, call_id: str,
+                                       target_agent_id: str, response: Optional[Dict[str, Any]]):
+        """Publish monitoring event for agent response received"""
+        try:
+            status = 0 if response and response.get('status') == 0 else -1
+            
+            # Publish monitoring event
+            self.publish_monitoring_event(
+                event_type="AGENT_TO_AGENT_RESPONSE",
+                metadata={
+                    "chain_id": chain_id,
+                    "call_id": call_id,
+                    "source_agent_id": self.app.agent_id,
+                    "target_agent_id": target_agent_id,
+                    "timestamp": int(time.time() * 1000),
+                    "status": status
+                },
+                result_data={
+                    "agent_response": {
+                        "source_agent": target_agent_id,
+                        "success": status == 0,
+                        "response_length": len(str(response)) if response else 0,
+                        "conversation_id": chain_id
+                    }
+                }
+            )
+            
+            # Publish chain event
+            self._publish_agent_chain_event(
+                chain_id=chain_id,
+                call_id=call_id,
+                event_type="AGENT_RESPONSE_RECEIVED",
+                source_id=target_agent_id,
+                target_id=self.app.agent_id,
+                status=status
+            )
+            
+        except Exception as e:
+            logger.error(f"Error publishing agent response event: {e}")
+    
+    def _publish_agent_request_error(self, chain_id: str, call_id: str,
+                                   target_agent_id: str, error: str):
+        """Publish monitoring event for agent request error"""
+        try:
+            # Publish monitoring event
+            self.publish_monitoring_event(
+                event_type="AGENT_TO_AGENT_RESPONSE",
+                metadata={
+                    "chain_id": chain_id,
+                    "call_id": call_id,
+                    "source_agent_id": self.app.agent_id,
+                    "target_agent_id": target_agent_id,
+                    "timestamp": int(time.time() * 1000),
+                    "status": -1,
+                    "error": error
+                },
+                status_data={
+                    "agent_error": {
+                        "target_agent": target_agent_id,
+                        "error_message": error,
+                        "conversation_id": chain_id
+                    }
+                }
+            )
+            
+            # Publish chain event
+            self._publish_agent_chain_event(
+                chain_id=chain_id,
+                call_id=call_id,
+                event_type="AGENT_REQUEST_ERROR",
+                source_id=self.app.agent_id,
+                target_id=target_agent_id,
+                status=-1
+            )
+            
+        except Exception as e:
+            logger.error(f"Error publishing agent request error event: {e}")
+    
+    def _publish_agent_chain_event(self, chain_id: str, call_id: str, event_type: str,
+                                 source_id: str, target_id: str, status: int = 0):
+        """Publish chain event for agent-to-agent interactions"""
+        try:
+            chain_event = dds.DynamicData(self.chain_event_type)
+            chain_event["chain_id"] = chain_id
+            chain_event["call_id"] = call_id
+            chain_event["interface_id"] = str(self.app.participant.instance_handle)
+            chain_event["primary_agent_id"] = self.app.agent_id
+            chain_event["specialized_agent_ids"] = target_id if target_id != self.app.agent_id else ""
+            chain_event["function_id"] = "agent_communication"
+            chain_event["query_id"] = call_id
+            chain_event["timestamp"] = int(time.time() * 1000)
+            chain_event["event_type"] = event_type
+            chain_event["source_id"] = source_id
+            chain_event["target_id"] = target_id
+            chain_event["status"] = status
+            
+            self.chain_event_writer.write(chain_event)
+            self.chain_event_writer.flush()
+            
+        except Exception as e:
+            logger.error(f"Error publishing agent chain event: {e}")
+    
+    def publish_agent_connection_event(self, target_agent_id: str, event_type: str, 
+                                     connection_info: Optional[Dict[str, Any]] = None):
+        """
+        Publish agent connection establishment or loss events.
+        
+        Args:
+            target_agent_id: ID of the target agent
+            event_type: "AGENT_CONNECTION_ESTABLISHED" or "AGENT_CONNECTION_LOST"
+            connection_info: Optional connection metadata
+        """
+        try:
+            # Publish monitoring event
+            self.publish_monitoring_event(
+                event_type=event_type,
+                metadata={
+                    "source_agent_id": self.app.agent_id,
+                    "target_agent_id": target_agent_id,
+                    "timestamp": int(time.time() * 1000),
+                    "connection_info": connection_info or {}
+                }
+            )
+            
+            # Publish component lifecycle event for connection
+            self.publish_component_lifecycle_event(
+                category="EDGE_DISCOVERY" if event_type == "AGENT_CONNECTION_ESTABLISHED" else "STATE_CHANGE",
+                message=f"Agent connection {event_type.lower().replace('agent_connection_', '')} with {target_agent_id}",
+                capabilities=json.dumps({
+                    "connection_type": "agent_to_agent",
+                    "source_agent": self.app.agent_id,
+                    "target_agent": target_agent_id,
+                    "event": event_type,
+                    "connection_info": connection_info or {}
+                }),
+                source_id=self.app.agent_id,
+                target_id=target_agent_id,
+                connection_type="AGENT_COMMUNICATION"
+            )
+            
+        except Exception as e:
+            logger.error(f"Error publishing agent connection event: {e}")
+    
+    # Convenience methods for agent communication (if enabled)
+    
+    def get_discovered_agents(self) -> Dict[str, Dict[str, Any]]:
+        """Get list of discovered agents (if agent communication enabled)"""
+        if hasattr(self, 'agent_communication') and self.agent_communication:
+            return self.agent_communication.get_discovered_agents()
+        return {}
+    
+    async def wait_for_agent(self, agent_id: str, timeout_seconds: float = 10.0) -> bool:
+        """Wait for specific agent to be discovered (if agent communication enabled)"""
+        if hasattr(self, 'agent_communication') and self.agent_communication:
+            return await self.agent_communication.wait_for_agent(agent_id, timeout_seconds)
+        return False
+    
+    def get_agents_by_type(self, agent_type: str) -> List[str]:
+        """Get agents by type (if agent communication enabled)"""
+        if hasattr(self, 'agent_communication') and self.agent_communication:
+            return self.agent_communication.get_agents_by_type(agent_type)
+        return []
+    
+    def get_agents_by_capability(self, capability: str) -> List[str]:
+        """Get agents by capability (if agent communication enabled)"""
+        if hasattr(self, 'agent_communication') and self.agent_communication:
+            return self.agent_communication.get_agents_by_capability(capability)
+        return []

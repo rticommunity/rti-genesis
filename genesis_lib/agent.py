@@ -35,6 +35,8 @@ import rti.rpc as rpc
 from .genesis_app import GenesisApp
 from .llm import ChatAgent, AnthropicChatAgent
 from .utils import get_datamodel_path
+from .agent_communication import AgentCommunicationMixin
+from .agent_classifier import AgentClassifier
 
 # Get logger
 logger = logging.getLogger(__name__)
@@ -44,7 +46,8 @@ class GenesisAgent(ABC):
     registration_writer: Optional[dds.DynamicData.DataWriter] = None # Define at class level
 
     def __init__(self, agent_name: str, base_service_name: str, 
-                 service_instance_tag: Optional[str] = None, agent_id: str = None):
+                 service_instance_tag: Optional[str] = None, agent_id: str = None,
+                 enable_agent_communication: bool = False):
         """
         Initialize the agent.
         
@@ -53,6 +56,7 @@ class GenesisAgent(ABC):
             base_service_name: The fundamental type of service offered (e.g., "Chat", "ImageGeneration")
             service_instance_tag: Optional tag to make this instance's RPC service name unique (e.g., "Primary", "User1")
             agent_id: Optional UUID for the agent (if None, will generate one)
+            enable_agent_communication: Whether to enable agent-to-agent communication capabilities
         """
         logger.info(f"GenesisAgent {agent_name} STARTING initializing with agent_id {agent_id}, base_service_name: {base_service_name}, tag: {service_instance_tag}")
         self.agent_name = agent_name
@@ -184,6 +188,333 @@ class GenesisAgent(ABC):
         
         # Store discovered functions
         # self.discovered_functions = [] # Removed as per event-driven plan
+        
+        # Initialize agent-to-agent communication if enabled
+        self.enable_agent_communication = enable_agent_communication
+        self.agent_communication = None
+        self.agent_classifier = None  # For intelligent request routing
+        if enable_agent_communication:
+            print(f"🚀 PRINT: Agent communication enabled for {self.agent_name}, calling _setup_agent_communication()")
+            self._setup_agent_communication()
+            # Initialize agent classifier for request routing with LLM support
+            self.agent_classifier = AgentClassifier(
+                openai_api_key=os.getenv('OPENAI_API_KEY'),
+                model_name="gpt-4o-mini"
+            )
+        else:
+            print(f"⏭️ PRINT: Agent communication disabled for {self.agent_name}")
+
+    def _setup_agent_communication(self):
+        """Initialize agent-to-agent communication capabilities"""
+        try:
+            print(f"🚀 PRINT: _setup_agent_communication() starting for {self.agent_name}")
+            logger.info(f"Setting up agent-to-agent communication for {self.agent_name}")
+            
+            # Create a communication mixin instance
+            class AgentCommunicationWrapper(AgentCommunicationMixin):
+                def __init__(self, parent_agent):
+                    super().__init__()
+                    self.parent_agent = parent_agent
+                    # Share the app instance and agent attributes
+                    self.app = parent_agent.app
+                    self.base_service_name = parent_agent.base_service_name
+                    self.agent_name = parent_agent.agent_name
+                    self.agent_type = getattr(parent_agent, 'agent_type', 'AGENT')
+                    self.description = getattr(parent_agent, 'description', f'Agent {parent_agent.agent_name}')
+                
+                async def process_agent_request(self, request):
+                    """Delegate to parent agent's process_agent_request method"""
+                    return await self.parent_agent.process_agent_request(request)
+                
+                def get_agent_capabilities(self):
+                    """Delegate to parent agent's get_agent_capabilities method"""
+                    return self.parent_agent.get_agent_capabilities()
+            
+            # Create the communication wrapper
+            print("🏗️ PRINT: Creating AgentCommunicationWrapper...")
+            self.agent_communication = AgentCommunicationWrapper(self)
+            print("✅ PRINT: AgentCommunicationWrapper created")
+            
+            # Initialize RPC types
+            print("🏗️ PRINT: Initializing agent RPC types...")
+            if self.agent_communication._initialize_agent_rpc_types():
+                print("✅ PRINT: Agent-to-agent RPC types loaded successfully")
+                logger.info("Agent-to-agent RPC types loaded successfully")
+            else:
+                print("💥 PRINT: Failed to load agent-to-agent RPC types")
+                logger.warning("Failed to load agent-to-agent RPC types")
+                return
+            
+            # Set up agent discovery
+            print("🏗️ PRINT: Setting up agent discovery...")
+            if self.agent_communication._setup_agent_discovery():
+                print("✅ PRINT: Agent discovery setup completed")
+                logger.info("Agent discovery setup completed")
+            else:
+                print("💥 PRINT: Failed to set up agent discovery")
+                logger.warning("Failed to set up agent discovery")
+                return
+            
+            # Set up agent RPC service
+            print("🏗️ PRINT: Setting up agent RPC service...")
+            if self.agent_communication._setup_agent_rpc_service():
+                print("✅ PRINT: Agent RPC service setup completed")
+                logger.info("Agent RPC service setup completed")
+            else:
+                print("💥 PRINT: Failed to set up agent RPC service")
+                logger.warning("Failed to set up agent RPC service")
+                return
+            
+            # Set up agent capability publishing
+            print("🏗️ PRINT: Setting up agent capability publishing...")
+            if self.agent_communication._setup_agent_capability_publishing():
+                print("✅ PRINT: Agent capability publishing setup completed")
+                logger.info("Agent capability publishing setup completed")
+                # Publish initial capability with enhanced information
+                agent_capabilities = self.get_agent_capabilities()
+                print(f"📊 PRINT: Publishing enhanced capabilities: {agent_capabilities}")
+                self.agent_communication.publish_agent_capability(agent_capabilities)
+            else:
+                print("💥 PRINT: Failed to set up agent capability publishing")
+                logger.warning("Failed to set up agent capability publishing")
+            
+            print(f"✅ PRINT: Agent-to-agent communication enabled for {self.agent_name}")
+            logger.info(f"Agent-to-agent communication enabled for {self.agent_name}")
+            
+        except Exception as e:
+            print(f"💥 PRINT: Failed to set up agent communication: {e}")
+            logger.error(f"Failed to set up agent communication: {e}")
+            import traceback
+            print(f"💥 PRINT: Traceback: {traceback.format_exc()}")
+            self.agent_communication = None
+    
+    async def process_agent_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process a request from another agent.
+        
+        This method should be overridden by subclasses that want to handle
+        agent-to-agent communication. The default implementation returns an error.
+        
+        Args:
+            request: Dictionary containing the request data
+            
+        Returns:
+            Dictionary containing the response data
+        """
+        return {
+            "message": f"Agent {self.agent_name} does not support agent-to-agent communication",
+            "status": -1,
+            "conversation_id": request.get("conversation_id", "")
+        }
+    
+    # Agent-to-agent communication convenience methods
+    async def send_agent_request(self, target_agent_id: str, message: str, 
+                               conversation_id: Optional[str] = None,
+                               timeout_seconds: float = 10.0) -> Optional[Dict[str, Any]]:
+        """Send a request to another agent (if agent communication is enabled)"""
+        if not self.agent_communication:
+            logger.error("Agent communication not enabled")
+            return None
+        
+        return await self.agent_communication.send_agent_request(
+            target_agent_id, message, conversation_id, timeout_seconds
+        )
+    
+    async def wait_for_agent(self, agent_id: str, timeout_seconds: float = 30.0) -> bool:
+        """Wait for a specific agent to be discovered (if agent communication is enabled)"""
+        if not self.agent_communication:
+            logger.error("Agent communication not enabled")
+            return False
+        
+        return await self.agent_communication.wait_for_agent(agent_id, timeout_seconds)
+    
+    def get_discovered_agents(self) -> Dict[str, Dict[str, Any]]:
+        """Get list of discovered agents (if agent communication is enabled)"""
+        if not self.agent_communication:
+            return {}
+        
+        return self.agent_communication.get_discovered_agents()
+    
+    # Enhanced Discovery Methods (delegate to AgentCommunicationMixin)
+    
+    def find_agents_by_capability(self, capability: str) -> List[str]:
+        """Find agents that advertise a specific capability"""
+        if self.agent_communication:
+            return self.agent_communication.find_agents_by_capability(capability)
+        return []
+    
+    def find_agents_by_specialization(self, domain: str) -> List[str]:
+        """Find agents with expertise in a specific domain"""
+        if self.agent_communication:
+            return self.agent_communication.find_agents_by_specialization(domain)
+        return []
+    
+    def find_general_agents(self) -> List[str]:
+        """Find agents that can handle general requests"""
+        if self.agent_communication:
+            return self.agent_communication.find_general_agents()
+        return []
+    
+    def find_specialized_agents(self) -> List[str]:
+        """Find agents that are specialized"""
+        if self.agent_communication:
+            return self.agent_communication.find_specialized_agents()
+        return []
+    
+    async def get_best_agent_for_request(self, request: str) -> Optional[str]:
+        """Use the classifier to find the best agent for a specific request"""
+        if self.agent_communication:
+            return await self.agent_communication.get_best_agent_for_request(request)
+        return None
+    
+    def get_agents_by_performance_metric(self, metric_name: str, min_value: Optional[float] = None, max_value: Optional[float] = None) -> List[str]:
+        """Find agents based on performance metrics"""
+        if self.agent_communication:
+            return self.agent_communication.get_agents_by_performance_metric(metric_name, min_value, max_value)
+        return []
+    
+    def get_agent_info_by_capability(self, capability: str) -> List[Dict[str, Any]]:
+        """Get full agent information for agents with a specific capability"""
+        if self.agent_communication:
+            return self.agent_communication.get_agent_info_by_capability(capability)
+        return []
+    
+    def get_agents_by_model_type(self, model_type: str) -> List[str]:
+        """Find agents using a specific model type"""
+        if self.agent_communication:
+            return self.agent_communication.get_agents_by_model_type(model_type)
+        return []
+    
+    def get_agent_capabilities(self) -> Dict[str, Any]:
+        """
+        Define this agent's capabilities for advertisement.
+        
+        This method should be overridden by subclasses to provide specific
+        capability information for agent discovery and classification.
+        
+        Returns:
+            Dictionary containing agent capability information with keys:
+            - agent_type: "general" or "specialized"
+            - specializations: List of domain expertise areas
+            - capabilities: List of specific capabilities/skills
+            - classification_tags: List of keywords for request routing
+            - model_info: Information about underlying models (for AI agents)
+            - default_capable: Boolean indicating if agent can handle general requests
+            - performance_metrics: Optional performance information
+        """
+        # Default implementation for base GenesisAgent
+        return {
+            "agent_type": "general",
+            "specializations": [],
+            "capabilities": ["general_assistance"],
+            "classification_tags": ["general", "assistant"],
+            "model_info": None,
+            "default_capable": True,
+            "performance_metrics": None
+        }
+    
+    async def route_request_to_best_agent(self, request_message: str, 
+                                        conversation_id: Optional[str] = None,
+                                        timeout_seconds: float = 10.0) -> Optional[Dict[str, Any]]:
+        """
+        Intelligently route a request to the best available agent.
+        
+        This method uses the agent classifier to determine which agent is best
+        suited to handle the request, then forwards the request accordingly.
+        
+        Args:
+            request_message: The request to be processed
+            conversation_id: Optional conversation ID for tracking
+            timeout_seconds: Timeout for the agent request
+            
+        Returns:
+            Response from the selected agent, or None if routing failed
+        """
+        if not self.agent_communication or not self.agent_classifier:
+            logger.warning("Agent communication or classifier not available for routing")
+            return None
+        
+        # Get discovered agents
+        discovered_agents = self.get_discovered_agents()
+        
+        if not discovered_agents:
+            logger.info("No agents discovered for routing")
+            return None
+        
+        # Use classifier to find best agent
+        try:
+            best_agent_id = await self.agent_classifier.classify_request(
+                request_message, discovered_agents
+            )
+            
+            if not best_agent_id:
+                logger.info("No suitable agent found for request")
+                return None
+            
+            # Don't route to ourselves
+            if hasattr(self, 'app') and best_agent_id == self.app.agent_id:
+                logger.info("Best agent is self, handling locally")
+                return None
+            
+            # Get explanation for routing decision
+            explanation = self.agent_classifier.get_classification_explanation(
+                request_message, best_agent_id, discovered_agents
+            )
+            logger.info(f"Routing decision: {explanation}")
+            
+            # Route the request
+            response = await self.send_agent_request(
+                target_agent_id=best_agent_id,
+                message=request_message,
+                conversation_id=conversation_id,
+                timeout_seconds=timeout_seconds
+            )
+            
+            if response and response.get('status') == 0:
+                # Add routing metadata to response
+                response['routed_to'] = best_agent_id
+                response['routing_explanation'] = explanation
+                logger.info(f"Successfully routed request to {best_agent_id}")
+                return response
+            else:
+                logger.warning(f"Failed to get response from routed agent {best_agent_id}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error during request routing: {e}")
+            return None
+    
+    async def process_request_with_routing(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process a request with automatic intelligent routing to specialized agents.
+        
+        This method first tries to route the request to a specialized agent.
+        If no suitable specialist is found or if routing fails, it falls back
+        to processing the request locally.
+        
+        Args:
+            request: Dictionary containing the request data
+            
+        Returns:
+            Dictionary containing the response data
+        """
+        message = request.get('message', '')
+        conversation_id = request.get('conversation_id', '')
+        
+        # Try intelligent routing first if enabled
+        if self.agent_communication and self.agent_classifier:
+            routed_response = await self.route_request_to_best_agent(
+                request_message=message,
+                conversation_id=conversation_id
+            )
+            
+            if routed_response:
+                # Add routing metadata to indicate this was routed
+                routed_response['message'] = f"[Routed] {routed_response.get('message', '')}"
+                return routed_response
+        
+        # Fallback to local processing
+        return await self.process_request(request)
 
     @abstractmethod
     async def process_request(self, request: Any) -> Dict[str, Any]:
@@ -193,16 +524,37 @@ class GenesisAgent(ABC):
     async def run(self):
         """Main agent loop"""
         try:
+            print(f"🚀 PRINT: GenesisAgent.run() starting for {self.agent_name}")
             # Announce presence
+            print("📢 PRINT: About to announce agent presence...")
             logger.info("Announcing agent presence...")
             await self.announce_self()
+            print("✅ PRINT: Agent presence announced successfully")
             
-            # Main loop - just keep the event loop running
+            # Main loop - handle agent requests if enabled
+            print(f"👂 PRINT: {self.agent_name} listening for requests (Ctrl+C to exit)...")
             logger.info(f"{self.agent_name} listening for requests (Ctrl+C to exit)...")
-            shutdown_event = asyncio.Event()
-            await shutdown_event.wait()
+            
+            # Main event loop with agent request handling
+            while True:
+                try:
+                    # Handle agent-to-agent requests if communication is enabled
+                    if self.agent_communication:
+                        await self.agent_communication._handle_agent_requests()
+                    
+                    # Small delay to prevent busy waiting
+                    await asyncio.sleep(0.1)
+                    
+                except KeyboardInterrupt:
+                    print(f"\n🛑 PRINT: KeyboardInterrupt in main loop, breaking...")
+                    break
+                except Exception as e:
+                    logger.error(f"Error in main agent loop: {e}")
+                    # Continue running despite errors
+                    await asyncio.sleep(1)
                 
         except KeyboardInterrupt:
+            print(f"\n🛑 PRINT: KeyboardInterrupt in GenesisAgent.run(), shutting down {self.agent_name}...")
             logger.info(f"\nShutting down {self.agent_name}...")
             await self.close()
             sys.exit(0)
@@ -210,7 +562,11 @@ class GenesisAgent(ABC):
     async def close(self):
         """Clean up resources"""
         try:
-            # Close replier first
+            # Close agent communication first
+            if hasattr(self, 'agent_communication') and self.agent_communication is not None:
+                await self.agent_communication.close_agent_communication()
+                
+            # Close replier
             if hasattr(self, 'replier') and not getattr(self.replier, '_closed', False):
                 self.replier.close()
                 
@@ -236,32 +592,42 @@ class GenesisAgent(ABC):
     async def announce_self(self):
         """Publish a GenesisRegistration announcement for this agent."""
         try:
+            print(f"🚀 PRINT: Starting announce_self for agent {self.agent_name}")
             logger.info(f"Starting announce_self for agent {self.agent_name}")
             
             # Create registration dynamic data
+            print("🏗️ PRINT: Creating registration dynamic data...")
             registration = dds.DynamicData(self.app.registration_type)
+            print("✅ PRINT: Registration dynamic data created")
+            
+            print("📝 PRINT: Setting registration fields...")
             registration["message"] = f"Agent {self.agent_name} ({self.base_service_name}) announcing presence"
             registration["prefered_name"] = self.agent_name
             registration["default_capable"] = 1 # Assuming this means it can handle default requests for its service type
             registration["instance_id"] = self.app.agent_id
             registration["service_name"] = self.rpc_service_name # This is the name clients connect to for RPC
+            print("✅ PRINT: Registration fields set")
             # TODO: If IDL is updated, add a separate field for self.base_service_name for better type discovery by interfaces.
             # For now, CLI will see self.rpc_service_name as 'Service' and can use it to connect.
             
             logger.debug(f"Created registration announcement: message='{registration['message']}', prefered_name='{registration['prefered_name']}', default_capable={registration['default_capable']}, instance_id='{registration['instance_id']}', service_name='{registration['service_name']}' (base_service_name: {self.base_service_name})")
             
             # Write and flush the registration announcement
+            print("📤 PRINT: About to write registration announcement...")
             logger.debug("🔍 TRACE: About to write registration announcement...")
             write_result = self.registration_writer.write(registration)
+            print(f"✅ PRINT: Registration announcement write result: {write_result}")
             logger.debug(f"✅ TRACE: Registration announcement write result: {write_result}")
             
             try:
+                print("🔄 PRINT: About to flush registration writer...")
                 logger.debug("🔍 TRACE: About to flush registration writer...")
                 # Get writer status before flush
                 status = self.registration_writer.datawriter_protocol_status
                 logger.debug(f"📊 TRACE: Writer status before flush - Sent")
                 
                 self.registration_writer.flush()
+                print("✅ PRINT: Registration writer flushed successfully")
                 
                 # Get writer status after flush
                 status = self.registration_writer.datawriter_protocol_status
@@ -269,10 +635,12 @@ class GenesisAgent(ABC):
                 logger.debug("✅ TRACE: Registration writer flushed successfully")
                 logger.info("Successfully announced agent presence")
             except Exception as flush_error:
+                print(f"💥 PRINT: Error flushing registration writer: {flush_error}")
                 logger.error(f"💥 TRACE: Error flushing registration writer: {flush_error}")
                 logger.error(traceback.format_exc())
                 
         except Exception as e:
+            print(f"💥 PRINT: Error in announce_self: {e}")
             logger.error(f"Error in announce_self: {e}")
             logger.error(traceback.format_exc())
 

@@ -147,6 +147,181 @@ For each phase:
 
 Total estimated time: 18 days
 
+## Graph Connectivity Testing Framework
+
+### Overview
+To ensure monitoring events properly represent the distributed system topology, we need comprehensive graph connectivity testing that validates:
+1. All expected nodes exist in the monitoring data
+2. All expected edges (connections) are present
+3. No orphaned or missing components
+4. Graph completeness matches system architecture
+
+### Node Types and Identification Strategy
+- **Agents**: Use DDS GUID for service endpoints, UUID for agent identity
+- **Services**: Use DDS GUID from function capability writer
+- **Interfaces**: Use DDS GUID from participant
+- **Functions**: Use UUID (generated, as functions don't have DDS GUID)
+
+### Edge Types to Monitor
+- **Interface → Agent**: Discovery and connection events
+- **Agent → Agent**: Agent-to-agent communication setup and requests
+- **Agent → Service**: Function discovery and calls
+- **Service → Function**: Internal function hosting relationship
+
+### Testing Components
+
+#### 1. Graph Data Collection
+```python
+class MonitoringGraphCollector:
+    """Collect and organize monitoring events into graph structure"""
+    
+    def __init__(self):
+        self.nodes = {}  # node_id -> node_info
+        self.edges = {}  # (source_id, target_id) -> edge_info
+        self.events = []  # Raw monitoring events
+    
+    def process_lifecycle_event(self, event):
+        """Process ComponentLifecycleEvent into nodes/edges"""
+        
+    def process_chain_event(self, event):
+        """Process ChainEvent into interaction edges"""
+        
+    def verify_graph_completeness(self, expected_topology):
+        """Compare collected graph against expected system topology"""
+```
+
+#### 2. Expected Topology Definition
+```python
+class ExpectedTopology:
+    """Define what nodes and edges should exist for a given test scenario"""
+    
+    def __init__(self, scenario_name):
+        self.scenario = scenario_name
+        self.expected_nodes = []
+        self.expected_edges = []
+        self.required_node_types = []
+    
+    def add_interface(self, interface_id, interface_name):
+        """Add expected interface node"""
+        
+    def add_agent(self, agent_id, agent_name, capabilities):
+        """Add expected agent node"""
+        
+    def add_service(self, service_id, service_name, functions):
+        """Add expected service node with functions"""
+        
+    def add_connection(self, source_id, target_id, connection_type):
+        """Add expected edge between components"""
+```
+
+#### 3. Graph Analysis Engine
+```python
+class GraphAnalyzer:
+    """Analyze graph for completeness and correctness"""
+    
+    def __init__(self, collected_graph, expected_topology):
+        self.graph = collected_graph
+        self.expected = expected_topology
+        
+    def find_missing_nodes(self):
+        """Identify nodes that should exist but weren't found"""
+        
+    def find_missing_edges(self):
+        """Identify connections that should exist but weren't found"""
+        
+    def find_orphaned_nodes(self):
+        """Identify nodes with no connections"""
+        
+    def verify_connectivity(self):
+        """Verify graph is properly connected"""
+        
+    def generate_report(self):
+        """Generate comprehensive analysis report"""
+```
+
+#### 4. RTIDDSSPY Integration
+```python
+class RTIDDSSpyAnalyzer:
+    """Parse RTIDDSSPY output to verify DDS traffic matches monitoring events"""
+    
+    def capture_dds_traffic(self, duration_seconds):
+        """Capture DDS traffic during test execution"""
+        
+    def correlate_with_monitoring(self, monitoring_events):
+        """Correlate DDS traffic with monitoring events"""
+        
+    def verify_dds_consistency(self):
+        """Verify DDS-level traffic matches high-level monitoring"""
+```
+
+### Test Scenarios
+
+#### Scenario 1: Basic Interface-Agent-Service
+```python
+def test_basic_connectivity():
+    """Test basic Interface → Agent → Service connectivity"""
+    topology = ExpectedTopology("basic_connectivity")
+    
+    # Define expected components
+    topology.add_interface("interface_1", "TestInterface")
+    topology.add_agent("agent_1", "TestAgent", ["chat", "classification"])
+    topology.add_service("service_1", "CalculatorService", ["add", "subtract"])
+    
+    # Define expected connections
+    topology.add_connection("interface_1", "agent_1", "interface_agent")
+    topology.add_connection("agent_1", "service_1", "agent_service")
+    
+    # Run test and verify
+    collector = MonitoringGraphCollector()
+    # ... run test scenario ...
+    analyzer = GraphAnalyzer(collector.graph, topology)
+    assert analyzer.verify_connectivity()
+```
+
+#### Scenario 2: Agent-to-Agent Communication
+```python
+def test_agent_to_agent_connectivity():
+    """Test Agent → Agent communication monitoring"""
+    topology = ExpectedTopology("agent_to_agent")
+    
+    # Define multi-agent scenario
+    topology.add_interface("interface_1", "TestInterface")
+    topology.add_agent("agent_1", "GeneralAgent", ["chat", "classification"])
+    topology.add_agent("agent_2", "WeatherAgent", ["weather", "specialized"])
+    topology.add_service("service_1", "WeatherService", ["get_weather"])
+    
+    # Define expected connections including agent-to-agent
+    topology.add_connection("interface_1", "agent_1", "interface_agent")
+    topology.add_connection("agent_1", "agent_2", "agent_agent")
+    topology.add_connection("agent_2", "service_1", "agent_service")
+    
+    # Run test and verify
+    # ... test implementation ...
+```
+
+### Integration with Existing Monitoring
+The graph connectivity testing will integrate with:
+- **Genesis Monitor**: Use existing ComponentLifecycleEvent and ChainEvent processing
+- **MonitoredAgent**: Leverage existing monitoring event generation
+- **MonitoredInterface**: Use existing interface monitoring
+- **EnhancedServiceBase**: Use existing service and function monitoring
+
+### Test Execution Strategy
+1. **Setup Phase**: Start monitoring collection
+2. **Execution Phase**: Run test scenario
+3. **Collection Phase**: Gather all monitoring events
+4. **Analysis Phase**: Build graph and verify connectivity
+5. **Validation Phase**: Compare against expected topology
+6. **Reporting Phase**: Generate detailed analysis report
+
+### Success Criteria
+- All expected nodes detected in monitoring events
+- All expected edges detected in monitoring events  
+- No missing or orphaned components
+- Graph connectivity matches system architecture
+- RTIDDSSPY traffic correlates with monitoring events
+- Tests can detect regressions in monitoring coverage
+
 ## Notes
 - Focus on architectural changes first
 - Maintain backward compatibility throughout

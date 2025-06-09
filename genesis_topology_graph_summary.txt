@@ -1,0 +1,161 @@
+Genesis System Graph Summary
+==================================================
+
+Graph Statistics:
+  Total Nodes: 7
+  Total Edges: 6
+  Is Connected: True
+  Components: 1
+  Average Degree: 1.71
+
+Nodes by Type:
+  INTERFACE: 1
+  PRIMARY_AGENT: 1
+  SPECIALIZED_AGENT: 0
+  SERVICE: 0
+  FUNCTION: 5
+
+Edges by Type:
+  INTERFACE_TO_AGENT: 1
+  AGENT_TO_AGENT: 0
+  AGENT_TO_SERVICE: 1
+  SERVICE_TO_FUNCTION: 4
+  FUNCTION_CONNECTION: 0
+  AGENT_CONNECTION: 0
+
+Detailed Node List:
+  OpenAIChatAgent (PRIMARY_AGENT)
+    ID: e82c7416-e85d-4ee7-b5ce-d119d98412af
+    service: OpenAIChat
+    description: A simple agent that listens for messages via Genesis interface and processes them.
+
+  FUNCTION_0101b97a (FUNCTION)
+    ID: 0101b97a2643d3f760d04fb480008402
+    capabilities: calculator, math
+
+  add (FUNCTION)
+    ID: a5f73ab9-74ee-466c-a076-ec00ec016673
+    function_name: add
+    description: Add two numbers together.
+        
+        Args:
+            x: First number to add (example: 5.0)
+            y: Second number to add (example: 3.0)
+            request_info: Optional request metadata
+            
+        Returns:
+            Dict containing the result of the addition
+            
+        Examples:
+            >>> await add(5, 3)
+            {'result': 8}
+            
+        Raises:
+            InvalidInputError: If either number is outside the valid range [-1,000,000, 1,000,000]
+        
+
+  divide (FUNCTION)
+    ID: 9b7dc5e4-b8f5-4f44-b2ae-f994e2891866
+    function_name: divide
+    description: Divide the first number by the second.
+        
+        Args:
+            x: The number to divide (example: 6.0)
+            y: The number to divide by (example: 2.0)
+            request_info: Optional request metadata
+            
+        Returns:
+            Dict containing the result of the division
+            
+        Examples:
+            >>> await divide(6, 2)
+            {'result': 3}
+            
+        Raises:
+            InvalidInputError: If either number is outside the valid range [-1,000,000, 1,000,000]
+            DivisionByZeroError: If attempting to divide by zero
+        
+
+  multiply (FUNCTION)
+    ID: 31b14e7a-e69e-48f9-9038-f459f4103222
+    function_name: multiply
+    description: Multiply two numbers together.
+        
+        Args:
+            x: First number to multiply (example: 5.0)
+            y: Second number to multiply (example: 3.0)
+            request_info: Optional request metadata
+            
+        Returns:
+            Dict containing the result of the multiplication
+            
+        Examples:
+            >>> await multiply(5, 3)
+            {'result': 15}
+            
+        Raises:
+            InvalidInputError: If either number is outside the valid range [-1,000,000, 1,000,000]
+        
+
+  subtract (FUNCTION)
+    ID: 707affea-1511-47fe-b7ac-efa8387434db
+    function_name: subtract
+    description: Subtract the second number from the first.
+        
+        Args:
+            x: The number to subtract from (example: 5.0)
+            y: The number to subtract (example: 3.0)
+            request_info: Optional request metadata
+            
+        Returns:
+            Dict containing the result of the subtraction
+            
+        Examples:
+            >>> await subtract(5, 3)
+            {'result': 2}
+            
+        Raises:
+            InvalidInputError: If either number is outside the valid range [-1,000,000, 1,000,000]
+        
+
+  StaticInterfaceServiceInterface (INTERFACE)
+    ID: 0101c5326141c3c20ae377b0000001c1
+    service: StaticInterfaceService
+
+Detailed Edge List:
+  OpenAIChatAgent → FUNCTION_0101b97a
+    Type: AGENT_TO_SERVICE
+    Label: subtract
+    Source ID: e82c7416-e85d-4ee7-b5ce-d119d98412af
+    Target ID: 0101b97a2643d3f760d04fb480008402
+
+  FUNCTION_0101b97a → add
+    Type: function_connection
+    Label: add
+    Source ID: 0101b97a2643d3f760d04fb480008402
+    Target ID: a5f73ab9-74ee-466c-a076-ec00ec016673
+
+  FUNCTION_0101b97a → divide
+    Type: function_connection
+    Label: divide
+    Source ID: 0101b97a2643d3f760d04fb480008402
+    Target ID: 9b7dc5e4-b8f5-4f44-b2ae-f994e2891866
+
+  FUNCTION_0101b97a → multiply
+    Type: function_connection
+    Label: multiply
+    Source ID: 0101b97a2643d3f760d04fb480008402
+    Target ID: 31b14e7a-e69e-48f9-9038-f459f4103222
+
+  FUNCTION_0101b97a → subtract
+    Type: function_connection
+    Label: subtract
+    Source ID: 0101b97a2643d3f760d04fb480008402
+    Target ID: 707affea-1511-47fe-b7ac-efa8387434db
+
+  StaticInterfaceServiceInterface → OpenAIChatAgent
+    Type: INTERFACE_TO_AGENT
+    Label: connects
+    Source ID: 0101c5326141c3c20ae377b0000001c1
+    Target ID: e82c7416-e85d-4ee7-b5ce-d119d98412af
+
