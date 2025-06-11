@@ -1,254 +1,236 @@
-# GENESIS Function Call Flow
+# GENESIS Function Call Flow - Agent-as-Tool Pattern
 
-This document describes the unified flow of function calls and agent communication in the GENESIS distributed system.
+This document describes the revolutionary unified flow of function calls and agent communication in the GENESIS distributed system using the breakthrough **Agent-as-Tool** pattern.
 
 ```mermaid
 sequenceDiagram
     participant UI as Interface
-    participant GA as General Agent
+    participant PA as Primary Agent (OpenAI)
+    participant LLM as LLM with Unified Tools
     participant SA as Specialist Agent
     participant F as Function/Service
 
-    Note over UI,F: Discovery Phase
-    GA->>UI: Publishes Agent Capabilities
-    SA->>GA: Publishes Agent Capabilities (via AgentCapability)
-    F->>SA: Publishes Function Capabilities (via FunctionRegistry)
-    UI->>GA: Subscribes to Agent Capabilities
-    GA->>SA: Subscribes to Agent Capabilities
-    SA->>F: Subscribes to Function Capabilities
+    Note over UI,F: Enhanced Discovery Phase
+    PA->>UI: Publishes Agent Capabilities
+    SA->>PA: Publishes Agent Capabilities (via AgentCapability)
+    F->>PA: Publishes Function Capabilities (via FunctionRegistry)
+    UI->>PA: Subscribes to Agent Capabilities
+    PA->>SA: Subscribes to Agent Capabilities
+    PA->>F: Subscribes to Function Capabilities
     
-    Note over UI,F: Capability Advertisement
-    GA->>UI: Agent Capability Advertisement
-    SA->>GA: Agent Capability Advertisement (specializations, tags)
-    F->>SA: Function Advertisement (capabilities, descriptions)
+    Note over UI,F: Agent-as-Tool Conversion
+    PA->>PA: Auto-Discover Agents & Functions
+    PA->>PA: Convert Agents to Tool Schemas
+    PA->>PA: Generate Unified Tool Registry
     
-    Note over UI,F: Unified Request Execution
-    UI->>GA: User Query
+    Note over UI,F: Unified Tool Execution
+    UI->>PA: User Query
     
-    %% Agent Classification Loop
-    activate GA
-    GA-->>GA: Agent Classification
-    Note right of GA: Uses AgentClassifier to analyze request:<br/>- Specialization matching<br/>- Capability matching<br/>- Classification tags<br/>- Keyword analysis
-    deactivate GA
+    %% Tool Schema Generation
+    activate PA
+    PA-->>PA: Ensure Agents Discovered
+    Note right of PA: _ensure_agents_discovered()<br/>Creates capability-based tools
     
-    %% Agent Injection Decision
-    activate GA
-    GA-->>GA: Agent Injection Decision
-    Note right of GA: Route to specialist agent<br/>OR handle locally
-    deactivate GA
+    PA-->>PA: Ensure Functions Discovered
+    Note right of PA: _ensure_functions_discovered()<br/>Maintains function registry
     
-    alt Specialized Request (Agent Injection)
-        GA->>SA: Agent-to-Agent Request (via AgentAgentRequest/Reply)
+    PA-->>PA: Generate Unified Tool Schemas
+    Note right of PA: _get_all_tool_schemas_for_openai()<br/>Functions + Agents + Internal Tools
+    deactivate PA
+    
+    %% Single LLM Call with All Tools
+    PA->>LLM: Single Call with All Tools
+    Note right of LLM: Functions: add, multiply, etc.<br/>Agents: get_weather_info, use_financial_service<br/>Internal: @genesis_tool methods
+    
+    alt Agent Tool Call (NEW!)
+        LLM-->>PA: Agent Tool Call
+        Note right of LLM: Tool: get_weather_info<br/>Args: {message: "Denver weather"}
         
-        %% Specialist Agent Processing
+        PA->>SA: Agent-to-Agent Request (via AgentAgentRequest/Reply)
+        
+        %% Specialist Agent Processing with Context
         activate SA
-        SA-->>SA: Function Classification
-        Note right of SA: Uses FunctionClassifier to find<br/>appropriate functions/services
+        SA-->>SA: Process with Context
+        Note right of SA: Full context preserved<br/>conversation_id maintained
         deactivate SA
         
-        %% Function Injection Loop
-        activate SA
-        SA-->>SA: Function Injection
-        Note right of SA: Route to appropriate service<br/>based on function capabilities
-        deactivate SA
-        
-        SA->>F: Function Call (via DDS RPC)
+        SA->>F: Function Call (if needed)
         F-->>SA: Function Return
         
-        %% Response Integration
-        activate SA
-        SA-->>SA: Response Integration
-        Note right of SA: Integrate function results<br/>with domain expertise
-        deactivate SA
+        SA-->>PA: Agent Response with Results
         
-        SA-->>GA: Specialist Result (via AgentAgentReply)
+    else Function Tool Call
+        LLM-->>PA: Function Tool Call
+        Note right of LLM: Tool: add_numbers<br/>Args: {a: 5, b: 3}
         
-        %% General Agent Response Integration
-        activate GA
-        GA-->>GA: Response Integration
-        Note right of GA: Integrate specialist response<br/>with general context
-        deactivate GA
+        PA->>F: Function Call (via DDS RPC)
+        F-->>PA: Function Return
         
-    else General Request (Local Processing)
-        %% Function Classification Loop
-        activate GA
-        GA-->>GA: Function Classification
-        deactivate GA
+    else Internal Tool Call (@genesis_tool)
+        LLM-->>PA: Internal Tool Call
+        Note right of LLM: Tool: analyze_data<br/>Args: {data: "sample"}
         
-        %% Function Injection Loop
-        activate GA
-        GA-->>GA: Function Injection
-        deactivate GA
-        
-        GA->>F: Function Call (via DDS RPC)
-        F-->>GA: Function Return
-        
-        %% Response Integration Loop
-        activate GA
-        GA-->>GA: Response Integration
-        deactivate GA
+        PA-->>PA: Execute Internal Method
+        Note right of PA: Call @genesis_tool method<br/>directly on agent instance
     end
     
-    GA-->>UI: Final Response
+    %% Unified Response Integration
+    activate PA
+    PA-->>PA: Integrate All Results
+    Note right of PA: Combine agent responses,<br/>function results, internal tool outputs
+    deactivate PA
     
-    %% Response Processing Loop
-    activate UI
-    UI-->>UI: Response Processing
-    deactivate UI
+    PA-->>UI: Final Unified Response
     
-    Note over UI,F: Continuous Monitoring
-    GA-->>UI: Agent Liveliness Updates
-    SA-->>GA: Agent Liveliness Updates
-    F-->>SA: Function Status Updates
+    %% Real-Time Chain Monitoring
+    activate PA
+    PA-->>UI: Chain Events Published
+    Note right of PA: ChainEvent topic tracks:<br/>- Agent tool calls<br/>- Function calls<br/>- Performance metrics<br/>- Error propagation
+    deactivate PA
+    
+    Note over UI,F: Continuous Monitoring & Discovery
+    PA-->>UI: Agent Capability Updates
+    SA-->>PA: Enhanced Agent Metadata
+    F-->>PA: Function Status Updates
 ```
+
+## Revolutionary Agent-as-Tool Pattern
+
+The GENESIS 2.0 breakthrough eliminates the complexity of agent classification by treating agents as **first-class tools** in LLM calls, alongside functions.
+
+### Key Innovations:
+
+1. **Universal Tool Schema:** All agents converted to OpenAI tools using the same universal pattern:
+   ```json
+   {
+     "type": "function",
+     "function": {
+       "name": "get_weather_info",
+       "description": "Specialized agent for weather, meteorology, climate. Send natural language queries and receive responses.",
+       "parameters": {
+         "type": "object", 
+         "properties": {
+           "message": {
+             "type": "string",
+             "description": "Natural language query or request to send to the agent"
+           }
+         },
+         "required": ["message"]
+       }
+     }
+   }
+   ```
+
+2. **Capability-Based Tool Names:** Tools named by what they do, not who they are:
+   - `get_weather_info` (from WeatherAgent's weather specialization)
+   - `use_financial_service` (from FinanceAgent's service name)
+   - `get_health_info` (from HealthAgent's health specialization)
+
+3. **Single LLM Call:** No separate classification step - LLM sees all tools at once:
+   - **Functions:** `add_numbers`, `multiply`, `get_current_time`
+   - **Agents:** `get_weather_info`, `use_financial_service`, `analyze_documents`
+   - **Internal Tools:** `@genesis_tool` decorated methods
+
+4. **Seamless Execution:** Agent tool calls automatically routed via DDS agent-to-agent communication
 
 ## Flow Description
 
-1. **Discovery Phase**
-   - **Agent Discovery**: Agents publish their capabilities through `AgentCapability` DDS topic with rich metadata including specializations, classification tags, and performance metrics
-   - **Function Discovery**: Functions/Services publish their capabilities through `FunctionRegistry` DDS topic
-   - **Subscription**: Interface subscribes to agent capabilities, agents subscribe to both agent and function capabilities
-   - **Registry**: Both agent and function metadata are maintained in distributed registries
+### 1. Enhanced Discovery Phase
+- **Agent Discovery**: Agents publish comprehensive capabilities through `AgentCapability` DDS topic with:
+  - Specializations (weather, finance, health, etc.)
+  - Capabilities (specific functions they can perform)
+  - Classification tags (keywords for discoverability)
+  - Performance metrics and availability status
+- **Function Discovery**: Functions/Services publish capabilities through `FunctionCapability` DDS topic
+- **Unified Registry**: Primary agents maintain both agent and function registries
 
-2. **Capability Advertisement**
-   - **Agent Capabilities**: Agents advertise specializations, capabilities, classification tags, model info, and default_capable status
-   - **Function Capabilities**: Functions advertise descriptions, parameters, and domain-specific metadata
-   - **Hierarchical Advertisement**: Capabilities flow up the chain to make specialized agents and functions discoverable
+### 2. Agent-as-Tool Conversion Phase
+- **Automatic Discovery**: `_ensure_agents_discovered()` finds all available agents
+- **Tool Schema Generation**: `_convert_agents_to_tools()` creates OpenAI tool schemas
+- **Capability-Based Naming**: Tool names generated from agent specializations and capabilities
+- **Unified Tool Registry**: Combined function + agent + internal tool schemas
 
-3. **Unified Request Execution**
-   - Interface sends query to General Agent via DDS RPC
-   - **Agent Classification**: General Agent uses `AgentClassifier` to analyze the request:
-     - Exact capability matching
-     - Specialization domain matching  
-     - Classification tag matching
-     - Keyword analysis
-     - LLM-based semantic matching (optional)
-   - **Routing Decision**: Agent injection vs local processing
-   
-   **Path A - Agent Injection (Specialized Requests):**
-   - General Agent routes to Specialist Agent via `AgentAgentRequest`/`AgentAgentReply`
-   - Specialist Agent performs function classification and injection
-   - Specialist Agent calls appropriate functions/services
-   - Results integrated with domain expertise and returned to General Agent
-   
-   **Path B - Local Processing (General Requests):**
-   - General Agent performs function classification and injection directly
-   - General Agent calls functions/services directly
-   - Results integrated and returned to interface
+### 3. Unified Tool Execution
+- **Single LLM Call**: Primary agent calls LLM with all available tools
+- **Intelligent Selection**: LLM selects appropriate tool based on query content
+- **Automatic Routing**: 
+  - Agent tools → DDS agent-to-agent communication
+  - Function tools → DDS function execution
+  - Internal tools → Direct method invocation
 
-4. **Response Integration**
-   - Each agent integrates results with their domain knowledge and context
-   - Routing metadata (explanations, agent IDs) preserved for transparency
-   - Final unified response delivered to interface
+### 4. Context-Preserving Chain Execution
+- **Context Preservation**: `conversation_id` maintained across all hops
+- **Chain Monitoring**: Every interaction tracked via `ChainEvent` topics
+- **Performance Metrics**: Latency and success rates measured for each hop
+- **Error Propagation**: Graceful failure handling through multi-hop chains
 
-5. **Continuous Monitoring**
-   - Agent liveliness monitored through DDS and `AgentCapability` updates
-   - Function status monitored through `FunctionRegistry` updates  
-   - Real-time availability state maintained across the distributed system
+## Comprehensive Chain Patterns Supported
 
-## Agent Communication Patterns
+The agent-as-tool pattern enables three critical chain types:
 
-The GENESIS system now supports unified agent communication and function calling patterns. The architecture provides both **Agent Injection** (agent-to-agent communication) and **Function Injection** (agent-to-function communication) using the same classification principles.
-
-### Communication Patterns
-
-1. **Direct Function Access**
+### 1. Sequential Agent Chain
 ```
-Interface <-> General Agent <-> Function/Service
+Interface → Primary Agent → [LLM with Tools] → Specialist Agent → Service → Function
 ```
-Used for simple function invocation where no specialized processing is needed.
+**Example**: "Get Denver weather and calculate temperature difference from freezing"
+- LLM calls `get_weather_info` tool (routes to WeatherAgent)
+- WeatherAgent gets real weather data
+- LLM then calls `subtract` function for calculation
 
-2. **Agent Injection Pattern**
+### 2. Parallel Agent Execution  
 ```
-Interface <-> General Agent <-> Specialist Agent <-> Function/Service
+Interface → Primary Agent → [LLM with Tools] → [Agent A, Agent B, Agent C] → Services
 ```
-Used when domain-specific knowledge or processing is required. The General Agent intelligently routes specialized requests to appropriate expert agents.
+**Example**: "Get weather for Denver, New York, and London, then average"
+- LLM makes parallel `get_weather_info` calls
+- Multiple WeatherAgent instances respond concurrently
+- Results aggregated automatically
 
-3. **Multi-Agent Collaboration**
+### 3. Context-Preserving Chain
 ```
-Interface <-> General Agent <-> Specialist Agent A <-> Specialist Agent B <-> Function/Service
+Interface → Primary Agent → Agent A (context) → Agent B (context) → Service
 ```
-Used for complex workflows requiring multiple domains of expertise through agent-to-agent communication.
-
-4. **Hybrid Function & Agent Injection**
-```
-Interface <-> General Agent [Agent Classifier] --> Weather Agent [Function Classifier] --> Weather Service
-                           [Function Classifier] --> Calculator Service
-```
-General agents can route to both specialist agents AND functions based on request analysis.
-
-### Unified Discovery Architecture
-
-- **Agent Discovery**: Via `AgentCapability` topic with specializations, classification tags, and capabilities
-- **Function Discovery**: Via `FunctionRegistry` topic with function descriptions and metadata
-- **Dual Classification**: 
-  - `AgentClassifier` for routing to appropriate agents
-  - `FunctionClassifier` for routing to appropriate functions
-- **Consistent Pattern**: Both use capability matching, keyword analysis, and domain classification
-
-### Dynamic Routing Formation
-
-**Agent Classification** considers:
-- Request specialization requirements (weather, finance, health, etc.)
-- Agent capability matching (exact capability names)
-- Classification tag matching (keyword analysis)
-- Agent availability and performance metrics
-- Default capable agents as fallback
-
-**Function Classification** considers:
-- Function descriptions and parameters
-- Domain-specific metadata
-- Function availability and status
-- Performance characteristics
-
-### Routing Decision Tree
-
-```
-User Request → General Agent
-    ↓
-[Agent Classifier Analysis]
-    ↓
-Specialized Request? 
-    ├─ YES → Route to Specialist Agent → [Function Classifier] → Function/Service
-    └─ NO  → [Function Classifier] → Function/Service (local)
-```
-
-This creates a **fractal architecture** where the same classification and routing patterns apply at both the agent level and function level, enabling sophisticated multi-layer delegation and specialization.
+**Example**: "Get weather → clothing recommendations → travel planning"
+- Context flows through conversation_id
+- Each agent builds on previous agent's results
+- Full conversation state maintained
 
 ## Implementation Details
 
-The unified flow is implemented through several key components:
+### Core Infrastructure Enhanced
+- `OpenAIGenesisAgent`: Enhanced with agent-as-tool capabilities
+- `AgentCommunicationMixin`: Provides seamless agent-to-agent communication  
+- `AgentCapability`: Rich metadata for agent discovery and tool generation
 
-### Core Infrastructure
-- `GenesisApp`: Base class providing DDS infrastructure for both agents and functions
-- `GenesisAgent`: Enhanced base agent class with optional agent communication capabilities
-- `AgentCommunicationMixin`: Provides agent-to-agent communication functionality
+### Discovery and Tool Systems
+- `_ensure_agents_discovered()`: Automatic agent discovery and tool conversion
+- `_convert_agents_to_tools()`: Universal schema generation for all agents
+- `_get_all_tool_schemas_for_openai()`: Unified tool registry (functions + agents + internal)
+- Enhanced `FunctionRegistry`: Maintains both function and agent registries
 
-### Discovery and Classification Systems
-- `FunctionRegistry`: Handles function registration and discovery via DDS
-- `AgentClassifier`: Intelligent routing system for agent-to-agent communication
-  - Specialization matching
-  - Capability analysis  
-  - Classification tag matching
-  - Keyword domain analysis
-- `FunctionClassifier`: Classifies and routes function requests
-- `FunctionMatcher`: Matches function requests to available functions
-
-### Communication Types
-- `AgentAgentRequest`/`AgentAgentReply`: DDS types for agent-to-agent communication
-- `InterfaceAgentRequest`/`InterfaceAgentReply`: DDS types for interface-to-agent communication
+### Communication Types  
+- `AgentAgentRequest`/`AgentAgentReply`: Structured agent-to-agent communication
+- `InterfaceAgentRequest`/`InterfaceAgentReply`: Interface-to-agent communication  
 - `AgentCapability`: Enhanced capability advertisement with rich metadata
+- `ChainEvent`: Real-time chain execution monitoring
 
-### Agent Types  
-- **General Agents**: Can handle general requests and intelligently route specialized requests
-- **Specialist Agents**: Domain experts that handle specific types of requests
-- **Monitored Agents**: Include monitoring and observability for agent interactions
+### Agent Types
+- **Primary Agents**: `OpenAIGenesisAgent` with agent-as-tool capabilities
+- **Specialist Agents**: Domain experts discoverable as tools
+- **Monitored Agents**: Include comprehensive monitoring and chain tracking
 
-For more details, see the implementation in:
-- `genesis_lib/genesis_app.py` - Core DDS infrastructure
-- `genesis_lib/agent.py` - Enhanced agent base classes
+## Benefits of Agent-as-Tool Pattern
+
+1. **Simplified Architecture**: No separate classification stage - single LLM call
+2. **Better LLM Understanding**: Agents appear as tools with clear descriptions
+3. **Unified Tool Ecosystem**: Functions and agents treated identically
+4. **Automatic Discovery**: New agents immediately available as tools
+5. **Context Preservation**: Full conversation state through complex chains
+6. **Real-Time Monitoring**: Complete visibility into multi-agent workflows
+7. **Performance Optimization**: Parallel execution and intelligent routing
+
+For detailed implementation, see:
+- `genesis_lib/openai_genesis_agent.py` - Agent-as-tool implementation
 - `genesis_lib/agent_communication.py` - Agent-to-agent communication
-- `genesis_lib/agent_classifier.py` - Intelligent routing system
-- `genesis_lib/function_classification.py` - Function routing system
-- `test_functions/` - Example functions and agent tests
-- `docs/agent_to_agent_communication.md` - Detailed architecture documentation 
+- `examples/MultiAgent/` - Complete working demonstrations
+- `run_scripts/comprehensive_multi_agent_test_interface.py` - Comprehensive testing 
