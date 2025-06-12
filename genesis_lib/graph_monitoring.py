@@ -1,0 +1,221 @@
+#!/usr/bin/env python3
+"""
+Unified Graph Monitoring Helper for Genesis
+
+Provides a single interface for publishing node and edge events
+to DDS (ComponentLifecycleEvent), with optional legacy MonitoringEvent
+support for backward compatibility.
+
+- publish_node: emits NODE_DISCOVERY for agents, interfaces, services, functions
+- publish_edge: emits EDGE_DISCOVERY for connections (DDS, agent, function, etc.)
+
+DDS setup is handled as a singleton per process.
+Enums/constants are shared for all monitoring users.
+
+Legacy MonitoringEvent emission is controlled by GENESIS_MON_LEGACY=1.
+
+Copyright (c) 2025, RTI & Jason Upchurch
+"""
+
+import os
+import time
+import uuid
+import json
+import threading
+import logging
+import rti.connextdds as dds
+from genesis_lib.utils import get_datamodel_path
+
+logger = logging.getLogger("graph_monitoring")
+logger.setLevel(logging.INFO)
+if not logger.hasHandlers():
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+
+# Enum constants for component types
+COMPONENT_TYPE = {
+    "INTERFACE": 0,
+    "AGENT_PRIMARY": 1,
+    "AGENT_SPECIALIZED": 2,
+    "FUNCTION": 3,
+    "SERVICE": 4
+}
+
+# Enum constants for states
+STATE = {
+    "JOINING": 0,
+    "DISCOVERING": 1,
+    "READY": 2,
+    "BUSY": 3,
+    "DEGRADED": 4,
+    "OFFLINE": 5
+}
+
+# Enum constants for event categories
+EVENT_CATEGORY = {
+    "NODE_DISCOVERY": 0,
+    "EDGE_DISCOVERY": 1,
+    "STATE_CHANGE": 2,
+    "AGENT_INIT": 3,
+    "AGENT_READY": 4,
+    "AGENT_SHUTDOWN": 5,
+    "DDS_ENDPOINT": 6
+}
+
+# Enum constants for edge types
+EDGE_TYPE = {
+    "DDS_ENDPOINT": "DDS_ENDPOINT",
+    "AGENT_COMMUNICATION": "AGENT_COMMUNICATION",
+    "FUNCTION_CONNECTION": "FUNCTION_CONNECTION",
+    "INTERFACE_TO_AGENT": "INTERFACE_TO_AGENT",
+    "SERVICE_TO_FUNCTION": "SERVICE_TO_FUNCTION",
+    "EXPLICIT_CONNECTION": "EXPLICIT_CONNECTION"
+}
+
+# Singleton DDS setup
+class _DDSWriters:
+    _instances = {}
+    _lock = threading.Lock()
+
+    def __init__(self, participant):
+        config_path = get_datamodel_path()
+        self.type_provider = dds.QosProvider(config_path)
+        self.participant = participant
+        self.publisher = dds.Publisher(self.participant)
+        # Topics
+        self.component_lifecycle_type = self.type_provider.type("genesis_lib", "ComponentLifecycleEvent")
+        self.component_lifecycle_topic = dds.DynamicData.Topic(
+            self.participant, "ComponentLifecycleEvent", self.component_lifecycle_type
+        )
+        # Writers
+        writer_qos = dds.QosProvider.default.datawriter_qos
+        writer_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
+        writer_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
+        self.component_lifecycle_writer = dds.DynamicData.DataWriter(
+            pub=self.publisher,
+            topic=self.component_lifecycle_topic,
+            qos=writer_qos
+        )
+        # Optional legacy MonitoringEvent
+        self.legacy_enabled = os.environ.get("GENESIS_MON_LEGACY", "0") == "1"
+        if self.legacy_enabled:
+            self.monitoring_type = self.type_provider.type("genesis_lib", "MonitoringEvent")
+            self.monitoring_topic = dds.DynamicData.Topic(
+                self.participant, "MonitoringEvent", self.monitoring_type
+            )
+            self.monitoring_writer = dds.DynamicData.DataWriter(
+                pub=self.publisher,
+                topic=self.monitoring_topic,
+                qos=writer_qos
+            )
+
+    @classmethod
+    def get(cls, participant):
+        with cls._lock:
+            key = id(participant)
+            if key not in cls._instances:
+                cls._instances[key] = _DDSWriters(participant)
+            return cls._instances[key]
+
+class GraphMonitor:
+    def __init__(self, participant):
+        self.dds = _DDSWriters.get(participant)
+
+    def publish_node(self, component_id, component_type, state, attrs=None):
+        """
+        Publish a node (agent, interface, service, function) to the graph.
+        component_id: str (GUID or UUID)
+        component_type: int (see COMPONENT_TYPE)
+        state: int (see STATE)
+        attrs: dict (arbitrary metadata)
+        """
+        event = dds.DynamicData(self.dds.component_lifecycle_type)
+        # Set all fields in the exact order as in the IDL
+        event["component_id"] = component_id
+        event["component_type"] = int(component_type)
+        event["previous_state"] = int(state)
+        event["new_state"] = int(state)
+        event["timestamp"] = int(time.time() * 1000)
+        event["reason"] = attrs.get("reason", "") if attrs else ""
+        event["capabilities"] = json.dumps(attrs) if attrs else ""
+        event["chain_id"] = ""
+        event["call_id"] = ""
+        event["event_category"] = int(EVENT_CATEGORY["NODE_DISCOVERY"])
+        event["source_id"] = component_id
+        event["target_id"] = component_id
+        event["connection_type"] = ""
+        self.dds.component_lifecycle_writer.write(event)
+        self.dds.component_lifecycle_writer.flush()
+        logger.info(f"GraphMonitor: Published NODE {component_id} type={component_type} state={state}")
+        print(f"GraphMonitor: Published NODE {component_id} type={component_type} state={state}")
+
+        # Optionally emit legacy MonitoringEvent
+        if self.dds.legacy_enabled:
+            self._publish_legacy_monitoring_event(component_id, component_type, state, attrs)
+
+    def publish_edge(self, source_id, target_id, edge_type, attrs=None, component_type=None):
+        """
+        Publish an edge (connection) between two nodes.
+        source_id: str (GUID or UUID)
+        target_id: str (GUID or UUID)
+        edge_type: str (see EDGE_TYPE)
+        attrs: dict (arbitrary metadata)
+        component_type: int (see COMPONENT_TYPE) - type of the source node (REQUIRED)
+        """
+        if component_type is None:
+            # Default to INTERFACE if not specified, but this should be set by caller
+            component_type = COMPONENT_TYPE["INTERFACE"]
+        event = dds.DynamicData(self.dds.component_lifecycle_type)
+        # Set all fields in the exact order as in the IDL
+        event["component_id"] = source_id
+        event["component_type"] = int(component_type)
+        event["previous_state"] = int(STATE["DISCOVERING"])
+        event["new_state"] = int(STATE["DISCOVERING"])
+        event["timestamp"] = int(time.time() * 1000)
+        event["reason"] = attrs.get("reason", "") if attrs else ""
+        event["capabilities"] = json.dumps(attrs) if attrs else ""
+        event["chain_id"] = ""
+        event["call_id"] = ""
+        event["event_category"] = int(EVENT_CATEGORY["EDGE_DISCOVERY"])
+        event["source_id"] = source_id
+        event["target_id"] = target_id
+        event["connection_type"] = edge_type
+        self.dds.component_lifecycle_writer.write(event)
+        self.dds.component_lifecycle_writer.flush()
+        logger.info(f"GraphMonitor: Published EDGE {source_id} -> {target_id} type={edge_type}")
+        print(f"GraphMonitor: Published EDGE {source_id} -> {target_id} type={edge_type}")
+
+        # Optionally emit legacy MonitoringEvent
+        if self.dds.legacy_enabled:
+            self._publish_legacy_monitoring_event(source_id, -1, STATE["DISCOVERING"], attrs, edge=True, target_id=target_id, edge_type=edge_type)
+
+    def _publish_legacy_monitoring_event(self, entity_id, entity_type, state, attrs, edge=False, target_id=None, edge_type=None):
+        """
+        Optionally publish a legacy MonitoringEvent for backward compatibility.
+        """
+        if not hasattr(self.dds, "monitoring_writer"):
+            return
+        event = dds.DynamicData(self.dds.monitoring_type)
+        event["event_id"] = str(uuid.uuid4())
+        event["timestamp"] = int(time.time() * 1000)
+        event["event_type"] = 0 if not edge else 1  # 0=node, 1=edge
+        event["entity_type"] = entity_type
+        event["entity_id"] = entity_id
+        if attrs:
+            event["metadata"] = json.dumps(attrs)
+        if edge and target_id:
+            event["call_data"] = json.dumps({"target_id": target_id, "edge_type": edge_type})
+        self.dds.monitoring_writer.write(event)
+        logger.debug(f"GraphMonitor: Published legacy MonitoringEvent for {'EDGE' if edge else 'NODE'} {entity_id}")
+
+# Export enums for import convenience
+__all__ = [
+    "GraphMonitor",
+    "COMPONENT_TYPE",
+    "STATE",
+    "EVENT_CATEGORY",
+    "EDGE_TYPE"
+]

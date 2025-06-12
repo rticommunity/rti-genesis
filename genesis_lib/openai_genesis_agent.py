@@ -47,6 +47,7 @@ class OpenAIGenesisAgent(MonitoredAgent):
                  base_service_name: str = "OpenAIChat", service_instance_tag: Optional[str] = None, 
                  description: str = None, enable_tracing: bool = False, 
                  enable_agent_communication: bool = True):
+        print(f"OpenAIGenesisAgent __init__ called for {agent_name}")
         """Initialize the agent with the specified models
         
         Args:
@@ -164,23 +165,21 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                 if self.enable_tracing:
                     logger.debug(f"Publishing AGENT_TO_SERVICE edge discovery event with reason: {reason}")
 
-                self.publish_component_lifecycle_event(
-                    category="EDGE_DISCOVERY",
-                    reason=reason,
-                    previous_state="DISCOVERING",
-                    new_state="DISCOVERING",
-                    capabilities=json.dumps({
+                self.graph.publish_edge(
+                    source_id=self.app.agent_id,
+                    target_id=provider_id,
+                    edge_type="AGENT_TO_SERVICE",
+                    attrs={
                         "agent_type": self.agent_type,
                         "service": self.base_service_name,
                         "edge_type": "agent_to_service",
                         "provider_id": provider_id,
                         "client_id": self.app.agent_id,
                         "function_id": function_id,
-                        "function_name": function_name
-                    }),
-                    source_id=self.app.agent_id,
-                    target_id=provider_id,
-                    connection_type="AGENT_TO_SERVICE"
+                        "function_name": function_name,
+                        "reason": reason
+                    },
+                    component_type=1  # AGENT_PRIMARY
                 )
                 if self.enable_tracing:
                     logger.debug("Published AGENT_TO_SERVICE edge discovery event")
@@ -419,21 +418,21 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                 logger.debug(f"===== TRACING: Publishing capability-based agent tool discovery events for {len(newly_discovered_agents)} tools =====")
             
             for tool_data in newly_discovered_agents:
-                self.publish_component_lifecycle_event(
-                    category="EDGE_DISCOVERY",
-                    reason=f"capability_tool={tool_data['tool_name']} agent={tool_data['agent_id']} client={self.app.agent_id}",
-                    capabilities=json.dumps({
+                self.graph.publish_edge(
+                    source_id=self.app.agent_id,
+                    target_id=tool_data['agent_id'],
+                    edge_type="CAPABILITY_BASED_TOOL",
+                    attrs={
                         "agent_type": self.agent_type,
                         "service": self.base_service_name,
                         "edge_type": "capability_based_agent_tool",
                         "target_agent_id": tool_data['agent_id'],
                         "client_id": self.app.agent_id,
                         "tool_name": tool_data['tool_name'],
-                        "capability_description": tool_data['capability_description']
-                    }),
-                    source_id=self.app.agent_id,
-                    target_id=tool_data['agent_id'],
-                    connection_type="CAPABILITY_BASED_TOOL"
+                        "capability_description": tool_data['capability_description'],
+                        "reason": f"capability_tool={tool_data['tool_name']} agent={tool_data['agent_id']} client={self.app.agent_id}"
+                    },
+                    component_type=1  # AGENT_PRIMARY
                 )
         
         if self.enable_tracing:
@@ -871,16 +870,16 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                 )
                 
                 # Create component lifecycle event for function classification
-                self.publish_component_lifecycle_event(
-                    category="STATE_CHANGE",
-                    previous_state="READY",
-                    new_state="BUSY",
-                    reason=f"CLASSIFICATION.RELEVANT: Function '{func['name']}' for query: {user_message[:100]}",
-                    capabilities=json.dumps({
+                self.graph.publish_node(
+                    component_id=self.app.agent_id,
+                    component_type=1,  # AGENT_PRIMARY
+                    state=2,  # READY
+                    attrs={
                         "function_name": func["name"],
                         "description": func["description"],
-                        "classification": func["classification"]
-                    })
+                        "classification": func["classification"],
+                        "reason": f"CLASSIFICATION.RELEVANT: Function '{func['name']}' for query: {user_message[:100]}"
+                    }
                 )
             
             # Get ALL tool schemas (external functions + internal tools + agents)
@@ -1468,4 +1467,4 @@ def main():
         return 1
 
 if __name__ == "__main__":
-    sys.exit(main()) 
+    sys.exit(main())

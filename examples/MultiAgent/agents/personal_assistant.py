@@ -58,7 +58,7 @@ class PersonalAssistant(OpenAIGenesisAgent):
         
         # Initialize with configuration-controlled tracing
         super().__init__(
-            model_name="gpt-4o",
+            model_name="o3-2025-04-16",
             agent_name="PersonalAssistant",
             base_service_name="OpenAIAgent",
             description="General personal assistant with access to specialized agents and services",

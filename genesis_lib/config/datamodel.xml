@@ -166,6 +166,7 @@
       <enumerator name="PRIMARY_AGENT"/>
       <enumerator name="SPECIALIZED_AGENT"/>
       <enumerator name="FUNCTION"/>
+      <enumerator name="SERVICE"/>
     </enum>
 
     <enum name="ComponentState">

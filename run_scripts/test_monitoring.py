@@ -161,7 +161,7 @@ class MonitoringTest:
                     self.logger.debug(f"Reason: {data['reason']}")
                     
                     # Map component types and states
-                    component_types = ["INTERFACE", "PRIMARY_AGENT", "SPECIALIZED_AGENT", "FUNCTION"]
+                    component_types = ["INTERFACE", "PRIMARY_AGENT", "SPECIALIZED_AGENT", "FUNCTION", "SERVICE"]
                     states = ["JOINING", "DISCOVERING", "READY", "BUSY", "DEGRADED", "OFFLINE"]
                     event_categories = ["NODE_DISCOVERY", "EDGE_DISCOVERY", "STATE_CHANGE", "AGENT_INIT", "AGENT_READY", "AGENT_SHUTDOWN", "DDS_ENDPOINT"]
                     
@@ -286,17 +286,22 @@ class MonitoringTest:
             self.logger.debug(f"Reason: {reason}")
             
             # Check for calculator service discovery
-            if "Function app" in reason and "discovered" in reason:
-                service_id = reason.split()[-1]
-                for i in range(1, 4):
-                    event_name = f"calculator_service_{i}_discovery"
+            if "Function app" in reason and "CalculatorService" in reason and "discovered" in reason:
+                # Count which services we've found
+                discovered_count = len([svc for svc in self.discovered_services if svc.startswith("CalculatorService")])
+                service_number = discovered_count + 1
+                
+                if service_number <= 3:
+                    service_key = f"CalculatorService_{service_number}"
+                    self.discovered_services.add(service_key)
+                    event_name = f"calculator_service_{service_number}_discovery"
                     if event_name in self.expected_events:
-                        self.logger.info(f"✅ Found calculator service {i} discovery event")
+                        self.logger.info(f"✅ Found calculator service {service_number} discovery event")
                         self.expected_events.remove(event_name)
-                        break
                     
             # Check for calculator service ready state
             if "All CalculatorService functions published and ready for calls" in reason:
+                # Find the next available ready event to match
                 for i in range(1, 4):
                     event_name = f"calculator_service_{i}_ready"
                     if event_name in self.expected_events:
