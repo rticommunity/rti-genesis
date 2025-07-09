@@ -1,0 +1,24 @@
+sequenceDiagram
+    participant User
+    participant Agent as GenesisAgent
+    participant FReg as FunctionRegistry
+    participant LLM1 as Fast-LLM
+    participant LLM2 as Full-LLM
+    participant Calc as CalculatorService
+
+    User->>Agent: "What is 34 * (12 / 4)?"
+    Agent->>FReg: list()
+    FReg-->>Agent: 24 funcs
+    Agent->>LLM1: classify(request, funcs)
+    LLM1-->>Agent: [calc.multiply, calc.divide]
+    Agent->>LLM2: request + subset
+    LLM2-->>Agent: call(calc.divide, 12,4)
+    Agent->>Calc: RPC divide(12,4)
+    Calc-->>Agent: 3
+    Agent->>LLM2: result=3
+    LLM2-->>Agent: call(calc.multiply, 34,3)
+    Agent->>Calc: RPC multiply(34,3)
+    Calc-->>Agent: 102
+    Agent->>LLM2: result=102
+    LLM2-->>Agent: "The answer is 102."
+    Agent-->>User: 102
