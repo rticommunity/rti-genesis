@@ -926,3 +926,288 @@ For support, please:
 ## License
 
 [Your License Here]
+
+## Getting Started: Your First Agent, Service, and Interface
+
+The following minimal examples show how to create a simple service, a simple agent, a simple interface, and an agent with an internal tool using the `@genesis_tool` decorator. These are **copy-pasteable** and ready to run (after setup). For more advanced patterns, see the `/examples` directory.
+
+---
+
+### 1. Simple Service Example
+
+This service exposes an `add` and `multiply` function using the Genesis `@genesis_function` decorator.
+
+```python
+# simple_calculator_service.py
+import logging
+import asyncio
+from typing import Dict, Any
+from genesis_lib.enhanced_service_base import EnhancedServiceBase
+from genesis_lib.decorators import genesis_function
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("simple_calculator")
+
+class SimpleCalculator(EnhancedServiceBase):
+    def __init__(self):
+        super().__init__("SimpleCalculator", capabilities=["calculator", "math"])
+        self._advertise_functions()
+        logger.info("SimpleCalculator service initialized")
+
+    @genesis_function()
+    async def add(self, x: float, y: float, request_info=None) -> Dict[str, Any]:
+        """Add two numbers together."""
+        return {"result": x + y}
+
+    @genesis_function()
+    async def multiply(self, x: float, y: float, request_info=None) -> Dict[str, Any]:
+        """Multiply two numbers together."""
+        return {"result": x * y}
+
+def main():
+    service = SimpleCalculator()
+    asyncio.run(service.run())
+
+if __name__ == "__main__":
+    main()
+```
+
+---
+
+### 2. Simple Agent Example
+
+This agent can process natural language and call the calculator service.
+
+```python
+# simple_agent.py
+import logging
+import asyncio
+import sys
+from genesis_lib.openai_genesis_agent import OpenAIGenesisAgent
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("simple_agent")
+
+class SimpleAgent(OpenAIGenesisAgent):
+    def __init__(self):
+        super().__init__(
+            model_name="gpt-4o",
+            classifier_model_name="gpt-4o-mini",
+            agent_name="SimpleAgent",
+            description="A simple agent that can perform basic arithmetic operations",
+            enable_tracing=True
+        )
+        logger.info("SimpleAgent initialized")
+
+async def main():
+    agent = SimpleAgent()
+    await asyncio.sleep(2)  # Allow time for discovery
+    message = sys.argv[1] if len(sys.argv) > 1 else "What is 2 plus 2?"
+    response = await agent.process_message(message)
+    print(f"Agent response: {response}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+---
+
+### 3. Simple Interface Example
+
+This CLI discovers available agents, lets you select one, and sends messages.
+
+```python
+# simple_interface.py
+import asyncio
+import logging
+from genesis_lib.monitored_interface import MonitoredInterface
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("simple_interface")
+
+async def main():
+    interface = MonitoredInterface(interface_name="SimpleCLI", service_name="SimpleInterfaceService")
+    print("Waiting for agents to become available...")
+    await asyncio.wait_for(interface._agent_found_event.wait(), timeout=30.0)
+    agent_list = list(interface.available_agents.values())
+    for i, agent in enumerate(agent_list):
+        print(f"{i+1}. Name: {agent.get('prefered_name', 'N/A')}, ID: {agent.get('instance_id')}")
+    idx = int(input("Select agent by number: ")) - 1
+    selected = agent_list[idx]
+    await interface.connect_to_agent(service_name=selected.get('service_name'), timeout_seconds=10.0)
+    print("Connected! Type 'quit' to exit.")
+    while True:
+        msg = input("You: ")
+        if msg.lower() in ['quit', 'exit']:
+            break
+        response = await interface.send_request({"message": msg}, timeout_seconds=20.0)
+        print("Agent:", response.get("message", response))
+    await interface.close()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+---
+
+### 4. Agent with Internal Tool Example (`@genesis_tool`)
+
+This agent exposes a tool to the LLM using the `@genesis_tool` decorator.
+
+```python
+# agent_with_tool.py
+import asyncio
+import logging
+from genesis_lib.openai_genesis_agent import OpenAIGenesisAgent
+from genesis_lib.decorators import genesis_tool
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("agent_with_tool")
+
+class ToolAgent(OpenAIGenesisAgent):
+    def __init__(self):
+        super().__init__(
+            model_name="gpt-4o",
+            agent_name="ToolAgent",
+            description="Agent with internal tool using @genesis_tool",
+            enable_agent_communication=True
+        )
+
+    @genesis_tool(description="Add two numbers together")
+    async def add_numbers(self, x: float, y: float) -> dict:
+        """Add two numbers and return the result."""
+        return {"result": x + y}
+
+async def main():
+    agent = ToolAgent()
+    await agent.run()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+---
+
+### How to Run
+
+1. **Start the service**:  
+   `python simple_calculator_service.py`
+2. **Start the agent**:  
+   `python simple_agent.py`
+3. **Start the interface**:  
+   `python simple_interface.py`
+4. **(Optional) Start the agent with tool**:  
+   `python agent_with_tool.py`
+
+**You can mix and match these components.**  
+For more advanced demos, see the `/examples` directory.
+
+---
+
+**For more details and advanced usage, see:**
+- `examples/HelloWorld/` for minimal agent/service patterns
+- `examples/ExampleInterface/` for a full CLI/agent/service pipeline
+- `examples/MultiAgent/` for advanced @genesis_tool and multi-agent demos
+
+---
+
+This section ensures any new user can create and run a simple agent, service, and interface, and see how to use the @genesis_tool decorator.
+
+## Function Call Flow & DDS Communication Patterns
+
+GENESIS leverages DDS (Data Distribution Service) for all agent, function, and service discovery, as well as for communication and monitoring. This enables automatic, zero-configuration discovery, robust real-time messaging, and a unified agent-as-tool pattern.
+
+### Why DDS?
+- **Automatic Discovery:** Agents and services announce their capabilities via DDS topics (`AgentCapability`, `FunctionCapability`), enabling zero-config, dynamic discovery and connection.
+- **Real-Time, Reliable Messaging:** DDS provides publish/subscribe and request/reply patterns with configurable Quality of Service (QoS) for reliability, durability, and low latency.
+- **Scalability & Flexibility:** DDS supports peer-to-peer, brokerless communication, and scales to large, dynamic agent networks.
+- **Strong Data Typing:** DDS enforces schemas for all messages, ensuring robust, type-safe communication.
+- **Monitoring & Tracing:** All lifecycle, chain, and monitoring events are published over DDS topics for real-time observability.
+- **Security (Architected):** DDS Security (authentication, encryption, access control) is designed into the architecture, but is **not yet implemented** in GENESIS. The framework is ready for future security enhancements using DDS's native security plugins.
+
+### DDS Discovery & Communication
+- **Agent Discovery:** Agents publish and subscribe to `AgentCapability` topics, automatically finding each other and their specializations.
+- **Function Discovery:** Services publish to `FunctionCapability` topics, enabling agents to discover available functions at runtime.
+- **Unified Registry:** Each agent maintains a registry of discovered agents and functions, auto-generating tool schemas for LLMs.
+- **Agent-to-Agent & Agent-to-Function Calls:** All remote calls use DDS request/reply topics, with context and conversation state preserved across chains.
+- **Monitoring:** All events (chain execution, errors, performance) are published to DDS monitoring topics for real-time visibility.
+
+### Security (Planned, Not Yet Implemented)
+- **DDS Security** is architected into GENESIS, enabling future support for:
+  - Authentication (X.509 certificates)
+  - Access control (permissions, roles)
+  - Encryption (AES-GCM)
+  - Audit logging
+- **Current Status:** Security is not yet enabled by default, but the system is designed for seamless integration of DDS security plugins and policies.
+
+### Function Call Flow (Agent-as-Tool Pattern)
+
+Below is a high-level sequence diagram of a typical function or agent tool call in GENESIS:
+
+```mermaid
+sequenceDiagram
+    participant UI as Interface
+    participant PA as Primary Agent (OpenAI)
+    participant LLM as LLM with Unified Tools
+    participant SA as Specialist Agent
+    participant F as Function/Service
+
+    Note over UI,F: Discovery & Tool Schema Generation
+    PA->>UI: Publishes Agent Capabilities
+    SA->>PA: Publishes Agent Capabilities
+    F->>PA: Publishes Function Capabilities
+    UI->>PA: Subscribes to Agent Capabilities
+    PA->>SA: Subscribes to Agent Capabilities
+    PA->>F: Subscribes to Function Capabilities
+    PA->>PA: Auto-Discover Agents & Functions
+    PA->>PA: Generate Unified Tool Registry
+
+    Note over UI,F: Unified Tool Execution
+    UI->>PA: User Query
+    PA->>LLM: Single LLM Call with All Tools
+    alt Agent Tool Call
+        LLM-->>PA: Agent Tool Call
+        PA->>SA: Agent-to-Agent Request
+        SA-->>PA: Agent Response
+    else Function Tool Call
+        LLM-->>PA: Function Tool Call
+        PA->>F: Function Call
+        F-->>PA: Function Return
+    else Internal Tool Call
+        LLM-->>PA: Internal Tool Call
+        PA-->>PA: Execute Internal Method
+    end
+    PA-->>UI: Unified Response
+    PA-->>UI: Chain Events Published (Monitoring)
+```
+
+- **Discovery:** Agents and functions/services announce themselves via DDS topics. Agents auto-generate tool schemas for LLMs.
+- **Unified Tool Call:** The LLM receives all tools (functions, agents, internal tools) in a single call.
+- **Routing:** Calls are automatically routed to the correct agent, service, or internal method, with full context and monitoring.
+- **Monitoring:** All steps are tracked via DDS monitoring topics for real-time observability.
+
+For a detailed breakdown, see [`docs/function_call_flow.md`](docs/function_call_flow.md).
+
+## Monitoring & Observability
+
+GENESIS provides comprehensive, real-time monitoring and observability by publishing every significant action and event as a DDS Pub/Sub message. This includes:
+- Function calls and returns
+- Agent-to-agent requests and replies
+- Errors, exceptions, and status changes
+- Component lifecycle events (startup, shutdown, health)
+- Chain execution and performance metrics
+
+### How It Works
+- **Event Publication:** Every action in the system is logged as a structured event and published to a dedicated DDS topic (e.g., `ChainEvent`, `ComponentLifecycleEvent`, `MonitoringEvent`, `LogMessage`).
+- **Pub/Sub Model:** Any tool, service, or dashboard can subscribe to these topics to receive a real-time stream of all activity in the Genesis network.
+- **Network Overview:** By aggregating these events, you can build a live overview of the entire Genesis network—showing which agents, services, and functions are active, how they are connected, and what actions are occurring at any moment.
+- **Dashboards & Visualization:** This architecture enables the creation of monitoring dashboards, network maps, and visualizations for debugging, auditing, and operational awareness. See `genesis_monitor.py` and related tools for examples.
+
+### Benefits
+- **Transparency:** Every action is observable, making it easy to debug, audit, and understand system behavior.
+- **Real-Time Debugging:** Issues can be detected and diagnosed as they happen, with full context and traceability.
+- **Optimization:** Performance metrics and chain events can be analyzed to optimize workflows, balance load, and improve reliability.
+- **Research & Learning:** The event stream can be recorded and used for advanced analytics, including reinforcement learning for dynamic chaining, automated optimization, and system evolution.
+- **Extensibility:** New monitoring tools or learning agents can be added at any time, simply by subscribing to the relevant DDS topics—no changes to the core system required.
+
+This observability layer is a foundational feature of GENESIS, enabling not just robust operations but also future research and innovation in multi-agent systems.
