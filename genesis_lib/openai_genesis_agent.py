@@ -26,6 +26,7 @@ import traceback
 import uuid
 from openai import OpenAI
 from typing import Dict, Any, List, Optional
+import collections
 
 from genesis_lib.monitored_agent import MonitoredAgent
 from genesis_lib.function_classifier import FunctionClassifier
@@ -46,7 +47,7 @@ class OpenAIGenesisAgent(MonitoredAgent):
                  domain_id: int = 0, agent_name: str = "OpenAIAgent", 
                  base_service_name: str = "OpenAIChat", service_instance_tag: Optional[str] = None, 
                  description: str = None, enable_tracing: bool = False, 
-                 enable_agent_communication: bool = True):
+                 enable_agent_communication: bool = True, memory_adapter=None):
         print(f"OpenAIGenesisAgent __init__ called for {agent_name}")
         """Initialize the agent with the specified models
         
@@ -81,7 +82,8 @@ class OpenAIGenesisAgent(MonitoredAgent):
             agent_type="AGENT",  # This is a primary agent
             description=description or f"An OpenAI-powered agent using {model_name} model, providing {base_service_name} service",
             domain_id=domain_id,
-            enable_agent_communication=enable_agent_communication
+            enable_agent_communication=enable_agent_communication,
+            memory_adapter=memory_adapter
         )
         
         # Get API key from environment
@@ -113,6 +115,7 @@ class OpenAIGenesisAgent(MonitoredAgent):
 You have access to:
 1. Functions that can help you solve problems (calculations, data processing, etc.)
 2. Specialized agents that have expertise in specific domains (weather, finance, etc.)
+3. An external memory system that stores our conversation history, allowing you to recall previous interactions
 
 When a function or specialized agent is available that can help with a task, you should use it rather than trying to solve the problem yourself.
 This is especially important for:
@@ -120,14 +123,21 @@ This is especially important for:
 - Domain-specific queries (consult specialized agents)
 - Data processing tasks (use appropriate functions)
 
+You can recall information from our previous conversations using your memory system. When users ask about something they mentioned before, you should be able to recall and reference that information.
+
 Always explain your reasoning and the steps you're taking when using tools or consulting agents."""
 
-        self.general_system_prompt = """You are a helpful and engaging AI assistant. You can:
+        self.general_system_prompt = """You are a helpful and engaging AI assistant with an external memory system that stores our conversation history.
+You can:
 - Answer questions and provide information
 - Tell jokes and engage in casual conversation
 - Help with creative tasks like writing and brainstorming
 - Provide explanations and teach concepts
 - Assist with problem-solving and decision making
+- Recall information from our previous conversations
+
+You can remember and reference information that users have shared with you in our conversation. When users ask about something they mentioned before, you should be able to recall that information.
+
 Be friendly, professional, and maintain a helpful tone while being concise and clear in your responses."""
 
         # Start with general prompt, will switch to function-based if functions are discovered
@@ -732,10 +742,8 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             raise
     
     async def process_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """Process a user request and return a response"""
         user_message = request.get("message", "")
         logger.debug(f"===== TRACING: Processing request: {user_message} =====")
-        
         try:
             # Enhanced tracing: Discovery status before processing
             if self.enable_tracing:
@@ -780,13 +788,30 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                     if self.enable_tracing:
                         self._trace_openai_call("General conversation (no tools)", [], user_message)
                     
-                    # Process with general conversation
+                    # Process with general conversation - FIX MEMORY INTEGRATION
+                    
+                    # Retrieve memory and format for OpenAI
+                    N = 8
+                    memory_items = self.memory.retrieve(k=N)
+                    messages = [{"role": "system", "content": self.general_system_prompt}]
+                    
+                    # Add conversation history from memory
+                    for entry in memory_items:
+                        item = entry["item"]
+                        meta = entry.get("metadata", {})
+                        role = meta.get("role")
+                        if role not in ("user", "assistant"):
+                            # Fallback: alternate roles if metadata is missing
+                            idx = memory_items.index(entry)
+                            role = "user" if idx % 2 == 0 else "assistant"
+                        messages.append({"role": role, "content": str(item)})
+                    
+                    # Add current user message
+                    messages.append({"role": "user", "content": user_message})
+                    
                     response = self.client.chat.completions.create(
                         model=self.model_config['model_name'],
-                        messages=[
-                            {"role": "system", "content": self.general_system_prompt},
-                            {"role": "user", "content": user_message}
-                        ]
+                        messages=messages
                     )
                     
                     # Enhanced tracing: OpenAI response analysis
@@ -800,10 +825,11 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                         model_identifier=f"openai.{self.model_config['model_name']}"
                     )
                     
-                    return {
-                        "message": response.choices[0].message.content,
-                        "status": 0
-                    }
+                    # Write user and agent messages to memory
+                    self.memory.write(user_message, metadata={"role": "user"})
+                    agent_response = response.choices[0].message.content
+                    self.memory.write(agent_response, metadata={"role": "assistant"})
+                    return {"message": agent_response, "status": 0}
                 else:
                     logger.debug(f"===== TRACING: No external functions but have internal tools ({has_internal_tools}) or agents ({has_agents}), proceeding with tool processing =====")
                     # Continue to tool processing - we have internal tools or agents to offer
@@ -906,13 +932,30 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                 if self.enable_tracing:
                     self._trace_openai_call("No relevant functions", [], user_message)
                 
-                # Process without functions
+                # Process without functions - FIX MEMORY INTEGRATION
+                
+                # Retrieve memory and format for OpenAI
+                N = 8
+                memory_items = self.memory.retrieve(k=N)
+                messages = [{"role": "system", "content": self.system_prompt}]
+                
+                # Add conversation history from memory
+                for entry in memory_items:
+                    item = entry["item"]
+                    meta = entry.get("metadata", {})
+                    role = meta.get("role")
+                    if role not in ("user", "assistant"):
+                        # Fallback: alternate roles if metadata is missing
+                        idx = memory_items.index(entry)
+                        role = "user" if idx % 2 == 0 else "assistant"
+                    messages.append({"role": role, "content": str(item)})
+                
+                # Add current user message
+                messages.append({"role": "user", "content": user_message})
+                
                 response = self.client.chat.completions.create(
                     model=self.model_config['model_name'],
-                    messages=[
-                        {"role": "system", "content": self.system_prompt},
-                        {"role": "user", "content": user_message}
-                    ]
+                    messages=messages
                 )
                 
                 # Enhanced tracing: OpenAI response analysis
@@ -926,12 +969,13 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                     model_identifier=f"openai.{self.model_config['model_name']}"
                 )
                 
-                return {
-                    "message": response.choices[0].message.content,
-                    "status": 0
-                }
+                # Write user and agent messages to memory
+                self.memory.write(user_message, metadata={"role": "user"})
+                agent_response = response.choices[0].message.content
+                self.memory.write(agent_response, metadata={"role": "assistant"})
+                return {"message": agent_response, "status": 0}
             
-            # Phase 2: Function Execution
+            # Phase 2: Function Execution with proper memory integration
             logger.debug("===== TRACING: Calling OpenAI API with function schemas =====")
             
             # Create chain event for LLM call start
@@ -945,12 +989,28 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             if self.enable_tracing:
                 self._trace_openai_call("Function execution", function_schemas, user_message)
             
+            # Retrieve memory and format for OpenAI
+            N = 8
+            memory_items = self.memory.retrieve(k=N)
+            messages = [{"role": "system", "content": self.system_prompt}]
+            
+            # Add conversation history from memory
+            for entry in memory_items:
+                item = entry["item"]
+                meta = entry.get("metadata", {})
+                role = meta.get("role")
+                if role not in ("user", "assistant"):
+                    # Fallback: alternate roles if metadata is missing
+                    idx = memory_items.index(entry)
+                    role = "user" if idx % 2 == 0 else "assistant"
+                messages.append({"role": role, "content": str(item)})
+            
+            # Add current user message
+            messages.append({"role": "user", "content": user_message})
+            
             response = self.client.chat.completions.create(
                 model=self.model_config['model_name'],
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": user_message}
-                ],
+                messages=messages,
                 tools=function_schemas,
                 tool_choice="auto"
             )
@@ -1099,14 +1159,36 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                     if self.enable_tracing:
                         self._trace_openai_call("Tool response processing", [], user_message, tool_responses)
                     
+                    # Retrieve memory and format for OpenAI (second call)
+                    N = 8
+                    memory_items = self.memory.retrieve(k=N)
+                    messages = [{"role": "system", "content": self.system_prompt}]
+                    
+                    # Add conversation history from memory
+                    for entry in memory_items:
+                        item = entry["item"]
+                        meta = entry.get("metadata", {})
+                        role = meta.get("role")
+                        if role not in ("user", "assistant"):
+                            # Fallback: alternate roles if metadata is missing
+                            idx = memory_items.index(entry)
+                            role = "user" if idx % 2 == 0 else "assistant"
+                        messages.append({"role": role, "content": str(item)})
+                    
+                    # Add current user message
+                    messages.append({"role": "user", "content": user_message})
+                    
+                    # Add assistant message with tool calls
+                    messages.append({"role": "assistant", "content": message.content, "tool_calls": message.tool_calls})
+                    
+                    # Add tool responses
+                    messages.extend(tool_responses)
+                    
                     second_response = self.client.chat.completions.create(
                         model=self.model_config['model_name'],
-                        messages=[
-                            {"role": "system", "content": self.system_prompt},
-                            {"role": "user", "content": user_message},
-                            message,  # The assistant's message requesting the function call
-                            *tool_responses  # The tool responses
-                        ]
+                        messages=messages,
+                        tools=function_schemas,
+                        tool_choice="auto"
                     )
                     
                     # Enhanced tracing: Second OpenAI response analysis
@@ -1128,6 +1210,9 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                     if self.enable_tracing:
                         self._trace_discovery_status("AFTER PROCESSING")
                     
+                    # Write user and agent messages to memory
+                    self.memory.write(user_message, metadata={"role": "user"})
+                    self.memory.write(final_message, metadata={"role": "assistant"})
                     return {"message": final_message, "status": 0}
             
             # If no tool call, just return the response
@@ -1138,6 +1223,9 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             if self.enable_tracing:
                 self._trace_discovery_status("AFTER PROCESSING")
             
+            # Write user and agent messages to memory
+            self.memory.write(user_message, metadata={"role": "user"})
+            self.memory.write(text_response, metadata={"role": "assistant"})
             return {"message": text_response, "status": 0}
                 
         except Exception as e:

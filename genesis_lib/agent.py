@@ -37,6 +37,7 @@ from .llm import ChatAgent, AnthropicChatAgent
 from .utils import get_datamodel_path
 from .agent_communication import AgentCommunicationMixin
 from .agent_classifier import AgentClassifier
+from genesis_lib.memory import SimpleMemoryAdapter
 
 # Get logger
 logger = logging.getLogger(__name__)
@@ -47,7 +48,7 @@ class GenesisAgent(ABC):
 
     def __init__(self, agent_name: str, base_service_name: str, 
                  service_instance_tag: Optional[str] = None, agent_id: str = None,
-                 enable_agent_communication: bool = False):
+                 enable_agent_communication: bool = False, memory_adapter=None):
         """
         Initialize the agent.
         
@@ -193,6 +194,7 @@ class GenesisAgent(ABC):
         self.enable_agent_communication = enable_agent_communication
         self.agent_communication = None
         self.agent_classifier = None  # For intelligent request routing
+        self.memory = memory_adapter or SimpleMemoryAdapter()
         if enable_agent_communication:
             print(f"🚀 PRINT: Agent communication enabled for {self.agent_name}, calling _setup_agent_communication()")
             self._setup_agent_communication()
