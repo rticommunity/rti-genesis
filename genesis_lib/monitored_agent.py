@@ -56,7 +56,7 @@ class MonitoredAgent(GenesisAgent):
     def __init__(self, agent_name: str, base_service_name: str,
                  agent_type: str = "AGENT", service_instance_tag: Optional[str] = None,
                  agent_id: str = None, description: str = None, domain_id: int = 0,
-                 enable_agent_communication: bool = False):
+                 enable_agent_communication: bool = False, memory_adapter=None):
         logger.info(f"🚀 TRACE: MonitoredAgent {agent_name} STARTING initializing with agent_id {agent_id}")
 
         super().__init__(
@@ -64,7 +64,8 @@ class MonitoredAgent(GenesisAgent):
             base_service_name=base_service_name,
             service_instance_tag=service_instance_tag,
             agent_id=agent_id,
-            enable_agent_communication=enable_agent_communication
+            enable_agent_communication=enable_agent_communication,
+            memory_adapter=memory_adapter
         )
         logger.info(f"✅ TRACE: MonitoredAgent {agent_name} initialized with base class")
 
@@ -696,5 +697,16 @@ class MonitoredAgent(GenesisAgent):
         except Exception as e:
             logger.error(f"Error publishing monitoring event: {str(e)}")
             logger.error(traceback.format_exc())
+
+    def memory_write(self, item, metadata=None):
+        self.memory.write(item, metadata)
+        if hasattr(self, 'publish_monitoring_event'):
+            self.publish_monitoring_event(event_type="memory_write", metadata={"item": item, "metadata": metadata})
+
+    def memory_retrieve(self, query=None, k=5, policy=None):
+        result = self.memory.retrieve(query, k, policy)
+        if hasattr(self, 'publish_monitoring_event'):
+            self.publish_monitoring_event(event_type="memory_retrieve", metadata={"query": query, "k": k, "policy": policy, "result_count": len(result) if result else 0})
+        return result
 
     # The rest of the agent-to-agent communication, ChainEvent, and utility methods remain unchanged.

@@ -330,7 +330,11 @@ echo "Starting Genesis-LIB test suite..."
 # Check for and clean up any existing DDS processes
 check_and_cleanup_dds || { echo "Test suite aborted due to DDS process issues"; exit 1; }
 
-# Agent-to-Agent Communication Test (FIRST - Comprehensive Core Genesis Test)
+# Memory Test (FIRST - Core Agent Memory Functionality)
+echo "🧠 Running agent memory recall test..."
+run_with_timeout "run_test_agent_memory.sh" 60 || { echo "Test failed: run_test_agent_memory.sh - AGENT MEMORY FUNCTIONALITY BROKEN"; exit 1; }
+
+# Agent-to-Agent Communication Test (SECOND - Comprehensive Core Genesis Test)
 echo "🚀 Running comprehensive agent-to-agent communication test..."
 run_with_timeout "test_agent_to_agent_communication.py" 120 || { echo "Test failed: test_agent_to_agent_communication.py - CORE GENESIS FUNCTIONALITY BROKEN"; exit 1; }
 
