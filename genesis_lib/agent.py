@@ -61,6 +61,7 @@ class GenesisAgent(ABC):
         """
         logger.info(f"GenesisAgent {agent_name} STARTING initializing with agent_id {agent_id}, base_service_name: {base_service_name}, tag: {service_instance_tag}")
         self.agent_name = agent_name
+        self.mcp_server = None  # Initialize MCP server to None
         
         self.base_service_name = base_service_name
         if service_instance_tag:
@@ -205,6 +206,27 @@ class GenesisAgent(ABC):
             )
         else:
             print(f"⏭️ PRINT: Agent communication disabled for {self.agent_name}")
+
+    def enable_mcp(self, 
+                   port=8000, 
+                   toolname="ask_genesis_agent",
+                   tooldesc="Ask the Genesis agent a question and get a response"):
+        try:
+            from mcp.server.fastmcp import FastMCP
+        except ImportError:
+            raise ImportError("FastMCP module not found. Install with: pip install fastmcp")
+        try:
+            import threading
+        except ImportError:
+            raise ImportError("Threading module not found")
+        if not self.mcp_server:
+            self.mcp_server = FastMCP(self.agent_name, port=port)
+            self.mcp_server.add_tool(
+                self.process_message,
+                name=toolname,
+                description=tooldesc)
+            self._mcp_thread = threading.Thread(target=self.mcp_server.run, kwargs={"transport": "streamable-http"}, daemon=True)
+            self._mcp_thread.start()
 
     def _setup_agent_communication(self):
         """Initialize agent-to-agent communication capabilities"""
@@ -575,7 +597,17 @@ class GenesisAgent(ABC):
             # Close app last since it handles registration
             if hasattr(self, 'app') and self.app is not None and not getattr(self.app, '_closed', False):
                 await self.app.close()
-                
+
+            # Close MCP server
+            if hasattr(self, 'mcp_server') and self.mcp_server is not None and hasattr(self.mcp_server, "stop"):
+                self.mcp_server.stop()
+
+            # Wait for MCP thread to finish
+            if hasattr(self, '_mcp_thread') and self._mcp_thread is not None:
+                self._mcp_thread.join(timeout=5.0)
+                if self._mcp_thread.is_alive():
+                    logger.warning("MCP thread did not shut down within 5 seconds and may be stuck.")
+
             logger.info(f"GenesisAgent {self.agent_name} closed successfully")
         except Exception as e:
             logger.error(f"Error closing GenesisAgent: {str(e)}")

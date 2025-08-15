@@ -141,6 +141,16 @@ Your question:
 
 Ask your questions. 
 
+### MCP
+If you want your agent to be MCP enabled you can do it this way:
+
+```py
+agent.enable_mcp(8000)
+```
+
+You will need ``threading`` and ``fastmcp``
+
+
 ## Add a service. 
 In another shell add a new file called `calc_service.py`
 
