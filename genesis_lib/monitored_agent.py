@@ -82,7 +82,9 @@ class MonitoredAgent(GenesisAgent):
             "agent_type": agent_type,
             "service": base_service_name,
             "functions": [],
-            "supported_tasks": []
+            "supported_tasks": [],
+            "prefered_name": self.agent_name,
+            "agent_name": self.agent_name,
         }
 
         # Unified graph monitor
@@ -102,6 +104,8 @@ class MonitoredAgent(GenesisAgent):
                 "service": base_service_name,
                 "description": self.description,
                 "agent_id": self.app.agent_id,
+                "prefered_name": self.agent_name,
+                "agent_name": self.agent_name,
                 "reason": f"Agent {agent_name} discovered"
             }
         )
@@ -114,6 +118,8 @@ class MonitoredAgent(GenesisAgent):
                 "service": base_service_name,
                 "description": self.description,
                 "agent_id": self.app.agent_id,
+                "prefered_name": self.agent_name,
+                "agent_name": self.agent_name,
                 "reason": f"{agent_name} ready for requests"
             }
         )
@@ -210,6 +216,8 @@ class MonitoredAgent(GenesisAgent):
                         "service": self.base_service_name,
                         "description": self.description,
                         "agent_id": self.app.agent_id,
+                        "prefered_name": self.agent_name,
+                        "agent_name": self.agent_name,
                         "reason": f"Transitioning to READY state before processing request"
                     }
                 )
@@ -224,6 +232,8 @@ class MonitoredAgent(GenesisAgent):
                     "service": self.base_service_name,
                     "description": self.description,
                     "agent_id": self.app.agent_id,
+                    "prefered_name": self.agent_name,
+                    "agent_name": self.agent_name,
                     "reason": f"Processing request: {str(request)}"
                 }
             )
@@ -240,6 +250,8 @@ class MonitoredAgent(GenesisAgent):
                     "service": self.base_service_name,
                     "description": self.description,
                     "agent_id": self.app.agent_id,
+                    "prefered_name": self.agent_name,
+                    "agent_name": self.agent_name,
                     "reason": f"Request processed successfully: {str(result)}"
                 }
             )
@@ -256,6 +268,8 @@ class MonitoredAgent(GenesisAgent):
                     "service": self.base_service_name,
                     "description": self.description,
                     "agent_id": self.app.agent_id,
+                    "prefered_name": self.agent_name,
+                    "agent_name": self.agent_name,
                     "reason": f"Error processing request: {str(e)}"
                 }
             )
@@ -270,6 +284,8 @@ class MonitoredAgent(GenesisAgent):
                         "service": self.base_service_name,
                         "description": self.description,
                         "agent_id": self.app.agent_id,
+                        "prefered_name": self.agent_name,
+                        "agent_name": self.agent_name,
                         "reason": "Attempting recovery to READY state"
                     }
                 )
@@ -293,6 +309,8 @@ class MonitoredAgent(GenesisAgent):
                     "service": self.base_service_name,
                     "description": self.description,
                     "agent_id": self.app.agent_id,
+                    "prefered_name": self.agent_name,
+                    "agent_name": self.agent_name,
                     "reason": "Shutting down monitoring"
                 }
             )
@@ -404,6 +422,8 @@ class MonitoredAgent(GenesisAgent):
                 "service": self.base_service_name,
                 "discovered_functions": len(functions),
                 "function_names": function_names,
+                "prefered_name": self.agent_name,
+                "agent_name": self.agent_name,
                 "reason": f"Agent {self.agent_name} discovered {len(functions)} functions and is ready"
             }
         )
@@ -442,6 +462,8 @@ class MonitoredAgent(GenesisAgent):
             state=STATE["READY"],
             attrs={
                 **self.agent_capabilities,
+                "prefered_name": self.agent_name,
+                "agent_name": self.agent_name,
                 "reason": "Agent capabilities updated"
             }
         )
@@ -482,7 +504,7 @@ class MonitoredAgent(GenesisAgent):
         chain_event["chain_id"] = chain_id
         chain_event["call_id"] = call_id
         chain_event["interface_id"] = str(self.app.participant.instance_handle)
-        chain_event["primary_agent_id"] = ""
+        chain_event["primary_agent_id"] = self.app.agent_id
         chain_event["specialized_agent_ids"] = ""
         chain_event["function_id"] = model_identifier
         chain_event["query_id"] = str(uuid.uuid4())
@@ -503,7 +525,7 @@ class MonitoredAgent(GenesisAgent):
         chain_event["chain_id"] = chain_id
         chain_event["call_id"] = call_id
         chain_event["interface_id"] = str(self.app.participant.instance_handle)
-        chain_event["primary_agent_id"] = ""
+        chain_event["primary_agent_id"] = self.app.agent_id
         chain_event["specialized_agent_ids"] = ""
         chain_event["function_id"] = model_identifier
         chain_event["query_id"] = str(uuid.uuid4())
@@ -524,14 +546,15 @@ class MonitoredAgent(GenesisAgent):
         chain_event["chain_id"] = chain_id
         chain_event["call_id"] = call_id
         chain_event["interface_id"] = str(self.app.participant.instance_handle)
-        chain_event["primary_agent_id"] = ""
+        chain_event["primary_agent_id"] = self.app.agent_id
         chain_event["specialized_agent_ids"] = ""
         chain_event["function_id"] = classified_function_id
         chain_event["query_id"] = str(uuid.uuid4())
         chain_event["timestamp"] = int(time.time() * 1000)
         chain_event["event_type"] = "CLASSIFICATION_RESULT"
         chain_event["source_id"] = str(self.app.participant.instance_handle)
-        chain_event["target_id"] = classified_function_name
+        # Use function UUID for target_id so activity maps to graph function node
+        chain_event["target_id"] = classified_function_id
         chain_event["status"] = 0
         self.chain_event_writer.write(chain_event)
         self.chain_event_writer.flush()
@@ -552,10 +575,30 @@ class MonitoredAgent(GenesisAgent):
         chain_event["timestamp"] = int(time.time() * 1000)
         chain_event["event_type"] = "FUNCTION_CALL_START"
         chain_event["source_id"] = str(self.app.participant.instance_handle)
-        chain_event["target_id"] = target_provider_id if target_provider_id else function_name
+        # Always target the function UUID; provider id can be inferred from topology
+        chain_event["target_id"] = function_id
         chain_event["status"] = 0
         self.chain_event_writer.write(chain_event)
         self.chain_event_writer.flush()
+
+        # Additionally, emit an explicit AGENT->SERVICE activation so the agent-service edge pulses in the UI
+        if target_provider_id:
+            chain_event2 = dds.DynamicData(self.chain_event_type)
+            chain_event2["chain_id"] = chain_id
+            chain_event2["call_id"] = call_id
+            chain_event2["interface_id"] = str(self.app.participant.instance_handle)
+            chain_event2["primary_agent_id"] = self.app.agent_id
+            chain_event2["specialized_agent_ids"] = ""
+            chain_event2["function_id"] = function_id
+            chain_event2["query_id"] = str(uuid.uuid4())
+            chain_event2["timestamp"] = int(time.time() * 1000)
+            chain_event2["event_type"] = "AGENT_TO_SERVICE_START"
+            # Use graph node IDs for direct edge mapping
+            chain_event2["source_id"] = self.app.agent_id
+            chain_event2["target_id"] = target_provider_id
+            chain_event2["status"] = 0
+            self.chain_event_writer.write(chain_event2)
+            self.chain_event_writer.flush()
 
     def _publish_function_call_complete(self, chain_id: str, call_id: str, function_name: str, function_id: str, source_provider_id: str = None):
         """Publish a chain event for function call completion"""
@@ -572,11 +615,61 @@ class MonitoredAgent(GenesisAgent):
         chain_event["query_id"] = str(uuid.uuid4())
         chain_event["timestamp"] = int(time.time() * 1000)
         chain_event["event_type"] = "FUNCTION_CALL_COMPLETE"
-        chain_event["source_id"] = source_provider_id if source_provider_id else function_name
+        # Use function UUID as the source of the completion to mirror SERVICE->FUNCTION edge direction
+        chain_event["source_id"] = function_id
         chain_event["target_id"] = str(self.app.participant.instance_handle)
         chain_event["status"] = 0
         self.chain_event_writer.write(chain_event)
         self.chain_event_writer.flush()
+
+        # Emit explicit AGENT->SERVICE completion event as well
+        if source_provider_id:
+            chain_event2 = dds.DynamicData(self.chain_event_type)
+            chain_event2["chain_id"] = chain_id
+            chain_event2["call_id"] = call_id
+            chain_event2["interface_id"] = str(self.app.participant.instance_handle)
+            chain_event2["primary_agent_id"] = self.app.agent_id
+            chain_event2["specialized_agent_ids"] = ""
+            chain_event2["function_id"] = function_id
+            chain_event2["query_id"] = str(uuid.uuid4())
+            chain_event2["timestamp"] = int(time.time() * 1000)
+            chain_event2["event_type"] = "AGENT_TO_SERVICE_COMPLETE"
+            chain_event2["source_id"] = self.app.agent_id
+            chain_event2["target_id"] = source_provider_id
+            chain_event2["status"] = 0
+            self.chain_event_writer.write(chain_event2)
+            self.chain_event_writer.flush()
+
+    async def execute_function_with_monitoring(self,
+                                               function_name: str,
+                                               function_id: str,
+                                               provider_id: str | None,
+                                               tool_args: dict,
+                                               chain_id: str,
+                                               call_id: str):
+        """Centralized function execution + ChainEvent emission.
+
+        All subclasses should call this instead of emitting ChainEvents directly.
+        """
+        # Start events
+        self._publish_function_call_start(
+            chain_id=chain_id,
+            call_id=call_id,
+            function_name=function_name,
+            function_id=function_id,
+            target_provider_id=provider_id,
+        )
+        # Execute underlying function via subclass implementation
+        result = await self._call_function(function_name, **tool_args)
+        # Complete events
+        self._publish_function_call_complete(
+            chain_id=chain_id,
+            call_id=call_id,
+            function_name=function_name,
+            function_id=function_id,
+            source_provider_id=provider_id,
+        )
+        return result
 
     def _get_requester_guid(self, function_client) -> str:
         requester_guid = None

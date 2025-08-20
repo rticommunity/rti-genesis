@@ -99,6 +99,18 @@ class _DDSWriters:
             topic=self.component_lifecycle_topic,
             qos=writer_qos
         )
+        # Durable Graph topology writers (node/edge)
+        self.graph_node_type = self.type_provider.type("genesis_lib", "GenesisGraphNode")
+        self.graph_edge_type = self.type_provider.type("genesis_lib", "GenesisGraphEdge")
+        self.graph_node_topic = dds.DynamicData.Topic(self.participant, "GenesisGraphNode", self.graph_node_type)
+        self.graph_edge_topic = dds.DynamicData.Topic(self.participant, "GenesisGraphEdge", self.graph_edge_type)
+        durable_qos = dds.QosProvider.default.datawriter_qos
+        durable_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
+        durable_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
+        durable_qos.history.kind = dds.HistoryKind.KEEP_LAST
+        durable_qos.history.depth = 1
+        self.graph_node_writer = dds.DynamicData.DataWriter(pub=self.publisher, topic=self.graph_node_topic, qos=durable_qos)
+        self.graph_edge_writer = dds.DynamicData.DataWriter(pub=self.publisher, topic=self.graph_edge_topic, qos=durable_qos)
         # Optional legacy MonitoringEvent
         self.legacy_enabled = os.environ.get("GENESIS_MON_LEGACY", "0") == "1"
         if self.legacy_enabled:
@@ -123,6 +135,22 @@ class _DDSWriters:
 class GraphMonitor:
     def __init__(self, participant):
         self.dds = _DDSWriters.get(participant)
+
+    def _derive_node_name(self, component_type: int, attrs: dict | None, component_id: str) -> str:
+        attrs = attrs or {}
+        try:
+            ct_str = [k for k, v in COMPONENT_TYPE.items() if v == int(component_type)][0]
+        except Exception:
+            ct_str = "UNKNOWN"
+        if ct_str == "SERVICE":
+            return attrs.get("service_name") or attrs.get("service") or attrs.get("prefered_name") or f"Service_{component_id[:8]}"
+        if ct_str in ("AGENT_PRIMARY", "AGENT_SPECIALIZED"):
+            return attrs.get("prefered_name") or attrs.get("agent_name") or attrs.get("name") or f"Agent_{component_id[:8]}"
+        if ct_str == "INTERFACE":
+            return attrs.get("interface_name") or attrs.get("prefered_name") or attrs.get("service") or f"Interface_{component_id[:8]}"
+        if ct_str == "FUNCTION":
+            return attrs.get("function_name") or attrs.get("name") or f"Function_{component_id[:8]}"
+        return attrs.get("name") or component_id
 
     def publish_node(self, component_id, component_type, state, attrs=None):
         """
@@ -151,6 +179,27 @@ class GraphMonitor:
         self.dds.component_lifecycle_writer.flush()
         logger.info(f"GraphMonitor: Published NODE {component_id} type={component_type} state={state}")
         print(f"GraphMonitor: Published NODE {component_id} type={component_type} state={state}")
+
+        # Durable node update
+        node = dds.DynamicData(self.dds.graph_node_type)
+        node["node_id"] = component_id
+        # Map integer to string for node_type/state in durable topic
+        node_type_str = "UNKNOWN"
+        try:
+            node_type_str = [k for k, v in COMPONENT_TYPE.items() if v == int(component_type)][0]
+        except Exception:
+            pass
+        state_str = "UNKNOWN"
+        try:
+            state_str = [k for k, v in STATE.items() if v == int(state)][0]
+        except Exception:
+            pass
+        node["node_type"] = node_type_str
+        node["node_state"] = state_str
+        node["node_name"] = self._derive_node_name(component_type, attrs, component_id)
+        node["metadata"] = json.dumps(attrs or {})
+        node["timestamp"] = int(time.time() * 1000)
+        self.dds.graph_node_writer.write(node)
 
         # Optionally emit legacy MonitoringEvent
         if self.dds.legacy_enabled:
@@ -187,6 +236,15 @@ class GraphMonitor:
         self.dds.component_lifecycle_writer.flush()
         logger.info(f"GraphMonitor: Published EDGE {source_id} -> {target_id} type={edge_type}")
         print(f"GraphMonitor: Published EDGE {source_id} -> {target_id} type={edge_type}")
+
+        # Durable edge update
+        edge = dds.DynamicData(self.dds.graph_edge_type)
+        edge["source_id"] = source_id
+        edge["target_id"] = target_id
+        edge["edge_type"] = edge_type
+        edge["metadata"] = json.dumps(attrs or {})
+        edge["timestamp"] = int(time.time() * 1000)
+        self.dds.graph_edge_writer.write(edge)
 
         # Optionally emit legacy MonitoringEvent
         if self.dds.legacy_enabled:

@@ -10,9 +10,11 @@ Copyright (c) 2025, RTI & Jason Upchurch
 """
 
 import logging
+import time
 import uuid
 import json
 from typing import Any, Dict, Optional
+import uuid as _uuid
 import asyncio
 import functools
 
@@ -75,6 +77,60 @@ class MonitoredInterface(GenesisInterface):
         self.available_agents: Dict[str, Dict[str, Any]] = {}
         self._agent_found_event = asyncio.Event()
         self._connected_agent_id: Optional[str] = None
+        self._last_complete_event: Optional[asyncio.Event] = None
+        # Optional ChainEvent writer for activity overlay
+        self._chain_event_writer = None
+        try:
+            import rti.connextdds as dds  # type: ignore
+            from genesis_lib.utils import get_datamodel_path  # type: ignore
+            provider = dds.QosProvider(get_datamodel_path())
+            chain_type = provider.type("genesis_lib", "ChainEvent")
+            chain_topic = dds.DynamicData.Topic(self.app.participant, "ChainEvent", chain_type)
+            writer_qos = dds.QosProvider.default.datawriter_qos
+            writer_qos.durability.kind = dds.DurabilityKind.VOLATILE
+            writer_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
+            self._chain_event_type = chain_type
+            self._chain_event_writer = dds.DynamicData.DataWriter(
+                pub=dds.Publisher(self.app.participant), topic=chain_topic, qos=writer_qos
+            )
+            # Prepare a reader for InterfaceAgentReply so we can align COMPLETE with the final reply
+            self._reply_type = provider.type("genesis_lib", "InterfaceAgentReply")
+            self._reply_topic = dds.DynamicData.Topic(self.app.participant, "OpenAIAgentReply", self._reply_type)
+            reader_qos = dds.QosProvider.default.datareader_qos
+            reader_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
+            reader_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
+            reader_qos.history.kind = dds.HistoryKind.KEEP_LAST
+            reader_qos.history.depth = 256
+            # Async event-driven reply listener (no polling)
+            self._reply_event = asyncio.Event()
+            self._last_reply_time = 0.0
+
+            class _ReplyListener(dds.DynamicData.NoOpDataReaderListener):
+                def __init__(self, outer, loop: asyncio.AbstractEventLoop):
+                    super().__init__()
+                    self._outer = outer
+                    self._loop = loop
+                def on_data_available(self, reader):
+                    try:
+                        samples = reader.read()
+                        if samples:
+                            self._outer._last_reply_time = time.time()
+                            # signal on the main loop
+                            self._loop.call_soon_threadsafe(self._outer._reply_event.set)
+                    except Exception:
+                        pass
+
+            self._reply_reader = dds.DynamicData.DataReader(
+                subscriber=self.app.subscriber,
+                topic=self._reply_topic,
+                qos=reader_qos,
+                listener=_ReplyListener(self, asyncio.get_running_loop()),
+                mask=dds.StatusMask.DATA_AVAILABLE
+            )
+        except Exception:
+            # Chain overlay is optional; continue without it if DDS setup fails
+            self._chain_event_writer = None
+            self._reply_reader = None
 
         # Announce interface node (discovery and ready)
         interface_id = str(self.app.participant.instance_handle)
@@ -150,7 +206,125 @@ class MonitoredInterface(GenesisInterface):
 
     @monitor_method("INTERFACE_REQUEST")
     async def send_request(self, request_data: Dict[str, Any], timeout_seconds: float = 10.0) -> Optional[Dict[str, Any]]:
-        return await super().send_request(request_data, timeout_seconds)
+        # Emit ChainEvent start (optional)
+        # Prepare completion event for strict sequencing
+        try:
+            self._last_complete_event = asyncio.Event()
+        except Exception:
+            self._last_complete_event = None
+        if self._chain_event_writer is not None:
+            try:
+                import rti.connextdds as dds  # type: ignore
+                chain_id = str(_uuid.uuid4())
+                call_id = str(_uuid.uuid4())
+                ev = dds.DynamicData(self._chain_event_type)
+                ev["chain_id"] = chain_id
+                ev["call_id"] = call_id
+                ev["interface_id"] = str(self.app.participant.instance_handle)
+                ev["primary_agent_id"] = ""
+                ev["specialized_agent_ids"] = ""
+                ev["function_id"] = ""
+                ev["query_id"] = call_id
+                ev["timestamp"] = int(time.time() * 1000)
+                ev["event_type"] = "INTERFACE_REQUEST_START"
+                ev["source_id"] = str(self.app.participant.instance_handle)
+                # Use connected agent GUID for target_id (already a GUID), leave blank if unknown
+                ev["target_id"] = self._connected_agent_id or ""
+                ev["status"] = 0
+                self._chain_event_writer.write(ev)
+                self._chain_event_writer.flush()
+                # Persist IDs for completion correlation
+                self._last_chain_id = chain_id
+                self._last_call_id = call_id
+            except Exception:
+                pass
+
+        # Wait for the final reply (GenesisInterface drains any extra replies briefly)
+        result = await super().send_request(request_data, timeout_seconds)
+
+        # Emit ChainEvent complete (optional) at the precise return point (final reply observed)
+        if self._chain_event_writer is not None:
+            try:
+                import rti.connextdds as dds  # type: ignore
+                ev = dds.DynamicData(self._chain_event_type)
+                # Reuse IDs from START when available
+                chain_id = getattr(self, "_last_chain_id", None) or str(_uuid.uuid4())
+                call_id = getattr(self, "_last_call_id", None) or str(_uuid.uuid4())
+                ev["chain_id"] = chain_id
+                ev["call_id"] = call_id
+                ev["interface_id"] = str(self.app.participant.instance_handle)
+                ev["primary_agent_id"] = ""
+                ev["specialized_agent_ids"] = ""
+                ev["function_id"] = ""
+                ev["query_id"] = call_id
+                ev["timestamp"] = int(time.time() * 1000)
+                ev["event_type"] = "INTERFACE_REQUEST_COMPLETE"
+                ev["source_id"] = self._connected_agent_id or ""
+                ev["target_id"] = str(self.app.participant.instance_handle)
+                ev["status"] = 0
+                self._chain_event_writer.write(ev)
+                self._chain_event_writer.flush()
+                # Clear persisted IDs
+                try:
+                    del self._last_chain_id
+                    del self._last_call_id
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+        # NOTE: Removed quiet-window wait to avoid masking timing issues; COMPLETE now reflects
+        # the actual emission point tied to reply return. Further alignment will be done by
+        # correlating with final reply events instead of timers.
+
+        # Signal completion event for strict sequencing even if ChainEvent emission failed
+        try:
+            if self._last_complete_event is not None:
+                self._last_complete_event.set()
+        except Exception:
+            pass
+
+        return result
+
+    async def _await_reply_quiet_event(self, total_window_seconds: float = 10.0, quiet_seconds: float = 2.0) -> None:
+        """Wait until no OpenAIAgentReply arrives for 'quiet_seconds', bounded by 'total_window_seconds'."""
+        if not getattr(self, "_reply_reader", None) or not getattr(self, "_reply_event", None):
+            return
+        deadline = time.time() + total_window_seconds
+        # Clear any prior event state
+        try:
+            self._reply_event.clear()
+        except Exception:
+            pass
+        last_seen = time.time()
+        while time.time() < deadline:
+            # Wait for a new reply or until quiet_seconds passes
+            try:
+                timeout = max(0.0, min(quiet_seconds, deadline - time.time()))
+                await asyncio.wait_for(self._reply_event.wait(), timeout=timeout)
+                # Got a reply; reset event and extend quiet timer
+                self._reply_event.clear()
+                last_seen = time.time()
+                continue
+            except asyncio.TimeoutError:
+                # Quiet period elapsed
+                break
+            except Exception:
+                break
+
+    async def wait_last_complete(self, timeout_seconds: float = 5.0) -> bool:
+        """Wait for the most recent request's completion signal (from ChainEvent COMPLETE).
+
+        Returns True if observed before timeout, else False.
+        """
+        ev = getattr(self, "_last_complete_event", None)
+        if ev is None:
+            return False
+        try:
+            await asyncio.wait_for(ev.wait(), timeout=timeout_seconds)
+            return True
+        except Exception:
+            return False
 
     async def close(self):
         try:

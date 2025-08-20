@@ -15,6 +15,7 @@ This document proposes how to abstract graph construction and visualization into
 - NetworkX (Python): canonical in-process graph model, algorithms, metrics, and a large ecosystem. Already used in tests (e.g., `test_functions/test_graph_connectivity_validation*.py`).
 - Cytoscape.js (Web): interactive, performant topology visualization with many layouts and examples. Ideal for reference UI.
 - Graphviz (static optional): DOT export for quick CI artifacts and documentation images.
+- Flask + Socket.IO: simple, robust web transport for snapshots and live updates.
 
 ## Target Architecture
 
@@ -22,19 +23,19 @@ Library-centric, DDS-bridged graph service that exposes a DDS‑free API to inte
 
 - Publishing (existing, kept):
   - Producers (interfaces, agents, services) publish node/edge events via `genesis_lib.graph_monitoring.GraphMonitor`.
-  - Near-term: continue emitting `ComponentLifecycleEvent` for NODE_DISCOVERY/EDGE_DISCOVERY.
-  - Mid-term: migrate to unified `GenesisGraphEvent`/`GenesisActivityEvent` from `docs/unified_monitoring_system_plan.md`.
+  - Durable topology topics: `GenesisGraphNode`, `GenesisGraphEdge` (TRANSIENT_LOCAL, RELIABLE). These guarantee late joiners reconstruct topology.
+  - For back-compat, `ComponentLifecycleEvent` is still emitted, but subscribers prefer the new durable topics.
 
 - Graph state and subscription (new in library):
-  - `GenesisNetworkGraph`: thread-safe NetworkX-backed store for nodes/edges with typed helpers and exports.
-  - `GraphSubscriber`: encapsulates all DDS subscriptions and normalizes events into `GenesisNetworkGraph`.
-  - `GraphService`: façade providing start/stop, snapshots, change subscription, and export helpers.
+  - `GenesisNetworkGraph`: thread-safe in-memory store for nodes/edges with exports (NetworkX, Cytoscape JSON).
+  - `GraphSubscriber`: encapsulates DDS readers (prefers `GenesisGraphNode/Edge`, falls back to `ComponentLifecycleEvent`) and normalizes to graph updates. Optional `ChainEvent` reader for activity overlay.
+  - `GraphService`: façade providing start/stop, snapshots, and change subscriptions (`node_update`/`edge_update`, and `activity`).
 
 - UI bridges (library provided; no DDS in UI code):
-  - Extend `genesis_lib/web/socketio_graph_bridge.py` to accept a `GraphService` and forward `node_update`/`edge_update` to Socket.IO.
+  - `genesis_lib/web/socketio_graph_bridge.py` forwards incremental updates to Socket.IO and emits a `graph_updated` signal only on creations (new node or new edge). Dataclass payloads are serialized to JSON.
   - Optional Flask blueprint or FastAPI router:
-    - GET `/api/graph` → Cytoscape JSON
-    - WS `/api/graph/stream` → change events
+    - GET `/api/graph` → Cytoscape JSON snapshot
+    - WS/Socket.IO `/api/graph/stream` → incremental change events
 
 - Interfaces (consumers):
   - Replace direct DDS readers (e.g., in `examples/linchpin_demo/interfaces/genesis_web_interface.py`) with the library’s `GraphService` + Socket.IO bridge.
@@ -56,6 +57,11 @@ G = graph.to_networkx()                  # for analysis/tests
 def on_change(event, payload):           # event: "node_update" | "edge_update"
     pass
 graph.subscribe(on_change)
+
+# Activity overlay (ChainEvent)
+def on_activity(activity):               # dict with source_id, target_id, chain_id, status, timestamp
+    pass
+graph.subscribe_activity(on_activity)
 ```
 
 Socket.IO bridge:
@@ -92,47 +98,65 @@ attach_graph_to_socketio(graph, socketio)
 
 - Web UI (reference):
   - Render `GraphService.to_cytoscape()` with Cytoscape.js.
-  - Live updates via Socket.IO. Provide color/shape by type, edge labels (function names), legends, and filters (e.g., orphan nodes, disconnected components).
+  - Live updates via Socket.IO. Provide color/shape by type, legends, and filters (e.g., orphan nodes, disconnected components).
+  - Implemented Layered layout with four fixed bands:
+    - Band 1: Interfaces (top)
+    - Band 2: Agents (deterministic staggering + jitter for legibility)
+    - Band 3: Services
+    - Band 4: Functions (clustered directly beneath the owning service; functions sorted by label)
+  - Other layouts available: Force (fcose/cose) and Radial. Force was evaluated but not used by default due to stability/viewport issues at scale.
 
 - CLI/Artifacts:
   - A `graph_cli.py` tool that prints summaries (nodes by type, edges by type, connectivity checks) and writes DOT/PNG for CI.
   - Use NetworkX metrics for connectivity, reachability (e.g., interfaces→agents, agents→functions), orphan detection.
 
-## Why NetworkX + Cytoscape.js
+## Real-time Interaction Visualization (Activity Overlay)
 
-- NetworkX:
-  - Dominant Python graph library; comprehensive algorithms; intuitive API; abundant examples.
-  - Already used in repo tests, easing adoption and validation.
-- Cytoscape.js:
-  - Robust, interactive rendering with extensive layouts (cose, fcose, dagre, etc.) and examples.
-  - Simple JSON contract and efficient live updates.
-- Graphviz:
-  - Ideal for static artifacts and documentation; easy DOT export.
+- Source: `ChainEvent` (VOLATILE, RELIABLE). Optional mapping from selected `MonitoringEvent` types.
+- Bridge behavior:
+  - Forward each activity as `activity` payload over Socket.IO.
+  - Add per-edge token bucket rate limiter (e.g., 60/s) and windowed aggregation for burst control.
+  - Log drop/aggregate counts; keep UI responsive under load.
+- Client overlay modes:
+  - Pulse mode (default): brief glow/pulse on the traversed edge and a short node highlight (300–500 ms fade), no re-layout.
+  - Heat mode: per-edge intensity (width/color) decays over 5–10 s; switch automatically when density is high.
+  - Controls: density slider, mode toggle (Pulse/Heat), filters (operation/status), pin by `chain_id`.
+- Performance:
+  - Update only affected edges/nodes; avoid whole-graph redraws.
+  - Cap concurrent animations; fall back to heat mode when FPS drops.
+  - Evict stale `chain_id`s and maintain bounded client/server queues.
 
 ## DDS Bridge Details (hidden from UIs)
 
 - `GraphSubscriber` exclusively manages DDS:
-  - Readers: now `ComponentLifecycleEvent` (TRANSIENT_LOCAL, RELIABLE); later: `GenesisGraph`.
-  - On data: normalize to Python dicts, update `GenesisNetworkGraph`, emit `node_update`/`edge_update` callbacks.
-- Export APIs and the Socket.IO bridge keep UIs DDS-free.
+  - Readers: `GenesisGraphNode/Edge` (TRANSIENT_LOCAL, RELIABLE), fallback to `ComponentLifecycleEvent` for topology; `ChainEvent` for transient activity.
+  - On data: normalize to Python dicts, update `GenesisNetworkGraph`, emit `node_update`/`edge_update` callbacks and activity events.
+- `socketio_graph_bridge`:
+  - Emits incremental `node_update`/`edge_update` to clients.
+  - Emits `graph_updated` only for creations (first time a node_id or edge key `src->tgt:type` is observed).
+  - Serializes dataclasses to JSON safely and logs every forwarded event and snapshot emission for diagnostics.
 
 ## Deliverables
 
-- `genesis_lib/graph_state.py`: `GenesisNetworkGraph`, `GraphSubscriber`, `GraphService` with exports and event subscription.
-- `genesis_lib/web/socketio_graph_bridge.py`: extend to accept a `GraphService` instance.
-- Optional: `genesis_lib/web/graph_blueprint.py` (Flask) or `fastapi_graph_router.py`.
-- Update example UI: `examples/linchpin_demo/interfaces/genesis_web_interface.py` to use `GraphService`.
-- `tools/graph_cli.py`: summaries, DOT/PNG exports, and simple validations.
+- `genesis_lib/graph_state.py`: `GenesisNetworkGraph`, `GraphSubscriber`, `GraphService` with exports and event subscription (topology now, activity soon).
+- `genesis_lib/web/socketio_graph_bridge.py`: forwards `node_update`/`edge_update`, creation-scoped `graph_updated`, and `activity` (with rate limiting to be added). Includes server-side tracing.
+- Reference viewer (Flask + Cytoscape.js):
+  - GET `/api/graph` for snapshots, Socket.IO for incremental updates.
+  - Layered layout with four bands, agent staggering, and service-clustered functions.
+  - Edge label toggle; layout selector (Force/Layered/Radial).
 
 ## Acceptance Criteria
 
 - Interfaces render topology without importing `rti.connextdds`.
 - Graph snapshot available via simple Python API and via HTTP JSON.
 - Live updates stream to the UI via Socket.IO with no DDS in UI code.
+- Layered layout maintains clear separation for large meshes (e.g., 3 interfaces, 10 agents, 20 services, 80 functions), with function clusters under services.
+- `activity` overlay animates real-time interactions with density control and does not trigger topology re-layout.
 - Existing graph connectivity tests validate snapshots from `GraphService.to_networkx()`.
 - `rtiddsspy` shows correct durable graph events from publishers.
 
 ## Notes
 
-- This plan aligns with `docs/unified_monitoring_system_plan.md`: publisher-first validation using RTI DDS Spy, followed by subscriber/graph building, then UI integration.
-- The design provides a low-friction API surface that coding models and developers can easily adopt, with many examples available on the internet for NetworkX and Cytoscape.js.
+- Force-directed layouts are visually appealing but can drift offscreen and introduce instability at scale; the layered preset provides deterministic, legible results and was chosen as default.
+- Auto-refresh of the entire snapshot is avoided; incremental events drive updates and the bridge throttles `graph_updated` to creations only.
+- The layered algorithm uses stable hashing for horizontal placement and a small per-band jitter (plus a stronger stagger for agents) to reduce overdraw while preserving tiers.
