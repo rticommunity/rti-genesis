@@ -1,535 +1,1392 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Genesis Graph Viewer</title>
-  <style>
-    html, body { height: 100%; margin: 0; background: #0b0f14; color: #eee; font-family: system-ui, sans-serif; }
-    #toolbar { padding: 8px 12px; background: #111722; border-bottom: 1px solid #222; display: flex; gap: 12px; align-items: center; }
-    #cy { position: absolute; top: 42px; left: 0; right: 0; bottom: 0; }
-    .btn { background: #1e2a3a; color: #eee; border: 1px solid #2c3e50; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
-    .toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; opacity: 0.9; }
-    select { background: #172235; color: #eee; border: 1px solid #2c3e50; padding: 4px 8px; border-radius: 6px; }
-    /* Debug panel for live activations */
-    #debugPanel { position: absolute; left: 0; right: 0; bottom: 0; height: 220px; background: #0f1522; border-top: 1px solid #222; padding: 6px 8px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
-    #debugPanel.hidden { display: none; }
-    #debugHeader { display: flex; gap: 12px; align-items: center; font-size: 12px; color: #9ab; margin-bottom: 4px; }
-    #debugHeader .metric { background: #0b111d; border: 1px solid #1a273b; padding: 2px 6px; border-radius: 4px; }
-    #debugPanel .line { white-space: pre; }
-    #debugPanel .ts { color: #8aa; }
-    #debugPanel .start { color: #e74c3c; }
-    #debugPanel .complete { color: #2ecc71; }
-    #debugPanel .other { color: #ccc; }
-    /* Node glow variants */
-    .glow-llm { border-width: 6 !important; border-color: #ff9f43 !important; }
-    .glow-classifier { border-width: 6 !important; border-color: #6c5ce7 !important; }
-  </style>
-  <script>
-    // simple cache-buster
-    window.__cb = 'v20250812q';
-  </script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js?cb=v20250812q"></script>
-  <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js?cb=v20250812q"></script>
-  <script src="https://unpkg.com/layout-base@2.0.2/layout-base.min.js?cb=v20250812q"></script>
-  <script src="https://unpkg.com/cose-base@2.2.0/cose-base.min.js?cb=v20250812q"></script>
-  <script src="https://unpkg.com/cytoscape-fcose@2.2.0/cytoscape-fcose.min.js?cb=v20250812q"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stunning Graph Visualization</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@300;500;700;900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+       
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: radial-gradient(circle at center, #0a0f1a 0%, #020408 100%);
+            height: 100vh;
+            width: 100vw;
+            font-family: 'Inter', 'Orbitron', sans-serif;
+        }
+       
+        #container {
+            width: 100%;
+            height: 100%;
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+       
+        .controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 100;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 12px;
+            align-items: center;
+            padding: 8px;
+            background: rgba(255, 255, 255, 0.01);
+            backdrop-filter: blur(40px) saturate(180%);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow:
+                0 25px 50px rgba(0, 0, 0, 0.25),
+                0 0 0 1px rgba(255, 255, 255, 0.02),
+                inset 0 1px 0 rgba(255, 255, 255, 0.1),
+                inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+        }
+       
+        .control-button {
+            position: relative;
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(20px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 12px;
+            padding: 10px 18px;
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 12px;
+            font-weight: 500;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow: hidden;
+            user-select: none;
+            letter-spacing: 0.5px;
+            text-transform: none;
+            min-width: 100px;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            flex-shrink: 0;
+            box-shadow:
+                0 8px 32px rgba(0, 0, 0, 0.12),
+                0 1px 2px rgba(0, 0, 0, 0.24),
+                inset 0 1px 0 rgba(255, 255, 255, 0.15),
+                inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+        }
+        .control-button:hover {
+            background: rgba(255, 255, 255, 0.12);
+            border-color: rgba(255, 255, 255, 0.2);
+            color: rgba(255, 255, 255, 1);
+            transform: translateY(-2px);
+            box-shadow:
+                0 12px 36px rgba(0, 0, 0, 0.2),
+                0 1px 3px rgba(0,0,0,0.24),
+                inset 0 1px 0 rgba(255,255,255,0.15),
+                inset 0 -1px 0 rgba(0,0,0,0.1);
+        }
+       
+        .control-button:active {
+            background: rgba(255, 255, 255, 0.15);
+            transform: translateY(0);
+            box-shadow:
+                0 8px 32px rgba(0, 0, 0, 0.12),
+                0 1px 2px rgba(0, 0, 0, 0.24),
+                inset 0 2px 4px rgba(0, 0, 0, 0.1),
+                inset 0 1px 0 rgba(255, 255, 255, 0.15);
+        }
+        .control-button > span:last-of-type {
+            position: relative;
+            z-index: 2;
+        }
+        .control-button > span:not(:last-of-type) {
+            position: absolute;
+            display: block;
+            box-shadow: 0 0 15px rgba(128, 200, 255, 0.9), 0 0 30px rgba(128, 200, 255, 0.7);
+        }
+        .control-button > span:nth-child(1) {
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, rgba(128, 200, 255, 1));
+        }
+        .control-button:hover > span:nth-child(1) {
+            animation: animateBorder1 2s linear infinite;
+        }
+        .control-button > span:nth-child(2) {
+            top: -100%;
+            right: 0;
+            width: 2px;
+            height: 100%;
+            background: linear-gradient(180deg, transparent, rgba(128, 200, 255, 1));
+        }
+        .control-button:hover > span:nth-child(2) {
+            animation: animateBorder2 2s linear infinite;
+            animation-delay: 0.5s;
+        }
+        .control-button > span:nth-child(3) {
+            bottom: 0;
+            right: -100%;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(270deg, transparent, rgba(128, 200, 255, 1));
+        }
+        .control-button:hover > span:nth-child(3) {
+            animation: animateBorder3 2s linear infinite;
+            animation-delay: 1s;
+        }
+        .control-button > span:nth-child(4) {
+            bottom: -100%;
+            left: 0;
+            width: 2px;
+            height: 100%;
+            background: linear-gradient(0deg, transparent, rgba(128, 200, 255, 1));
+        }
+        .control-button:hover > span:nth-child(4) {
+            animation: animateBorder4 2s linear infinite;
+            animation-delay: 1.5s;
+        }
+        @keyframes animateBorder1 { 0% { left: -100%; } 50%, 100% { left: 100%; } }
+        @keyframes animateBorder2 { 0% { top: -100%; } 50%, 100% { top: 100%; } }
+        @keyframes animateBorder3 { 0% { right: -100%; } 50%, 100% { right: 100%; } }
+        @keyframes animateBorder4 { 0% { bottom: -100%; } 50%, 100% { bottom: 100%; } }
+        .activate-button {
+            background: linear-gradient(135deg,
+                rgba(255, 100, 100, 0.15) 0%,
+                rgba(255, 50, 50, 0.1) 100%);
+            border: 1px solid rgba(255, 100, 100, 0.3);
+            color: rgba(255, 150, 150, 0.95);
+        }
+       
+        .activate-button:hover {
+            background: linear-gradient(135deg,
+                rgba(255, 120, 120, 0.2) 0%,
+                rgba(255, 80, 80, 0.15) 100%);
+            border-color: rgba(255, 150, 150, 0.4);
+            color: rgba(255, 200, 200, 1);
+        }
+       
+        .activate-button > span:not(:last-of-type) {
+            box-shadow: 0 0 15px rgba(255, 120, 120, 0.9), 0 0 30px rgba(255, 120, 120, 0.7);
+        }
+        .activate-button > span:nth-child(1) { background: linear-gradient(90deg, transparent, rgba(255, 120, 120, 1)); }
+        .activate-button > span:nth-child(2) { background: linear-gradient(180deg, transparent, rgba(255, 120, 120, 1)); }
+        .activate-button > span:nth-child(3) { background: linear-gradient(270deg, transparent, rgba(255, 120, 120, 1)); }
+        .activate-button > span:nth-child(4) { background: linear-gradient(0deg, transparent, rgba(255, 120, 120, 1)); }
+       
+        .stats {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 10px;
+            font-weight: 400;
+            font-family: 'Inter', sans-serif;
+            pointer-events: none;
+            z-index: 5;
+            text-shadow: 0 0 10px rgba(0, 0, 0, 0.8);
+            line-height: 1.6;
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(20px) saturate(150%);
+            padding: 10px 14px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            box-shadow:
+                0 8px 32px rgba(0, 0, 0, 0.12),
+                inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        }
+       
+        .stats div {
+            margin-bottom: 4px;
+            padding: 2px 0;
+        }
+       
+        .stats div:last-child {
+            margin-bottom: 0;
+        }
+       
+        .control-button .icon {
+            width: 16px;
+            height: 16px;
+            opacity: 0.8;
+            transition: opacity 0.3s ease;
+        }
+       
+        .control-button:hover .icon {
+            opacity: 1;
+        }
+       
+        .controls::before {
+            content: '';
+            position: absolute;
+            top: -1px;
+            left: -1px;
+            right: -1px;
+            bottom: -1px;
+            background: linear-gradient(45deg,
+                rgba(255, 255, 255, 0.05) 0%,
+                transparent 25%,
+                transparent 75%,
+                rgba(255, 255, 255, 0.05) 100%);
+            border-radius: 21px;
+            z-index: -1;
+            opacity: 0.5;
+        }
+        @media (max-width: 768px) {
+             .controls {
+                 gap: 8px;
+                 bottom: 15px;
+                 left: 15px;
+                 right: 15px;
+                 transform: translateX(0);
+                 width: auto;
+                 flex-direction: column;
+             }
+            .control-button {
+                 padding: 10px 14px;
+                 font-size: 11px;
+                 flex-grow: 1;
+                 width: 100%;
+             }
+            .stats {
+                 top: 15px;
+                 right: 15px;
+                 padding: 8px 12px;
+             }
+        }
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 12px;
+            cursor: pointer;
+        }
+        input[type="checkbox"] {
+            margin-right: 8px;
+        }
+        .debug-panel {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: 220px;
+            overflow: auto;
+            color: rgba(255, 255, 255, 0.85);
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 12px;
+            background: rgba(0, 0, 0, 0.35);
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            z-index: 6;
+            padding: 8px 10px;
+        }
+        .debug-panel.hidden { display: none; }
+    </style>
 </head>
 <body>
-  <div id="toolbar">
-    <button id="refresh" class="btn">Refresh</button>
-    <button id="loadSnapshot" class="btn">Load Snapshot</button>
-    <label class="toggle"><input type="checkbox" id="edgeLabelsToggle"> Edge labels</label>
-    <label class="toggle"><input type="checkbox" id="debugToggle"> Debug log</label>
-    <label class="toggle">Layout
-      <select id="layoutMode">
-        <option value="force">Force (fCoSE/CoSE)</option>
-        <option value="layered" selected>Layered (Interfaces → Agents → Services → Functions)</option>
-        <option value="radial">Radial (by type)</option>
-      </select>
-    </label>
-    <span id="status">Disconnected</span>
-  </div>
-  <div id="cy"></div>
-  <div id="debugPanel" class="hidden">
-    <div id="debugHeader">
-      <span class="metric" id="mActive">Active: 0</span>
-      <span class="metric" id="mStarts">Starts: 0</span>
-      <span class="metric" id="mCompletes">Completes: 0</span>
-      <span class="metric" id="mUnmatched">Unmatched starts: 0</span>
+    <div id="container"></div>
+    <div class="stats" id="stats">
+        <div>Active: 0</div>
+        <div>Starts: 0</div>
+        <div>Completes: 0</div>
+        <div>Unmatched starts: 0</div>
     </div>
-  </div>
-  <script>
-    (function registerFcose() {
-      try {
-        const plugin = window.cytoscapeFcose || window.fcose || window["cytoscape-fcose"] || (window.cytoscapeFcose && window.cytoscapeFcose.default);
-        if (typeof plugin === 'function' && typeof window.cytoscape?.use === 'function') {
-          window.cytoscape.use(plugin);
-          window.__hasFcose = true;
-        } else { window.__hasFcose = false; }
-      } catch (e) { window.__hasFcose = false; }
-    })();
-
-    const statusEl = document.getElementById('status');
-    const layoutSelect = document.getElementById('layoutMode');
-    const debugPanel = document.getElementById('debugPanel');
-    const debugToggle = document.getElementById('debugToggle');
-    const mActive = document.getElementById('mActive');
-    const mStarts = document.getElementById('mStarts');
-    const mCompletes = document.getElementById('mCompletes');
-    const mUnmatched = document.getElementById('mUnmatched');
-
-    const cy = cytoscape({
-      container: document.getElementById('cy'),
-      style: [
-        { selector: 'node', style: { 'label': 'data(label)', 'font-size': 10, 'color': '#eee', 'text-background-opacity': 0.4, 'text-background-color': '#000', 'text-background-padding': 2, 'background-color': (ele)=>{
-          const t = ele.data('type');
-          return t === 'INTERFACE' ? '#3498db' : (t === 'PRIMARY_AGENT' || t === 'AGENT_PRIMARY') ? '#2ecc71' : t === 'SERVICE' ? '#f1c40f' : '#e67e22';
-        }, 'border-width': 1, 'border-color': '#333'} },
-        { selector: 'edge', style: { 'curve-style': 'bezier', 'line-color': '#888', 'width': 3, 'target-arrow-shape': 'triangle', 'target-arrow-color': '#888', 'label': 'data(type)', 'text-opacity': 0, 'font-size': 8, 'text-rotation': 'autorotate', 'color': '#ccc' } },
-        { selector: '.pulse-start', style: { 'line-color': '#e74c3c', 'target-arrow-color': '#e74c3c', 'width': 4 } },
-        { selector: '.pulse-complete', style: { 'line-color': '#2ecc71', 'target-arrow-color': '#2ecc71', 'width': 4 } },
-        { selector: '.glow', style: { 'border-width': 6, 'border-color': '#ff6b6b' } }
-      ]
-    });
-
-    function nodeLabel(id){
-      if (!id) return '';
-      const n = cy.$id(String(id));
-      if (n.nonempty()) return n.data('label') || n.id();
-      return String(id);
-    }
-
-    function levelForType(t){ if (t==='INTERFACE') return 0; if (t==='PRIMARY_AGENT'||t==='AGENT_PRIMARY'||t==='SPECIALIZED_AGENT') return 1; if (t==='SERVICE') return 2; return 3; }
-    function hashId(id){ let h=0; for(let i=0;i<id.length;i++){ h=(h*31 + id.charCodeAt(i))>>>0; } return h; }
-
-    function runLayeredPreset(){
-      const container = cy.container();
-      const w = container.clientWidth || window.innerWidth || 1200;
-      const h = container.clientHeight || window.innerHeight || 800;
-      const topPad = 80, bottomPad = 80; const usableH = Math.max(h - topPad - bottomPad, 200);
-      const bands = 4; const bandGap = usableH / (bands - 1);
-      const jitterY = 24;            // default jitter for most bands
-      const agentJitterY = 45;       // more separation in agent band
-      const agentStaggerAmp = Math.min(60, bandGap * 0.18); // deterministic vertical stagger amplitude
-
-      const interfaces = cy.nodes().filter(n=>n.data('type')==='INTERFACE');
-      const agents = cy.nodes().filter(n=>['PRIMARY_AGENT','AGENT_PRIMARY','SPECIALIZED_AGENT'].includes(n.data('type')));
-      const services = cy.nodes().filter(n=>n.data('type')==='SERVICE');
-      const functions = cy.nodes().filter(n=>!['INTERFACE','PRIMARY_AGENT','AGENT_PRIMARY','SPECIALIZED_AGENT','SERVICE'].includes(n.data('type')));
-
-      function spreadHoriz(collection, yBase, customJitter){
-        const arr = collection.sort((a,b)=> hashId(a.id()) - hashId(b.id())).toArray();
-        const count = Math.max(arr.length, 1); const xStep = w / (count + 1);
-        arr.forEach((n, i)=>{ const jitter = ((hashId(n.id()) % 200)/200 - 0.5) * 2 * (customJitter ?? jitterY); n.position({ x: (i+1)*xStep, y: yBase + jitter }); });
-      }
-
-      // Place interfaces band
-      spreadHoriz(interfaces, topPad + 0*bandGap, jitterY);
-
-      // Agents band with visible stagger
-      (function placeAgents(){
-        const yBase = topPad + 1*bandGap;
-        const arr = agents.sort((a,b)=> hashId(a.id()) - hashId(b.id())).toArray();
-        const count = Math.max(arr.length, 1); const xStep = w / (count + 1);
-        const mid = (count - 1) / 2;
-        arr.forEach((n, i)=>{
-          const norm = count === 1 ? 0 : (i - mid) / mid; // -1 .. 1
-          const stagger = agentStaggerAmp * norm;         // deterministic vertical offset
-          const jitter = ((hashId(n.id()) % 200)/200 - 0.5) * 2 * agentJitterY;
-          n.position({ x: (i+1)*xStep, y: yBase + stagger + jitter });
-        });
-      })();
-
-      // Services band
-      spreadHoriz(services, topPad + 2*bandGap, jitterY);
-
-      // Build service X map AFTER positioning services
-      const serviceX = new Map();
-      services.forEach(s=> serviceX.set(s.id(), s.position('x')));
-
-      // Map services → functions via outgoing edges to FUNCTION nodes
-      const svcToFuncs = new Map();
-      services.forEach(s => {
-        const fnNodes = s.outgoers('edge').targets().filter(n => n.data('type') === 'FUNCTION');
-        if (fnNodes.nonempty()) svcToFuncs.set(s.id(), fnNodes.map(n => n.id()));
-      });
-
-      const placedFuncs = new Set();
-      const funcY = topPad + 3*bandGap;
-      const clusterSpacing = 60;
-
-      services.forEach(s=>{
-        const sid = s.id(); const fx = serviceX.get(sid);
-        const ids = (svcToFuncs.get(sid) || []).slice();
-        const count = ids.length; if (count === 0) return;
-        ids.sort((a,b)=>{
-          const la = (cy.$(`#${a}`).data('label')||'').toString();
-          const lb = (cy.$(`#${b}`).data('label')||'').toString();
-          return la.localeCompare(lb);
-        });
-        const width = (count - 1) * clusterSpacing;
-        ids.forEach((fid, idx)=>{
-          const fNode = cy.$(`#${fid}`); if (fNode.empty()) return;
-          const jitter = ((hashId(fid) % 200)/200 - 0.5) * 2 * jitterY;
-          fNode.position({ x: fx - width/2 + idx*clusterSpacing, y: funcY + jitter });
-          placedFuncs.add(fid);
-        });
-      });
-
-      const remaining = functions.filter(n=> !placedFuncs.has(n.id()));
-      if (remaining.nonempty()) spreadHoriz(remaining, funcY, jitterY);
-
-      cy.layout({ name: 'preset', fit: true }).run();
-      cy.fit(cy.elements(), 40); cy.resize();
-    }
-
-    function runLayout(mode){
-      if (mode === 'layered'){
-        runLayeredPreset();
-      } else if (mode === 'radial'){
-        cy.layout({ name: 'concentric', concentric: n => 10 - levelForType(n.data('type')), levelWidth: () => 1, minNodeSpacing: 50, startAngle: Math.PI/2, sweep: Math.PI*2, padding: 50, animate: false, fit: true }).run();
-        cy.fit(cy.elements(), 40); cy.resize();
-      } else {
-        const opts = window.__hasFcose ? { name: 'fcose', quality: 'default', randomize: true, idealEdgeLength: 120, nodeSeparation: 60, nodeRepulsion: 4500, edgeElasticity: 0.25, gravity: 0.8, animate: false, fit: true } : { name: 'cose', idealEdgeLength: 120, nodeRepulsion: 8000, nodeOverlap: 10, refresh: 20, gravity: 1, animate: false, fit: true };
-        cy.layout(opts).run(); cy.fit(cy.elements(), 40); cy.resize();
-      }
-    }
-
-    function setEdgeLabels(enabled) { cy.style().selector('edge').style('text-opacity', enabled ? 1 : 0).update(); }
-
-    function setDebugVisible(visible){
-      if (visible) {
-        debugPanel.classList.remove('hidden');
-        document.getElementById('cy').style.bottom = (debugPanel.offsetHeight || 180) + 'px';
-        cy.resize();
-      } else {
-        debugPanel.classList.add('hidden');
-        document.getElementById('cy').style.bottom = '0';
-        cy.resize();
-      }
-    }
-
-    function tsStrLocal(){ const d = new Date(); return d.toTimeString().slice(0,8); }
-    function tsStrFromMs(ms){ try { const d = new Date(ms>1e12?ms:ms*1000); return d.toTimeString().slice(0,8); } catch(_) { return ''; } }
-
-    function appendDebugLine(html){
-      const line = document.createElement('div');
-      line.className = 'line';
-      line.innerHTML = html;
-      debugPanel.appendChild(line);
-      // Trim to last 500 lines
-      while (debugPanel.childElementCount > 500) debugPanel.removeChild(debugPanel.firstElementChild);
-      debugPanel.scrollTop = debugPanel.scrollHeight;
-    }
-
-    // Pairing stats
-    const activeByCall = new Map();
-    let totalStarts = 0, totalCompletes = 0;
-    function updateMetrics(){
-      let active = 0; activeByCall.forEach(v => { if (v>0) active += v; });
-      const unmatched = Array.from(activeByCall.values()).reduce((a,b)=> a + (b>0?b:0), 0);
-      mActive.textContent = `Active: ${active}`;
-      mStarts.textContent = `Starts: ${totalStarts}`;
-      mCompletes.textContent = `Completes: ${totalCompletes}`;
-      mUnmatched.textContent = `Unmatched starts: ${unmatched}`;
-    }
-
-    function applyElements(elements) {
-      cy.startBatch(); cy.elements().remove();
-      if (elements && Array.isArray(elements.nodes)) cy.add(elements.nodes);
-      if (elements && Array.isArray(elements.edges)) cy.add(elements.edges);
-      cy.endBatch(); runLayout(layoutSelect.value);
-    }
-
-    function fetchGraph(source='live') { const url = source === 'snapshot' ? '/api/graph?source=snapshot' : '/api/graph'; return fetch(url).then(r => r.json()); }
-
-    function refreshSnapshot() {
-      fetchGraph('live').then(data => { const nodes = data?.elements?.nodes?.length || 0; const edges = data?.elements?.edges?.length || 0; if (nodes === 0 && edges === 0) return fetchGraph('snapshot'); return data; })
-        .then(data => { if (data) applyElements(data.elements || {nodes: [], edges: []}); }).catch(console.error);
-    }
-
-    document.getElementById('refresh').onclick = refreshSnapshot;
-    document.getElementById('loadSnapshot').onclick = () => fetchGraph('snapshot').then(data => applyElements(data.elements || {nodes: [], edges: []}));
-    document.getElementById('edgeLabelsToggle').addEventListener('change', (e)=> setEdgeLabels(e.target.checked));
-    debugToggle.addEventListener('change', (e)=> setDebugVisible(e.target.checked));
-    layoutSelect.addEventListener('change', ()=> runLayout(layoutSelect.value));
-
-    const ioUrl = `${window.location.protocol}//${window.location.host}`;
-    const __verboseActivations = new URLSearchParams(location.search).has('trace');
-    const socket = io(ioUrl, { transports: ['websocket', 'polling'] });
-    socket.on('connect', () => { statusEl.innerText = window.__hasFcose ? 'Connected (layout: fcose)' : 'Connected (layout: cose fallback)'; socket.emit('graph_snapshot'); });
-    socket.on('disconnect', () => { statusEl.innerText = 'Disconnected'; });
-    socket.on('graph_snapshot', (data) => { applyElements(data.elements); });
-
-    socket.on('graph_updated', (info) => { console.debug('graph_updated received', info); });
-
-    socket.on('node_update', (payload) => {
-      const n = payload.node || payload; const id = n.component_id || n.node_id || n.id; const type = n.component_type || n.node_type; const state = n.state || n.node_state; const label = (n.attrs && (n.attrs.prefered_name || n.attrs.service_name || n.attrs.function_name)) || n.node_name || id; if (!id) return;
-      if (cy.$id(id).empty()) { cy.add({ group: 'nodes', data: { id, label, type, state } }); } else { cy.$id(id).data({ label, type, state }); }
-      runLayout(layoutSelect.value);
-    });
-
-    socket.on('edge_update', (payload) => {
-      const e = payload.edge || payload; const sid = e.source_id || e.source; const tid = e.target_id || e.target; const et = e.edge_type || e.type; if (!sid || !tid) return; const id = `${sid}->${tid}:${et || ''}`;
-      if (cy.$id(id).empty()) { cy.add({ group: 'edges', data: { id, source: sid, target: tid, type: et } }); }
-      runLayout(layoutSelect.value);
-    });
-
-    // Keep edge highlighted from START until COMPLETE using call_id as key
-    const activeCalls = new Map(); // call_id -> { sid, tid, timer }
-
-    function findNodeIdByLabel(label, preferredType) {
-      if (!label) return null;
-      const nodes = cy.nodes().filter(n => (n.data('label')||'').toString() === String(label));
-      if (nodes.nonempty()) {
-        if (preferredType) {
-          const typed = nodes.filter(n => n.data('type') === preferredType);
-          if (typed.nonempty()) return typed[0].id();
+    <div class="controls">
+        <button class="control-button" id="refresh">
+            <span></span><span></span><span></span><span></span>
+            <span>Refresh</span>
+        </button>
+        <button class="control-button" id="loadSnapshot">
+            <span></span><span></span><span></span><span></span>
+            <span>Load Snapshot</span>
+        </button>
+        <button class="control-button" id="edgeLabels">
+            <span></span><span></span><span></span><span></span>
+            <span>Edge Labels: Off</span>
+        </button>
+        <button class="control-button" id="debugLog">
+            <span></span><span></span><span></span><span></span>
+            <span>Debug Log</span>
+        </button>
+        <button class="control-button" id="layoutForce">
+            <span></span><span></span><span></span><span></span>
+            <span>Layout: Force</span>
+        </button>
+        <button class="control-button" id="layoutLayered">
+            <span></span><span></span><span></span><span></span>
+            <span>Layout: Layered</span>
+        </button>
+        <button class="control-button" id="layoutRadial">
+            <span></span><span></span><span></span><span></span>
+            <span>Layout: Radial</span>
+        </button>
+        <label class="checkbox-label" for="disconnected">
+            <input type="checkbox" id="disconnected" checked>
+            Disconnected
+        </label>
+        <button class="control-button activate-button" id="activateTrigger">
+            <span></span><span></span><span></span><span></span>
+            <span>Activate Graph</span>
+        </button>
+        <button class="control-button" id="toggleTheme">
+            <span></span><span></span><span></span><span></span>
+            <span>Theme: Inferno</span>
+        </button>
+        <button class="control-button" id="morphButton">
+            <span></span><span></span><span></span><span></span>
+            <span>Morph Shape</span>
+        </button>
+    </div>
+    <div id="debugPanel" class="debug-panel hidden"></div>
+    <script id="nodeVertexShader" type="x-shader/x-vertex">
+        varying vec3 vPosition;
+        varying vec3 vNormal;
+        varying vec2 vUv;
+        void main() {
+            vPosition = position;
+            vNormal = normal;
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
-        return nodes[0].id();
-      }
-      return null;
+    </script>
+    <script id="nodeFragmentShader" type="x-shader/x-fragment">
+        uniform float time;
+        uniform vec3 baseColor;
+        uniform vec3 accentColor;
+        uniform float energy;
+        varying vec3 vPosition;
+        varying vec3 vNormal;
+        varying vec2 vUv;
+        float noise(vec2 p) {
+            return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+        }
+        void main() {
+            vec2 uv = vUv + time * 0.02;
+            float n1 = noise(uv * 8.0);
+            float n2 = noise(uv * 16.0);
+            float pattern = n1 * 0.7 + n2 * 0.3;
+            vec3 color = mix(baseColor, accentColor, pattern);
+            float fresnel = pow(1.0 - abs(dot(vNormal, vec3(0.0, 0.0, 1.0))), 1.5);
+            color += fresnel * accentColor * 0.5;
+            color *= (1.0 + energy * 0.8);
+            gl_FragColor = vec4(color, 1.0);
+        }
+    </script>
+    <script id="edgeVertexShader" type="x-shader/x-vertex">
+        varying vec2 vUv;
+        varying vec3 vPosition;
+        void main() {
+            vUv = uv;
+            vPosition = position;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    </script>
+    <script id="edgeFragmentShader" type="x-shader/x-fragment">
+        uniform float time;
+        uniform vec3 color;
+        uniform float opacity;
+        uniform float energy;
+        varying vec2 vUv;
+        varying vec3 vPosition;
+        void main() {
+            float flow = abs(sin(vUv.x * 15.0 - time * 12.0));
+            float pulse = sin(time * 8.0) * 0.5 + 0.5;
+            float pattern = pow(flow, 1.5) * (1.0 + pulse * energy);
+            float fade = sin(vUv.x * 3.14159);
+            vec3 finalColor = color * (pattern * 2.0 + 0.3);
+            float alpha = fade * opacity * (pattern + 0.2) * (1.0 + energy);
+            gl_FragColor = vec4(finalColor, alpha);
+        }
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.161.0/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/",
+            "three-forcegraph": "https://esm.sh/three-forcegraph@1.43.0?external=three"
+        }
     }
-
-    function glowAgentNode(agentId, durationMs) {
-      if (!agentId) return false;
-      const node = cy.$id(String(agentId));
-      if (node.nonempty()) {
-        node.addClass('glow');
-        setTimeout(()=> node.removeClass('glow'), durationMs);
-        return true;
-      }
-      // Retry shortly in case nodes arrive after activity
-      setTimeout(()=> { const n = cy.$id(String(agentId)); if (n.nonempty()) { n.addClass('glow'); setTimeout(()=> n.removeClass('glow'), durationMs); } }, 500);
-      setTimeout(()=> { const n = cy.$id(String(agentId)); if (n.nonempty()) { n.addClass('glow'); setTimeout(()=> n.removeClass('glow'), durationMs); } }, 1500);
-      return false;
-    }
-
-    function glowNodeWithClass(nodeId, className, durationMs){
-      if (!nodeId) return false;
-      const node = cy.$id(String(nodeId));
-      if (node.nonempty()) {
-        node.addClass(className);
-        setTimeout(()=> node.removeClass(className), durationMs);
-        return true;
-      }
-      setTimeout(()=> { const n = cy.$id(String(nodeId)); if (n.nonempty()) { n.addClass(className); setTimeout(()=> n.removeClass(className), durationMs); } }, 500);
-      setTimeout(()=> { const n = cy.$id(String(nodeId)); if (n.nonempty()) { n.addClass(className); setTimeout(()=> n.removeClass(className), durationMs); } }, 1500);
-      return false;
-    }
-
-    socket.on('activity', (act) => {
-      if (!window.__printedNodeIdsAtFirstActivation) {
-        try {
-          const ids = cy.nodes().toArray().map(n => n.id());
-          console.log('[GRAPH NODES AT FIRST ACTIVATION]', 'node_count=', ids.length, 'node_ids=', ids);
-        } catch (e) { /* ignore */ }
-        window.__printedNodeIdsAtFirstActivation = true;
-      }
-      const sid = act.source_id, tid = act.target_id;
-      // Console trace for every activation (edge pulse)
-      // Example: [ACTIVATION] <source> -> <target> event=CALL status=1 call=<uuid> chain=<uuid> ts=<raw>
-      if (__verboseActivations) {
-        try {
-          console.log('[ACTIVATION]', `${sid||'?' } -> ${tid||'?' }`, `event=${act.event_type}`, `status=${act.status}`, `call=${act.call_id}`, `chain=${act.chain_id}`, `fn=${act.function_id||''}`, `agent=${act.primary_agent_id||''}`, `ts=${act.timestamp}`);
-        } catch (e) { /* ignore console issues */ }
-      }
-
-      // Determine start/complete events
-      const ev = String(act.event_type||'');
-      const isStart = ev.endsWith('_START');
-      const isComplete = ev.endsWith('_COMPLETE') || ev.endsWith('RECEIVED');
-      const callId = act.call_id || `${sid}->${tid}:${ev}:${act.timestamp}`;
-
-      // Debug panel line (show local receipt time and event timestamp)
-      try {
-        const cls = isStart ? 'start' : (isComplete ? 'complete' : 'other');
-        const src = nodeLabel(sid) || sid || '?';
-        const dst = nodeLabel(tid) || tid || '?';
-        const callShort = (callId||'').toString().slice(0,8);
-        const tLocal = tsStrLocal();
-        const tEvent = tsStrFromMs(act.timestamp||0);
-        const tss = `<span class="ts">[local:${tLocal}${tEvent?` evt:${tEvent}`:''}]</span>`;
-        const model = act.function_id ? String(act.function_id) : '';
-        const phase = ev === 'CLASSIFICATION_RESULT' ? 'classifier' : (ev.startsWith('LLM_CALL_') ? (model.endsWith('.classifier') ? 'classifier' : 'llm') : (ev.startsWith('FUNCTION_CALL_') ? 'function' : (ev.startsWith('AGENT_') ? 'agent' : '')));
-        const chainShort = (act.chain_id||'').toString().slice(0,8);
-        let extra = [];
-        if (phase) extra.push(`phase=${phase}`);
-        if (model) extra.push(`model=${model}`);
-        if (chainShort) extra.push(`chain=${chainShort}`);
-        // Add function label for classification results when resolvable
-        if (ev === 'CLASSIFICATION_RESULT') {
-          const fnLabel = act.function_id ? (nodeLabel(act.function_id) || act.target_id || '') : '';
-          if (fnLabel) extra.push(`function=${fnLabel}`);
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+        import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+        import ForceGraph3D from 'three-forcegraph';
+        
+        let scene, camera, renderer, composer, controls, clock;
+        let graph, activeEffects = [];
+        let currentThemeIndex = 0;
+        let isMorphed = false;
+        let currentLayout = 'force';
+        let edgeLabelsVisible = false;
+        // Controls spacing between nodes in force layout
+        let linkDistanceMultiplier = 1.2; // 2x spread
+        
+        const container = document.getElementById('container');
+        const statsDiv = document.getElementById('stats');
+        const activateButton = document.getElementById('activateTrigger');
+        const refreshButton = document.getElementById('refresh');
+        const loadSnapshotButton = document.getElementById('loadSnapshot');
+        const edgeLabelsButton = document.getElementById('edgeLabels');
+        const debugLogButton = document.getElementById('debugLog');
+        const layoutForceButton = document.getElementById('layoutForce');
+        const layoutLayeredButton = document.getElementById('layoutLayered');
+        const layoutRadialButton = document.getElementById('layoutRadial');
+        const disconnectedCheckbox = document.getElementById('disconnected');
+        const themeButton = document.getElementById('toggleTheme');
+        const morphButton = document.getElementById('morphButton');
+        const debugPanel = document.getElementById('debugPanel');
+        
+        const themes = [
+            {
+                name: 'Contrast',
+                nodeColors: {
+                    Interface: [0.20, 0.70, 1.00],   // blue
+                    Agent:     [0.20, 1.00, 0.55],   // green
+                    Service:    [1.00, 0.60, 0.20],   // orange
+                    Function:   [0.90, 0.30, 0.95]    // magenta
+                },
+                accentColors: {
+                    Interface: [0.60, 0.90, 1.00],
+                    Agent:     [0.60, 1.00, 0.85],
+                    Service:    [1.00, 0.85, 0.60],
+                    Function:   [1.00, 0.60, 1.00]
+                },
+                edgeColor: 0xeef3ff,
+                ambientLightColor: 0x0a1020,
+                pointLightColor: 0xaad4ff,
+                dirLight1: 0x44aaff,
+                dirLight2: 0x44ff88
+            },
+            {
+                name: 'Veridian',
+                nodeColors: { Interface: [0.2, 0.8, 0.5], Agent: [0.1, 0.6, 0.7], Service: [0.5, 0.8, 0.2], Function: [0.3, 0.7, 0.4] },
+                accentColors: { Interface: [0.8, 1.0, 0.9], Agent: [0.5, 0.9, 1.0], Service: [0.9, 1.0, 0.6], Function: [0.6, 0.9, 0.7] },
+                edgeColor: 0xeeffee,
+                ambientLightColor: 0x0a3024,
+                pointLightColor: 0xccffdd,
+                dirLight1: 0x33cc88,
+                dirLight2: 0x4488cc
+            },
+            {
+                name: 'Celestial',
+                nodeColors: { Interface: [1.0, 0.4, 0.4], Agent: [0.3, 0.8, 0.3], Service: [0.3, 0.4, 1.0], Function: [0.5, 0.5, 1.0] },
+                accentColors: { Interface: [1.0, 0.8, 0.2], Agent: [0.6, 1.0, 0.8], Service: [0.8, 0.6, 1.0], Function: [0.7, 0.7, 1.0] },
+                edgeColor: 0xffeebb,
+                ambientLightColor: 0x1a2440,
+                pointLightColor: 0xffe4b5,
+                dirLight1: 0x4488ff,
+                dirLight2: 0x8844ff
+            }
+        ];
+        
+        // Graph data populated from server events/snapshot
+        const graphData = {
+            nodes: [],
+            links: []
+        };
+        
+        let filteredGraphData = {...graphData};
+        let knownNodeIds = new Set();
+        function idOf(val) {
+            if (val && typeof val === 'object') return String(val.id ?? '');
+            return String(val ?? '');
         }
-        const meta = extra.join(' ');
-        appendDebugLine(`${tss} <span class="${cls}">${ev}</span> ${src} → ${dst}  call=${callShort} ${meta} status=${act.status||0}`);
-      } catch(_) { /* ignore */ }
-
-      // Update pairing metrics
-      if (isStart) { activeByCall.set(callId, (activeByCall.get(callId)||0) + 1); totalStarts++; }
-      if (isComplete) { const cur = activeByCall.get(callId)||0; activeByCall.set(callId, Math.max(0, cur-1)); totalCompletes++; }
-      updateMetrics();
-
-      // Track call correlation windows to suppress duplicates for the same call edge
-      window.__activeCallEdges = window.__activeCallEdges || new Map();
-      const edgeKey = `${sid||''}->${tid||''}:${ev.replace('_COMPLETE','_START').replace('_RECEIVED','_START')}`;
-      if (isStart) {
-        window.__activeCallEdges.set(edgeKey, (window.__activeCallEdges.get(edgeKey)||0) + 1);
-      } else if (isComplete) {
-        const cur = window.__activeCallEdges.get(edgeKey) || 0;
-        if (cur > 0) window.__activeCallEdges.set(edgeKey, cur - 1);
-      }
-
-      // Special-case LLM calls: glow the agent node
-      if (ev.startsWith('LLM_CALL_')) {
-        const agentId = act.primary_agent_id || (sid === 'OpenAI' ? tid : sid);
-        const isClassifier = (act.function_id && String(act.function_id).endsWith('.classifier')) || ev === 'CLASSIFICATION_RESULT';
-        const glowClass = isClassifier ? 'glow-classifier' : 'glow-llm';
-        if (glowNodeWithClass(agentId, glowClass, isComplete ? 600 : 2000)) return;
-      }
-
-      // Try direct edge match first (source_id -> target_id)
-      let matchedAny = false;
-      if (sid && tid) {
-        const direct = cy.edges().filter(edge => edge.data('source')===sid && edge.data('target')===tid);
-        if (direct.nonempty()) {
-          matchedAny = true;
-          if (isStart) {
-            direct.addClass('pulse-start');
-            const timer = setTimeout(()=> { direct.removeClass('pulse-start'); activeCalls.delete(callId); }, 20000);
-            activeCalls.set(callId, { sid, tid, timer });
-          } else if (isComplete) {
-            const rec = activeCalls.get(callId); if (rec && rec.timer) { clearTimeout(rec.timer); activeCalls.delete(callId); }
-            direct.addClass('pulse-complete'); setTimeout(()=> direct.removeClass('pulse-complete'), 800);
-          } else {
-            direct.addClass('pulse-start'); setTimeout(()=> direct.removeClass('pulse-start'), 800);
-          }
-          // Applied log for direct match
-          try { console.info('[APPLIED]', `${nodeLabel(sid)} -> ${nodeLabel(tid)}`, `event=${ev}`); } catch(e) {}
+        function getNodeMeta(id) {
+            const s = String(id);
+            const n = graphData.nodes.find(nd => String(nd.id) === s) || filteredGraphData.nodes.find(nd => String(nd.id) === s);
+            return n ? { id: s, label: n.name || '', type: n.type || '' } : { id: s, label: '', type: '' };
         }
-      }
-
-      // Explicit support for INTERFACE_REQUEST_* → pulse interface→agent edge
-      if (!matchedAny && (ev === 'INTERFACE_REQUEST_START' || ev === 'INTERFACE_REQUEST_COMPLETE')) {
-        const ie = cy.edges().filter(edge => edge.data('type')==='INTERFACE_TO_AGENT' && edge.data('source')===sid && edge.data('target')===tid);
-        if (ie.nonempty()) {
-          matchedAny = true;
-          if (ev.endsWith('_START')) { ie.addClass('pulse-start'); setTimeout(()=> ie.removeClass('pulse-start'), 20000); }
-          else { ie.addClass('pulse-complete'); setTimeout(()=> ie.removeClass('pulse-complete'), 800); }
-          try { console.info('[APPLIED]', `${nodeLabel(sid)} -> ${nodeLabel(tid)}`, `event=${ev}`); } catch(e) {}
+        function linkKeysForSource(src) {
+            const s = String(src);
+            return (filteredGraphData.links || [])
+                .filter(l => idOf(l.source) === s)
+                .map(l => `${idOf(l.source)}->${idOf(l.target)}`);
         }
-      }
-
-      // Explicit support for AGENT_TO_SERVICE_* → pulse agent→service edge
-      if (!matchedAny && (ev === 'AGENT_TO_SERVICE_START' || ev === 'AGENT_TO_SERVICE_COMPLETE')) {
-        const a2s = cy.edges().filter(edge => edge.data('type')==='AGENT_TO_SERVICE' && edge.data('source')===sid && edge.data('target')===tid);
-        if (a2s.nonempty()) {
-          matchedAny = true;
-          if (ev.endsWith('_START')) { a2s.addClass('pulse-start'); setTimeout(()=> a2s.removeClass('pulse-start'), 20000); }
-          else { a2s.addClass('pulse-complete'); setTimeout(()=> a2s.removeClass('pulse-complete'), 800); }
-          try { console.info('[APPLIED]', `${nodeLabel(sid)} -> ${nodeLabel(tid)}`, `event=${ev}`); } catch(e) {}
+        function linkKeysForTarget(tgt) {
+            const t = String(tgt);
+            return (filteredGraphData.links || [])
+                .filter(l => idOf(l.target) === t)
+                .map(l => `${idOf(l.source)}->${idOf(l.target)}`);
         }
-      }
 
-      // If not matched, try function-based mapping (function_id or function label like 'add')
-      if (!matchedAny) {
-        let svcToFn = cy.collection();
-        if (act.function_id) {
-          const fnId = String(act.function_id);
-          svcToFn = cy.edges().filter(edge => edge.data('target')===fnId);
-        } else {
-          // Try function label from target, then from source (e.g., 'add')
-          const candidateLabelA = (tid && String(tid).toLowerCase() !== 'openai') ? String(tid) : '';
-          const candidateLabelB = (sid && String(sid).toLowerCase() !== 'openai') ? String(sid) : '';
-          let fnNodeId = findNodeIdByLabel(candidateLabelA, 'FUNCTION');
-          if (!fnNodeId) fnNodeId = findNodeIdByLabel(candidateLabelB, 'FUNCTION');
-          if (fnNodeId) svcToFn = cy.edges().filter(edge => edge.data('target')===fnNodeId);
+        // Debug helpers
+        const activeByCall = new Map();
+        let totalStarts = 0, totalCompletes = 0;
+        function appendDebugLine(text) {
+            if (!debugPanel) return;
+            const div = document.createElement('div');
+            div.textContent = text;
+            debugPanel.appendChild(div);
+            while (debugPanel.childElementCount > 500) debugPanel.removeChild(debugPanel.firstElementChild);
+            debugPanel.scrollTop = debugPanel.scrollHeight;
         }
-        if (svcToFn.nonempty()) {
-          matchedAny = true;
-          if (isStart) {
-            svcToFn.addClass('pulse-start');
-            const timer = setTimeout(()=> { svcToFn.removeClass('pulse-start'); }, 20000);
-            // do not key by callId here to avoid interference with direct path
-          } else {
-            svcToFn.addClass('pulse-complete'); setTimeout(()=> svcToFn.removeClass('pulse-complete'), 800);
-          }
-          try {
-            // Log each mapped service->function edge applied
-            svcToFn.forEach(e => {
-              const s = e.data('source'); const t = e.data('target');
-              console.info('[APPLIED]', `${nodeLabel(s)} -> ${nodeLabel(t)}`, `event=${ev}`);
+        function setDebugVisible(visible) {
+            if (!debugPanel) return;
+            debugPanel.classList.toggle('hidden', !visible);
+        }
+        function updateMetrics() {
+            let active = 0; activeByCall.forEach(v => { if (v > 0) active += v; });
+            const unmatched = Array.from(activeByCall.values()).reduce((a,b)=> a + (b>0?b:0), 0);
+            statsDiv.children[0].textContent = `Active: ${active}`;
+            statsDiv.children[1].textContent = `Starts: ${totalStarts}`;
+            statsDiv.children[2].textContent = `Completes: ${totalCompletes}`;
+            statsDiv.children[3].textContent = `Unmatched starts: ${unmatched}`;
+        }
+        function mapTypeToThemeKey(t) {
+            if (!t) return 'Function';
+            const T = String(t).toUpperCase();
+            if (T === 'INTERFACE') return 'Interface';
+            if (T === 'SERVICE') return 'Service';
+            if (T === 'FUNCTION') return 'Function';
+            if (T === 'PRIMARY_AGENT' || T === 'AGENT_PRIMARY' || T === 'SPECIALIZED_AGENT' || T === 'AGENT') return 'Agent';
+            return 'Function';
+        }
+        function elementsToGraphData(elements) {
+            const nodes = [];
+            const links = [];
+            (elements?.nodes || []).forEach(n => {
+                const d = n.data || {};
+                const id = String(d.id || d.node_id || '');
+                if (!id) return;
+                nodes.push({ id, type: mapTypeToThemeKey(d.type), name: d.label || id });
             });
-          } catch(e) {}
-          // Highlight agent->service if agent id known
-          if (act.primary_agent_id) {
+            (elements?.edges || []).forEach(e => {
+                const d = e.data || {};
+                const source = String(d.source || d.source_id || '');
+                const target = String(d.target || d.target_id || '');
+                if (!source || !target) return;
+                links.push({ source, target });
+            });
+            return { nodes, links };
+        }
+        
+        function init() {
+            scene = new THREE.Scene();
+            clock = new THREE.Clock();
+            
+            camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 3000);
+            camera.position.set(100, 80, 100);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.2;
+            container.appendChild(renderer.domElement);
+            
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.minDistance = 10;
+            controls.maxDistance = 500;
+            
+            setupLighting();
+            setupPostProcessing();
+            createEnvironment();
+            setupGraph();
+            applyTheme(currentThemeIndex);
+            setLayout(currentLayout);
+            
+            window.addEventListener('resize', onWindowResize);
+            activateButton.addEventListener('click', activateGraph);
+            refreshButton.addEventListener('click', refreshGraph);
+            loadSnapshotButton.addEventListener('click', loadSnapshot);
+            edgeLabelsButton.addEventListener('click', toggleEdgeLabels);
+            debugLogButton.addEventListener('click', () => setDebugVisible(debugPanel.classList.contains('hidden')));
+            layoutForceButton.addEventListener('click', () => setLayout('force'));
+            layoutLayeredButton.addEventListener('click', () => setLayout('layered'));
+            layoutRadialButton.addEventListener('click', () => setLayout('radial'));
+            disconnectedCheckbox.addEventListener('change', toggleDisconnected);
+            themeButton.addEventListener('click', toggleTheme);
+            morphButton.addEventListener('click', toggleMorph);
+
+            // Socket wiring
+            let graphUpdateTimer = null;
+            let graphNeedsUpdate = false;
+            
+            function scheduleGraphUpdate() {
+                graphNeedsUpdate = true;
+                if (graphUpdateTimer) return;
+                graphUpdateTimer = setTimeout(() => {
+                    graphUpdateTimer = null;
+                    if (graphNeedsUpdate) {
+                        graphNeedsUpdate = false;
+                        updateGraphData();
+                    }
+                }, 50); // Batch updates within 50ms window
+            }
+            
             try {
-              const serviceIds = new Set(svcToFn.map(e => e.data('source')));
-              const a2s = cy.edges().filter(edge => edge.data('source')===String(act.primary_agent_id) && serviceIds.has(edge.data('target')));
-              if (a2s.nonempty()) {
-                if (isStart) { a2s.addClass('pulse-start'); setTimeout(()=> a2s.removeClass('pulse-start'), 20000); }
-                else { a2s.addClass('pulse-complete'); setTimeout(()=> a2s.removeClass('pulse-complete'), 800); }
-                // Applied log for agent->service inferred
-                a2s.forEach(e => { try { console.info('[APPLIED]', `${nodeLabel(e.data('source'))} -> ${nodeLabel(e.data('target'))}`, 'event=AGENT_TO_SERVICE_INFERRED'); } catch(_) {} });
-              }
-            } catch (e) { /* ignore */ }
-          }
+                const ioUrl = `${window.location.protocol}//${window.location.host}`;
+                const socket = window.io && window.io(ioUrl, { transports: ['websocket','polling'] });
+                if (!socket) {
+                    appendDebugLine('Socket.IO not available');
+                } else {
+                    socket.on('connect', () => { appendDebugLine('socket connected'); socket.emit('graph_snapshot'); });
+                    socket.on('disconnect', () => { appendDebugLine('socket disconnected'); });
+                    socket.on('graph_snapshot', (data) => {
+                        try {
+                            const nodes = data?.elements?.nodes?.length || 0;
+                            const edges = data?.elements?.edges?.length || 0;
+                            appendDebugLine(`graph_snapshot nodes=${nodes} edges=${edges}`);
+                            const gd = elementsToGraphData(data.elements || {});
+                            graphData.nodes = gd.nodes;
+                            graphData.links = gd.links;
+                            updateGraphData();
+                        } catch (e) { console.error(e); appendDebugLine(`snapshot error: ${e}`); }
+                    });
+                    socket.on('node_update', (payload) => {
+                        try {
+                            const n = payload.node || payload || {};
+                            const id = String(n.component_id || n.node_id || n.id || '');
+                            if (!id) return;
+                            const type = n.component_type || n.node_type;
+                            const state = n.state || n.node_state;
+                            const label = (n.attrs && (n.attrs.prefered_name || n.attrs.service_name || n.attrs.function_name)) || n.node_name || id;
+                            let existing = graphData.nodes.find(nd => nd.id === id);
+                            let wasNew = false;
+                            if (!existing) {
+                                graphData.nodes.push({ id, type: mapTypeToThemeKey(type), name: label });
+                                appendDebugLine(`node_add id=${id} type=${type||''} label="${label||''}"`);
+                                wasNew = true;
+                                // Keep known set in sync even if we don't refresh immediately
+                                knownNodeIds.add(id);
+                            } else {
+                                existing.name = label;
+                                existing.type = mapTypeToThemeKey(type) || existing.type;
+                                appendDebugLine(`node_update id=${id} type=${type||''} label="${label||''}"`);
+                            }
+                            // Don't update graph data on every node change - it clears linkObjects!
+                            if (wasNew) {
+                                scheduleGraphUpdate();
+                            }
+                        } catch (e) { /* ignore */ }
+                    });
+                    socket.on('edge_update', (payload) => {
+                        try {
+                            const e = payload.edge || payload || {};
+                            const sid = String(e.source_id || e.source || '');
+                            const tid = String(e.target_id || e.target || '');
+                            const et = e.edge_type || e.type || '';
+                            if (!sid || !tid) return;
+                            if (!graphData.links.find(l => idOf(l.source) === sid && idOf(l.target) === tid)) {
+                                graphData.links.push({ source: sid, target: tid });
+                                appendDebugLine(`edge_add ${sid} -> ${tid} type=${et}`);
+                                // Don't update graph data on every edge change - it clears linkObjects!
+                                scheduleGraphUpdate();
+                            }
+                        } catch (e) { /* ignore */ }
+                    });
+                    socket.on('activity', (act) => {
+                        try {
+                            const sid = act.source_id || '';
+                            const tid = act.target_id || '';
+                            const ev = String(act.event_type || '');
+                            const isStart = ev.endsWith('_START');
+                            const isComplete = ev.endsWith('_COMPLETE') || ev.endsWith('RECEIVED');
+                            const callId = act.call_id || `${sid}->${tid}:${ev}:${act.timestamp}`;
+                            const agentId = act.primary_agent_id || '';
+                            if (isStart) { totalStarts++; activeByCall.set(callId, (activeByCall.get(callId)||0) + 1); }
+                            if (isComplete) { const cur = activeByCall.get(callId)||0; totalCompletes++; activeByCall.set(callId, Math.max(0, cur-1)); }
+                            updateMetrics();
+                            appendDebugLine(`activity ${ev} ${sid} -> ${tid} call=${String(callId).slice(0,8)}${agentId ? ` agent=${agentId}` : ''}`);
+                            
+                            // Special node glows for classification and LLM calls
+                            if (ev === 'CLASSIFICATION_RESULT') {
+                                // Glow the agent that did the classification
+                                scene.traverse(obj => {
+                                    if (obj.userData?.node?.id === sid && obj.material?.uniforms?.energy) {
+                                        const originalEnergy = obj.material.uniforms.energy.value;
+                                        obj.material.uniforms.energy.value = 2.0;
+                                        setTimeout(() => {
+                                            if (obj.material) obj.material.uniforms.energy.value = originalEnergy;
+                                        }, 800);
+                                    }
+                                });
+                            }
+                            // Visual pulse: prefer link pulse; if unmatched in both directions, draw an arc between node positions
+                            if (sid && tid) {
+                                const color = (isComplete ? 0x2ecc71 : 0xe74c3c);
+                                let ok = pulseLink(sid, tid, color);
+                                
+                                // Special handling for FUNCTION_CALL events
+                                if (!ok && (ev === 'FUNCTION_CALL_START' || ev === 'FUNCTION_CALL_COMPLETE')) {
+                                    const tgtNode = graphData.nodes.find(n => n.id === tid);
+                                    
+                                    // If target is a function, we need to find the right edges
+                                    if (tgtNode && tgtNode.type === 'Function') {
+                                        // Find service that owns this function
+                                        const serviceEdge = filteredGraphData.links.find(l => 
+                                            idOf(l.target) === tid && 
+                                            graphData.nodes.find(n => n.id === idOf(l.source))?.type === 'Service'
+                                        );
+                                        if (serviceEdge) {
+                                            const serviceId = idOf(serviceEdge.source);
+                                            
+                                            // If source is the service itself, pulse service->function
+                                            if (sid === serviceId) {
+                                                // Add a small delay if we just routed an agent->service call
+                                                // This makes the sequence more visible
+                                                const delay = ev === 'FUNCTION_CALL_START' ? 200 : 0;
+                                                setTimeout(() => {
+                                                    const success = pulseLink(sid, tid, color);
+                                                    if (!success) appendDebugLine(`service->function pulse failed for ${sid}->${tid}`);
+                                                }, delay);
+                                                ok = true; // Consider it handled
+                                            } else {
+                                                // Otherwise, it's an agent calling - use primary_agent_id if available
+                                                if (agentId && knownNodeIds.has(agentId)) {
+                                                    ok = pulseLink(agentId, serviceId, color);
+                                                    if (ok) appendDebugLine(`function_call_rerouted ${sid}->${tid} to agent->service ${agentId}->${serviceId}`);
+                                                } else {
+                                                    // Fallback: find which agent has access to this service
+                                                    const agentToService = filteredGraphData.links.find(l =>
+                                                        idOf(l.target) === serviceId &&
+                                                        graphData.nodes.find(n => n.id === idOf(l.source))?.type === 'Agent'
+                                                    );
+                                                    if (agentToService) {
+                                                        const foundAgentId = idOf(agentToService.source);
+                                                        ok = pulseLink(foundAgentId, serviceId, color);
+                                                        if (ok) appendDebugLine(`function_call_rerouted ${sid}->${tid} to agent->service ${foundAgentId}->${serviceId}`);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                if (!ok) {
+                                    const a = getNodePositionById(sid);
+                                    const b = getNodePositionById(tid);
+                                    if (a && b) createArcPulseByPositions(a, b, color);
+                                }
+                            }
+                        } catch (e) { /* ignore */ }
+                    });
+                }
+            } catch (e) { appendDebugLine(`socket error: ${e}`); }
         }
-      }
-
-      // Glow nodes for local processing overlays
-      // LLM calls already glow the agent node above; add classification glow and function-node glow
-      if (ev === 'CLASSIFICATION_RESULT') {
-        // Glow the primary agent if available; else glow the source
-        const agentId = act.primary_agent_id || sid;
-        glowNodeWithClass(agentId, 'glow-classifier', 1200);
-        // Also glow the resolved function node if present via function_id
-        if (act.function_id) {
-          const fn = cy.$id(String(act.function_id)); if (fn.nonempty()) { fn.addClass('glow'); setTimeout(()=> fn.removeClass('glow'), 1200); }
+        
+        let ambientLight, pointLight, dirLight1, dirLight2;
+        function setupLighting() {
+            ambientLight = new THREE.AmbientLight(0x1a2440, 0.8);
+            scene.add(ambientLight);
+            
+            pointLight = new THREE.PointLight(0xffe4b5, 3, 500);
+            pointLight.position.set(0, 0, 0);
+            scene.add(pointLight);
+            
+            dirLight1 = new THREE.DirectionalLight(0x4488ff, 0.5);
+            dirLight1.position.set(-200, 100, -100);
+            scene.add(dirLight1);
+            
+            dirLight2 = new THREE.DirectionalLight(0x8844ff, 0.3);
+            dirLight2.position.set(100, -50, 200);
+            scene.add(dirLight2);
         }
-        try {
-          const fLabel = act.function_id ? nodeLabel(act.function_id) : (act.target_id || '');
-          console.info('[LOCAL]', 'CLASSIFICATION', `agent=${nodeLabel(agentId)}`, `function=${fLabel}`);
-        } catch(e) {}
-      }
+        
+        function setupPostProcessing() {
+            composer = new EffectComposer(renderer);
+            composer.addPass(new RenderPass(scene, camera));
+            const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.8, 0.4, 0.1);
+            composer.addPass(bloomPass);
+            composer.addPass(new OutputPass());
+        }
+        
+        function createEnvironment() {
+            // Similar to example, add starfield layers
+            const layers = [
+                { count: 5000, distance: [200, 500], size: [0.5, 1.0], color: 0x6688bb },
+                { count: 3000, distance: [500, 1000], size: [0.8, 1.5], color: 0x88aadd },
+                { count: 2000, distance: [1000, 2000], size: [1.0, 2.0], color: 0xaaccff }
+            ];
+            layers.forEach(layer => {
+                const geometry = new THREE.BufferGeometry();
+                const positions = new Float32Array(layer.count * 3);
+                const colors = new Float32Array(layer.count * 3);
+                const sizes = new Float32Array(layer.count);
+                const color = new THREE.Color(layer.color);
+                for (let i = 0; i < layer.count; i++) {
+                    const theta = Math.random() * 2 * Math.PI;
+                    const phi = Math.acos(2 * Math.random() - 1);
+                    const r = layer.distance[0] + Math.random() * (layer.distance[1] - layer.distance[0]);
+                    positions[i*3] = r * Math.sin(phi) * Math.cos(theta);
+                    positions[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+                    positions[i*3+2] = r * Math.cos(phi);
+                    colors[i*3] = color.r;
+                    colors[i*3+1] = color.g;
+                    colors[i*3+2] = color.b;
+                    sizes[i] = layer.size[0] + Math.random() * (layer.size[1] - layer.size[0]);
+                }
+                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+                geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+                const material = new THREE.PointsMaterial({
+                    size: 1.5,
+                    vertexColors: true,
+                    sizeAttenuation: true,
+                    transparent: true,
+                    opacity: 0.7
+                });
+                const starfield = new THREE.Points(geometry, material);
+                scene.add(starfield);
+            });
+        }
+        
+        let nodeMaterials = {};
+        let edgeMaterial;
+        let linkObjects = new Map(); // key: "source->target" → THREE.Group for the link
+        let pendingLinkPulses = new Map(); // key -> [{ colorHex }]
+        function setupGraph() {
+            graph = new ForceGraph3D({
+                extraRenderers: [] // If needed for custom
+            });
+            scene.add(graph);
+            
+            // Custom node object
+            graph.nodeThreeObject(node => {
+                const geo = new THREE.IcosahedronGeometry(5 + Math.random() * 5, 3); // Size based on something
+                const mat = new THREE.ShaderMaterial({
+                    uniforms: {
+                        time: { value: 0.0 },
+                        baseColor: { value: new THREE.Vector3(...themes[currentThemeIndex].nodeColors[node.type]) },
+                        accentColor: { value: new THREE.Vector3(...themes[currentThemeIndex].accentColors[node.type]) },
+                        energy: { value: 0.0 }
+                    },
+                    vertexShader: document.getElementById('nodeVertexShader').textContent,
+                    fragmentShader: document.getElementById('nodeFragmentShader').textContent
+                });
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.userData.node = node;
+                mesh.userData.originalPositions = geo.attributes.position.clone();
+                const targetPos = new Float32Array(geo.attributes.position.count * 3);
+                for (let i = 0; i < geo.attributes.position.count; i++) {
+                    const p = new THREE.Vector3().fromBufferAttribute(geo.attributes.position, i);
+                    const cubeP = getCubePosition(p).multiplyScalar(5 + Math.random() * 5);
+                    targetPos[i*3] = cubeP.x;
+                    targetPos[i*3+1] = cubeP.y;
+                    targetPos[i*3+2] = cubeP.z;
+                }
+                mesh.userData.targetPositions = new THREE.BufferAttribute(targetPos, 3);
+                nodeMaterials[node.id] = mat;
+                return mesh;
+            });
+            
+            // Custom edge as tube with shader
+            edgeMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    time: { value: 0.0 },
+                    color: { value: new THREE.Color(themes[currentThemeIndex].edgeColor) },
+                    opacity: { value: 0.02 },
+                    energy: { value: 0.0 }
+                },
+                vertexShader: document.getElementById('edgeVertexShader').textContent,
+                fragmentShader: document.getElementById('edgeFragmentShader').textContent,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+            const edgeGeom = new THREE.CylinderGeometry(1, 1, 1, 8, 1, false);
+            edgeGeom.rotateX(Math.PI / 2);
+            graph.linkThreeObjectExtend(true)
+                .linkThreeObject(link => {
+                    const group = new THREE.Group();
+                    const cylinder = new THREE.Mesh(edgeGeom.clone(), edgeMaterial.clone());
+                    cylinder.name = 'edgeCylinder';
+                    group.add(cylinder);
+                    // Colored pulse overlay (thicker, hidden by default)
+                    const pulseMat = edgeMaterial.clone();
+                    pulseMat.uniforms.opacity.value = 0.0;
+                    const pulse = new THREE.Mesh(edgeGeom.clone(), pulseMat);
+                    pulse.name = 'edgePulse';
+                    pulse.scale.set(1.2, 1.2, 1);
+                    group.add(pulse);
+                    const labelText = `${(link.source?.name || (link.source && link.source.id) || '')} -> ${(link.target?.name || (link.target && link.target.id) || '')}`;
+                    const label = createTextSprite(labelText);
+                    label.name = 'edgeLabel';
+                    label.visible = edgeLabelsVisible;
+                    label.position.set(0, 2, 0);
+                    group.add(label);
+                    // Track object for activations
+                    const srcId = idOf(link.source);
+                    const tgtId = idOf(link.target);
+                    if (srcId && tgtId) {
+                        const key = `${srcId}->${tgtId}`;
+                        group.userData.linkKey = key;
+                        linkObjects.set(key, group);
+                        appendDebugLine(`link_object_stored key=${key}`);
+                        // Apply any pending pulses queued before the link object existed
+                        const pend = pendingLinkPulses.get(key);
+                        if (pend && pend.length) {
+                            pend.splice(0).forEach(p => {
+                                appendDebugLine(`apply_pending_pulse ${key}`);
+                                setTimeout(() => pulseLink(srcId, tgtId, p.colorHex), 0);
+                            });
+                            pendingLinkPulses.delete(key);
+                        }
+                    }
+                    return group;
+                })
+                .linkPositionUpdate((obj, { start, end }) => {
+                    const mid = new THREE.Vector3(
+                        (start.x + end.x) / 2,
+                        (start.y + end.y) / 2,
+                        (start.z + end.z) / 2
+                    );
+                    obj.position.copy(mid);
+                    obj.lookAt(new THREE.Vector3(end.x, end.y, end.z));
+                    const cylinder = obj.getObjectByName('edgeCylinder');
+                    const pulse = obj.getObjectByName('edgePulse');
+                    if (cylinder || pulse) {
+                        const dx = end.x - start.x;
+                        const dy = end.y - start.y;
+                        const dz = end.z - start.z;
+                        const distance = Math.sqrt(dx*dx + dy*dy + dz*dz);
+                        if (cylinder) cylinder.scale.set(1, 1, distance);
+                        if (pulse) pulse.scale.set(pulse.scale.x, pulse.scale.y, distance);
+                    }
+                    return true;
+                });
+            
+            // Removed linkLabel (not available in three-forcegraph); labels handled via sprites
+            
+            updateGraphData();
+        }
 
-      if (!matchedAny && !ev.startsWith('LLM_CALL_')) {
-        // Diagnostic: explain why it didn't match
-        const sExists = !!(sid && cy.$id(String(sid)).nonempty());
-        const tExists = !!(tid && cy.$id(String(tid)).nonempty());
-        const directCount = (sid && tid) ? cy.edges().filter(e=>e.data('source')===sid && e.data('target')===tid).length : 0;
-        // Function mapping checks
-        const fnIdOpt = act.function_id ? String(act.function_id) : '';
-        const fnLabelA = (tid && String(tid).toLowerCase()!=='openai') ? String(tid) : '';
-        const fnLabelB = (sid && String(sid).toLowerCase()!=='openai') ? String(sid) : '';
-        const fnNodeIdA = fnLabelA ? (cy.nodes().filter(n=> (n.data('label')||'')===fnLabelA && n.data('type')==='FUNCTION')[0]?.id()||'' ) : '';
-        const fnNodeIdB = !fnNodeIdA && fnLabelB ? (cy.nodes().filter(n=> (n.data('label')||'')===fnLabelB && n.data('type')==='FUNCTION')[0]?.id()||'' ) : '';
-        const fnNodeId = fnIdOpt || fnNodeIdA || fnNodeIdB || '';
-        const svcToFnCount = fnNodeId ? cy.edges().filter(e=> e.data('target')===fnNodeId).length : 0;
-        console.warn('[ACTIVATION:UNMATCHED]', {
-          event: ev, sid, tid, call: callId,
-          sourceNodeExists: sExists,
-          targetNodeExists: tExists,
-          directEdgeCount: directCount,
-          functionId: fnIdOpt,
-          functionLabelA: fnLabelA,
-          functionLabelB: fnLabelB,
-          resolvedFunctionNodeId: fnNodeId,
-          serviceToFunctionEdgeCount: svcToFnCount
-        });
-        // Retry mapping shortly in case graph updates arrive after activity
-        setTimeout(()=> socket.emit('graph_snapshot'), 250);
-        setTimeout(()=> socket.emit('graph_snapshot'), 1000);
-      }
+        // Increase spacing for force-directed layout
+        function configureForceSpacing(mult = 3) {
+            try {
+                const linkForce = typeof graph.d3Force === 'function' ? graph.d3Force('link') : null;
+                if (linkForce && typeof linkForce.distance === 'function') {
+                    linkForce.distance(90 * mult); // base ~90, scaled up
+                }
+                const chargeForce = typeof graph.d3Force === 'function' ? graph.d3Force('charge') : null;
+                if (chargeForce && typeof chargeForce.strength === 'function') {
+                    chargeForce.strength(-60 * mult); // stronger repulsion to spread nodes
+                }
+                if (typeof graph.cooldownTicks === 'function') graph.cooldownTicks(200);
+            } catch (e) {
+                // force config not available on current layout
+            }
+        }
+        
+        function getCubePosition(p) {
+            const v = p.clone().normalize();
+            const max = Math.max(Math.abs(v.x), Math.abs(v.y), Math.abs(v.z));
+            return v.divideScalar(max);
+        }
+        
+        function createTextSprite(text) {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const fontSize = 64;
+            const padding = 16;
+            ctx.font = `${fontSize}px Inter, Arial, sans-serif`;
+            const metrics = ctx.measureText(text);
+            canvas.width = Math.ceil(metrics.width + padding * 2);
+            canvas.height = Math.ceil(fontSize + padding * 2);
+            ctx.font = `${fontSize}px Inter, Arial, sans-serif`;
+            ctx.fillStyle = 'rgba(255,255,255,0.95)';
+            ctx.textBaseline = 'top';
+            ctx.fillText(text, padding, padding);
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.minFilter = THREE.LinearFilter;
+            const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
+            const sprite = new THREE.Sprite(material);
+            const scaleFactor = 0.05;
+            sprite.scale.set(canvas.width * scaleFactor, canvas.height * scaleFactor, 1);
+            sprite.userData.isLinkLabel = true;
+            return sprite;
+        }
+        
+        function updateGraphData() {
+            if (!disconnectedCheckbox.checked) {
+                // Filter out disconnected nodes
+                const connectedNodes = new Set();
+                graphData.links.forEach(link => {
+                    connectedNodes.add(link.source);
+                    connectedNodes.add(link.target);
+                });
+                filteredGraphData.nodes = graphData.nodes.filter(node => connectedNodes.has(node.id));
+                filteredGraphData.links = graphData.links;
+            } else {
+                filteredGraphData = {...graphData};
+            }
+            // Update known nodes immediately
+            knownNodeIds = new Set(filteredGraphData.nodes.map(n => String(n.id)));
+            
+            // Don't clear linkObjects if we're just adding nodes/edges
+            const wasEmpty = linkObjects.size === 0;
+            if (wasEmpty) {
+                appendDebugLine(`updateGraphData initial build, nodes=${filteredGraphData.nodes.length} links=${filteredGraphData.links.length}`);
+            } else {
+                appendDebugLine(`updateGraphData preserving ${linkObjects.size} link objects, nodes=${filteredGraphData.nodes.length} links=${filteredGraphData.links.length}`);
+            }
+            
+            graph.graphData(filteredGraphData);
+            // Give the graph time to build link objects before processing pending pulses
+            setTimeout(() => {
+                appendDebugLine(`post-update linkObjects count=${linkObjects.size}`);
+                // Re-process any pending pulses now that links might be ready
+                pendingLinkPulses.forEach((pulses, key) => {
+                    const [src, tgt] = key.split('->');
+                    if (src && tgt) {
+                        pulses.forEach(p => pulseLink(src, tgt, p.colorHex));
+                    }
+                });
+            }, 100);
+        }
+        
+        function applyTheme(index) {
+            const theme = themes[index];
+            themeButton.querySelector('span:last-of-type').textContent = `Theme: ${theme.name}`;
+            ambientLight.color.set(theme.ambientLightColor);
+            pointLight.color.set(theme.pointLightColor);
+            dirLight1.color.set(theme.dirLight1);
+            dirLight2.color.set(theme.dirLight2);
+            edgeMaterial.uniforms.color.value.set(theme.edgeColor);
+            // Update node materials
+            filteredGraphData.nodes.forEach(node => {
+                const mat = nodeMaterials[node.id];
+                if (mat) {
+                    mat.uniforms.baseColor.value.set(...theme.nodeColors[node.type]);
+                    mat.uniforms.accentColor.value.set(...theme.accentColors[node.type]);
+                }
+            });
+        }
+        
+        function toggleTheme() {
+            currentThemeIndex = (currentThemeIndex + 1) % themes.length;
+            applyTheme(currentThemeIndex);
+        }
+        
+        function toggleMorph() {
+            const morphEffect = {
+                startTime: clock.getElapsedTime(),
+                duration: 2.0,
+                update: (elapsed) => {
+                    let progress = elapsed / morphEffect.duration;
+                    if (progress > 1) progress = 1;
+                    const eased = 0.5 - 0.5 * Math.cos(progress * Math.PI);
+                    const morphProg = isMorphed ? 1 - eased : eased;
+                    scene.traverse(obj => {
+                        if (obj.userData.node) {
+                            const geo = obj.geometry;
+                            const orig = obj.userData.originalPositions;
+                            const targ = obj.userData.targetPositions;
+                            const pos = geo.attributes.position;
+                            for (let i = 0; i < orig.count; i++) {
+                                pos.setX(i, THREE.MathUtils.lerp(orig.getX(i), targ.getX(i), morphProg));
+                                pos.setY(i, THREE.MathUtils.lerp(orig.getY(i), targ.getY(i), morphProg));
+                                pos.setZ(i, THREE.MathUtils.lerp(orig.getZ(i), targ.getZ(i), morphProg));
+                            }
+                            pos.needsUpdate = true;
+                            geo.computeVertexNormals();
+                        }
+                    });
+                },
+                end: () => {
+                    isMorphed = !isMorphed;
+                }
+            };
+            activeEffects.push(morphEffect);
+        }
+        
+        function setLayout(layout) {
+            currentLayout = layout;
+            let dagMode = null;
+            if (layout === 'layered') dagMode = 'td'; // top-down
+            else if (layout === 'radial') dagMode = 'radialout';
+            if (typeof graph.dagMode === 'function') {
+                graph.dagMode(dagMode);
+            }
+            if (!dagMode) {
+                configureForceSpacing(linkDistanceMultiplier);
+            }
+            graph.graphData(filteredGraphData);
+        }
+        
+        function activateGraph() {
+            // Simulate activation: randomly select a link and pulse it
+            const randomLink = filteredGraphData.links[Math.floor(Math.random() * filteredGraphData.links.length)];
+            if (randomLink) {
+                createPulse(randomLink.source, randomLink.target);
+                pulseLink(randomLink.source?.id || randomLink.source, randomLink.target?.id || randomLink.target, 0xe74c3c);
+                // Update stats placeholder
+                statsDiv.children[0].textContent = `Active: ${parseInt(statsDiv.children[0].textContent.split(': ')[1]) + 1}`;
+                statsDiv.children[1].textContent = `Starts: ${parseInt(statsDiv.children[1].textContent.split(': ')[1]) + 1}`;
+            }
+        }
 
-      // No further action if nothing matched
-    });
+        function pulseLink(sourceId, targetId, colorHex) {
+            try {
+                const key = `${sourceId}->${targetId}`;
+                let obj = linkObjects.get(key);
+                if (!obj) {
+                    // Try reverse direction if only INTERFACE_TO_AGENT edge exists
+                    const rkey = `${targetId}->${sourceId}`;
+                    const robj = linkObjects.get(rkey);
+                    // Debug: log what keys exist
+                    const allKeys = Array.from(linkObjects.keys());
+                    appendDebugLine(`pulse_lookup key=${key} exists=${!!obj} rkey=${rkey} rexists=${!!robj} total_keys=${allKeys.length}`);
+                    if (robj) {
+                        obj = robj;
+                        appendDebugLine(`redirect_pulse ${key} -> ${rkey}`);
+                    }
+                }
+                if (!obj) {
+                    // Suppress unmatched for non-graph endpoints like OpenAI
+                    const srcKnown = knownNodeIds.has(String(sourceId));
+                    const tgtKnown = knownNodeIds.has(String(targetId));
+                    if (srcKnown && tgtKnown) {
+                        // helpful diagnostics with labels/types
+                        const srcInfo = getNodeMeta(sourceId);
+                        const tgtInfo = getNodeMeta(targetId);
+                        const srcOut = linkKeysForSource(sourceId).slice(0, 10);
+                        const srcIn  = linkKeysForTarget(sourceId).slice(0, 10);
+                        const tgtOut = linkKeysForSource(targetId).slice(0, 10);
+                        const tgtIn  = linkKeysForTarget(targetId).slice(0, 10);
+                        appendDebugLine(
+                            `UNMATCHED activity link ${key} ` +
+                            `src=[${srcInfo.label||'?'} ${srcInfo.type||''} ${srcInfo.id}] ` +
+                            `tgt=[${tgtInfo.label||'?'} ${tgtInfo.type||''} ${tgtInfo.id}] ` +
+                            `src_out=[${srcOut.join(', ')}] src_in=[${srcIn.join(', ')}] ` +
+                            `tgt_out=[${tgtOut.join(', ')}] tgt_in=[${tgtIn.join(', ')}]`
+                        );
+                    }
+                    const arr = pendingLinkPulses.get(key) || [];
+                    arr.push({ colorHex });
+                    pendingLinkPulses.set(key, arr);
+                    return false;
+                }
+                const pulse = obj.getObjectByName('edgePulse');
+                const cylinder = obj.getObjectByName('edgeCylinder');
+                if (!pulse || !pulse.material || !pulse.material.uniforms) return false;
+                const mat = pulse.material;
+                const baseMat = cylinder ? cylinder.material : null;
+                const baseColor = new THREE.Color(themes[currentThemeIndex].edgeColor);
+                const effect = {
+                    startTime: clock.getElapsedTime(),
+                    duration: 2.2,  // Increased from 1.6 for better visibility
+                    update: (elapsed) => {
+                        const progress = elapsed / effect.duration;
+                        if (progress > 1) return;
+                        const intensity = Math.sin(progress * Math.PI);
+                        mat.uniforms.energy.value = 0.4 + intensity * 3.2;
+                        mat.uniforms.opacity.value = 0.1 + 0.9 * intensity;
+                        mat.uniforms.color.value.set(colorHex);
+                        if (baseMat && baseMat.uniforms) {
+                            baseMat.uniforms.opacity.value = 0.02 + 0.18 * (1.0 - intensity);
+                        }
+                    },
+                    end: () => {
+                        mat.uniforms.energy.value = 0.0;
+                        mat.uniforms.opacity.value = 0.0;
+                        mat.uniforms.color.value.copy(baseColor);
+                        if (baseMat && baseMat.uniforms) {
+                            baseMat.uniforms.opacity.value = 0.02;
+                        }
+                    }
+                };
+                activeEffects.push(effect);
+                return true;
+            } catch (_) { return false; }
+        }
+        
+        function createPulse(sourceNode, targetNode) {
+            const arcMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    time: { value: 0.0 },
+                    color: { value: new THREE.Color(0xff0000) },
+                    opacity: { value: 0.0 },
+                    energy: { value: 0.0 }
+                },
+                vertexShader: document.getElementById('edgeVertexShader').textContent,
+                fragmentShader: document.getElementById('edgeFragmentShader').textContent,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+            });
+            const effect = {
+                startTime: clock.getElapsedTime(),
+                duration: 3.0,
+                mesh: null,
+                update: (elapsed) => {
+                    const progress = elapsed / effect.duration;
+                    if (progress > 1) return;
+                    const start = new THREE.Vector3(sourceNode.x, sourceNode.y, sourceNode.z);
+                    const end = new THREE.Vector3(targetNode.x, targetNode.y, targetNode.z);
+                    const mid = start.clone().lerp(end, 0.5);
+                    const control = mid.clone().add(new THREE.Vector3(0, start.distanceTo(end) * 0.3, 0));
+                    const curve = new THREE.QuadraticBezierCurve3(start, control, end);
+                    const geo = new THREE.TubeGeometry(curve, 64, 2, 8, false);
+                    if (!effect.mesh) {
+                        effect.mesh = new THREE.Mesh(geo, arcMaterial);
+                        scene.add(effect.mesh);
+                    } else {
+                        effect.mesh.geometry.dispose();
+                        effect.mesh.geometry = geo;
+                    }
+                    const intensity = Math.sin(progress * Math.PI);
+                    arcMaterial.uniforms.opacity.value = intensity;
+                    arcMaterial.uniforms.energy.value = intensity * 2;
+                    arcMaterial.uniforms.time.value += clock.getDelta();
+                },
+                end: () => {
+                    if (effect.mesh) {
+                        scene.remove(effect.mesh);
+                        effect.mesh.geometry.dispose();
+                        arcMaterial.dispose();
+                    }
+                }
+            };
+            activeEffects.push(effect);
+        }
 
-    window.addEventListener('resize', () => { cy.resize(); cy.fit(cy.elements(), 40); });
+        function getNodePositionById(nodeId) {
+            let found = null;
+            try {
+                scene.traverse(obj => {
+                    if (found) return;
+                    if (obj.userData && obj.userData.node && String(obj.userData.node.id) === String(nodeId)) {
+                        const p = obj.position;
+                        found = { x: p.x, y: p.y, z: p.z };
+                    }
+                });
+            } catch (_) {}
+            return found;
+        }
 
-    setEdgeLabels(false); refreshSnapshot();
-  </script>
+        function createArcPulseByPositions(srcPos, tgtPos, colorHex) {
+            const arcMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    time: { value: 0.0 },
+                    color: { value: new THREE.Color(colorHex || 0xff0000) },
+                    opacity: { value: 0.0 },
+                    energy: { value: 0.0 }
+                },
+                vertexShader: document.getElementById('edgeVertexShader').textContent,
+                fragmentShader: document.getElementById('edgeFragmentShader').textContent,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+            });
+            const effect = {
+                startTime: clock.getElapsedTime(),
+                duration: 1.6,
+                mesh: null,
+                update: (elapsed) => {
+                    const progress = elapsed / effect.duration;
+                    if (progress > 1) return;
+                    const start = new THREE.Vector3(srcPos.x, srcPos.y, srcPos.z);
+                    const end = new THREE.Vector3(tgtPos.x, tgtPos.y, tgtPos.z);
+                    const mid = start.clone().lerp(end, 0.5);
+                    const control = mid.clone().add(new THREE.Vector3(0, start.distanceTo(end) * 0.3, 0));
+                    const curve = new THREE.QuadraticBezierCurve3(start, control, end);
+                    const geo = new THREE.TubeGeometry(curve, 48, 1.8, 8, false);
+                    if (!effect.mesh) {
+                        effect.mesh = new THREE.Mesh(geo, arcMaterial);
+                        scene.add(effect.mesh);
+                    } else {
+                        effect.mesh.geometry.dispose();
+                        effect.mesh.geometry = geo;
+                    }
+                    const intensity = Math.sin(progress * Math.PI);
+                    arcMaterial.uniforms.opacity.value = 0.2 + 0.8 * intensity;
+                    arcMaterial.uniforms.energy.value = intensity * 2.5;
+                    arcMaterial.uniforms.time.value += clock.getDelta();
+                },
+                end: () => {
+                    if (effect.mesh) {
+                        scene.remove(effect.mesh);
+                        effect.mesh.geometry.dispose();
+                        arcMaterial.dispose();
+                    }
+                }
+            };
+            activeEffects.push(effect);
+        }
+        
+        function refreshGraph() {
+            graph.graphData(filteredGraphData);
+        }
+        
+        function loadSnapshot() {
+            // Placeholder: load new data
+            alert('Load Snapshot functionality not implemented.');
+        }
+        
+        function toggleEdgeLabels() {
+            edgeLabelsVisible = !edgeLabelsVisible;
+            edgeLabelsButton.querySelector('span:last-of-type').textContent = `Edge Labels: ${edgeLabelsVisible ? 'On' : 'Off'}`;
+            scene.traverse(obj => {
+                if (obj.name === 'edgeLabel' || (obj.userData && obj.userData.isLinkLabel)) {
+                    obj.visible = edgeLabelsVisible;
+                }
+            });
+        }
+        
+        function toggleDebugLog() {
+            // Placeholder
+            alert('Debug Log functionality not implemented.');
+        }
+        
+        function toggleDisconnected() {
+            updateGraphData();
+        }
+        
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+            const time = clock.getElapsedTime();
+            
+            graph.tickFrame();
+            
+            // Update node shaders
+            scene.traverse(obj => {
+                if (obj.userData.node && obj.material && obj.material.uniforms && obj.material.uniforms.time) {
+                    obj.material.uniforms.time.value = time;
+                }
+                if (obj.material && obj.material.uniforms && obj.material.uniforms.time) {
+                    obj.material.uniforms.time.value = time;
+                }
+            });
+            
+            // edgeMaterial is cloned per link, so update all clones via traversal above
+            
+            activeEffects.forEach((effect, i) => {
+                const elapsed = time - effect.startTime;
+                if (elapsed > effect.duration) {
+                    effect.end();
+                    activeEffects.splice(i, 1);
+                } else {
+                    effect.update(elapsed);
+                }
+            });
+            
+            controls.update();
+            composer.render();
+        }
+        
+        init();
+        animate();
+    </script>
 </body>
 </html>
