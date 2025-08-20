@@ -297,14 +297,7 @@
         <div>Unmatched starts: 0</div>
     </div>
     <div class="controls">
-        <button class="control-button" id="refresh">
-            <span></span><span></span><span></span><span></span>
-            <span>Refresh</span>
-        </button>
-        <button class="control-button" id="loadSnapshot">
-            <span></span><span></span><span></span><span></span>
-            <span>Load Snapshot</span>
-        </button>
+        
         <button class="control-button" id="edgeLabels">
             <span></span><span></span><span></span><span></span>
             <span>Edge Labels: Off</span>
@@ -312,18 +305,6 @@
         <button class="control-button" id="debugLog">
             <span></span><span></span><span></span><span></span>
             <span>Debug Log</span>
-        </button>
-        <button class="control-button" id="layoutForce">
-            <span></span><span></span><span></span><span></span>
-            <span>Layout: Force</span>
-        </button>
-        <button class="control-button" id="layoutLayered">
-            <span></span><span></span><span></span><span></span>
-            <span>Layout: Layered</span>
-        </button>
-        <button class="control-button" id="layoutRadial">
-            <span></span><span></span><span></span><span></span>
-            <span>Layout: Radial</span>
         </button>
         <button class="control-button" id="layoutOrbital">
             <span></span><span></span><span></span><span></span>
@@ -341,10 +322,27 @@
             <span></span><span></span><span></span><span></span>
             <span>Theme: Inferno</span>
         </button>
-        <button class="control-button" id="morphButton">
+        <button class="control-button" id="toggleOrbitFreeze">
             <span></span><span></span><span></span><span></span>
-            <span>Morph Shape</span>
+            <span>Freeze Orbits</span>
         </button>
+
+        <label class="checkbox-label" for="speedInterface">
+            Interface speed: <input type="range" id="speedInterface" min="0" max="3" step="0.05" value="1">
+            <span id="speedInterfaceVal">1.00x</span>
+        </label>
+        <label class="checkbox-label" for="speedAgent">
+            Agent speed: <input type="range" id="speedAgent" min="0" max="3" step="0.05" value="1">
+            <span id="speedAgentVal">1.00x</span>
+        </label>
+        <label class="checkbox-label" for="speedService">
+            Service speed: <input type="range" id="speedService" min="0" max="3" step="0.05" value="1">
+            <span id="speedServiceVal">1.00x</span>
+        </label>
+        <label class="checkbox-label" for="speedFunction">
+            Function speed: <input type="range" id="speedFunction" min="0" max="3" step="0.05" value="1">
+            <span id="speedFunctionVal">1.00x</span>
+        </label>
     </div>
     <div id="debugPanel" class="debug-panel hidden"></div>
     <script id="nodeVertexShader" type="x-shader/x-vertex">
@@ -363,6 +361,7 @@
         uniform vec3 baseColor;
         uniform vec3 accentColor;
         uniform float energy;
+        uniform float baseIntensity;
         varying vec3 vPosition;
         varying vec3 vNormal;
         varying vec2 vUv;
@@ -377,7 +376,7 @@
             vec3 color = mix(baseColor, accentColor, pattern);
             float fresnel = pow(1.0 - abs(dot(vNormal, vec3(0.0, 0.0, 1.0))), 1.5);
             color += fresnel * accentColor * 0.5;
-            color *= (1.0 + energy * 0.8);
+            color *= baseIntensity * (1.0 + energy * 0.8);
             gl_FragColor = vec4(color, 1.0);
         }
     </script>
@@ -428,26 +427,34 @@
         let graph = null; // Removed ForceGraph usage
         let activeEffects = [];
         let currentThemeIndex = 0;
-        let isMorphed = false;
         let currentLayout = 'orbital'; // Start with orbital by default
         let edgeLabelsVisible = false;
         // Controls spacing between nodes in force layout
         let linkDistanceMultiplier = 1.2; // 2x spread
+        // Orbital controls
+        let speedMultiplier = { Interface: 1.0, Agent: 1.0, Service: 1.0, FunctionMoon: 1.0 };
+        let orbitsFrozen = false;
+        let orbitTime = 0; // accumulated time only when not frozen
+        let lastOrbitTs = null;
         
         const container = document.getElementById('container');
         const statsDiv = document.getElementById('stats');
         const activateButton = document.getElementById('activateTrigger');
-        const refreshButton = document.getElementById('refresh');
-        const loadSnapshotButton = document.getElementById('loadSnapshot');
         const edgeLabelsButton = document.getElementById('edgeLabels');
         const debugLogButton = document.getElementById('debugLog');
-        const layoutForceButton = document.getElementById('layoutForce');
-        const layoutLayeredButton = document.getElementById('layoutLayered');
-        const layoutRadialButton = document.getElementById('layoutRadial');
         const disconnectedCheckbox = document.getElementById('disconnected');
         const themeButton = document.getElementById('toggleTheme');
-        const morphButton = document.getElementById('morphButton');
         const debugPanel = document.getElementById('debugPanel');
+        // Speed controls
+        const speedInterfaceInput = document.getElementById('speedInterface');
+        const speedAgentInput = document.getElementById('speedAgent');
+        const speedServiceInput = document.getElementById('speedService');
+        const speedFunctionInput = document.getElementById('speedFunction');
+        const speedInterfaceVal = document.getElementById('speedInterfaceVal');
+        const speedAgentVal = document.getElementById('speedAgentVal');
+        const speedServiceVal = document.getElementById('speedServiceVal');
+        const speedFunctionVal = document.getElementById('speedFunctionVal');
+        const toggleOrbitFreezeBtn = document.getElementById('toggleOrbitFreeze');
         
         const themes = [
             {
@@ -547,6 +554,8 @@
             statsDiv.children[2].textContent = `Completes: ${totalCompletes}`;
             statsDiv.children[3].textContent = `Unmatched starts: ${unmatched}`;
         }
+        function tsStrLocal(){ try { const d = new Date(); return d.toTimeString().slice(0,8); } catch(_) { return ''; } }
+        function tsStrFromMs(ms){ try { const d = new Date((ms||0) > 1e12 ? ms : (ms||0)*1000); return d.toTimeString().slice(0,8); } catch(_) { return ''; } }
         function mapTypeToThemeKey(t) {
             if (!t) return 'Function';
             const T = String(t).toUpperCase();
@@ -583,7 +592,7 @@
             scene = new THREE.Scene();
             clock = new THREE.Clock();
             
-            camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 3000);
+            camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 10000);
             camera.position.set(100, 80, 100);
             
             renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -597,7 +606,7 @@
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
             controls.minDistance = 10;
-            controls.maxDistance = 500;
+            controls.maxDistance = 3000;
             
             setupLighting();
             setupPostProcessing();
@@ -609,18 +618,35 @@
             
             window.addEventListener('resize', onWindowResize);
             activateButton.addEventListener('click', activateGraph);
-            refreshButton.addEventListener('click', refreshGraph);
-            loadSnapshotButton.addEventListener('click', loadSnapshot);
             edgeLabelsButton.addEventListener('click', toggleEdgeLabels);
             debugLogButton.addEventListener('click', () => setDebugVisible(debugPanel.classList.contains('hidden')));
-            layoutForceButton.addEventListener('click', () => setLayout('force'));
-            layoutLayeredButton.addEventListener('click', () => setLayout('layered'));
-            layoutRadialButton.addEventListener('click', () => setLayout('radial'));
             const layoutOrbitalButton = document.getElementById('layoutOrbital');
             layoutOrbitalButton.addEventListener('click', () => setLayout('orbital'));
             disconnectedCheckbox.addEventListener('change', toggleDisconnected);
             themeButton.addEventListener('click', toggleTheme);
-            morphButton.addEventListener('click', toggleMorph);
+            // Initialize slider displays without changing current positions
+            if (speedInterfaceInput) {
+                const setLabel = (labelEl, value) => { if (labelEl) labelEl.textContent = (value||1).toFixed(2) + 'x'; };
+                const adjust = (key, value, labelEl) => { adjustSpeedMultiplier(key, value); setLabel(labelEl, value); };
+                setLabel(speedInterfaceVal, speedMultiplier.Interface);
+                setLabel(speedAgentVal, speedMultiplier.Agent);
+                setLabel(speedServiceVal, speedMultiplier.Service);
+                setLabel(speedFunctionVal, speedMultiplier.FunctionMoon);
+                speedInterfaceInput.value = String(speedMultiplier.Interface);
+                speedAgentInput.value = String(speedMultiplier.Agent);
+                speedServiceInput.value = String(speedMultiplier.Service);
+                speedFunctionInput.value = String(speedMultiplier.FunctionMoon);
+                speedInterfaceInput.addEventListener('input', () => adjust('Interface', parseFloat(speedInterfaceInput.value||'1')||1, speedInterfaceVal));
+                speedAgentInput.addEventListener('input', () => adjust('Agent', parseFloat(speedAgentInput.value||'1')||1, speedAgentVal));
+                speedServiceInput.addEventListener('input', () => adjust('Service', parseFloat(speedServiceInput.value||'1')||1, speedServiceVal));
+                speedFunctionInput.addEventListener('input', () => adjust('FunctionMoon', parseFloat(speedFunctionInput.value||'1')||1, speedFunctionVal));
+            }
+            if (toggleOrbitFreezeBtn) {
+                toggleOrbitFreezeBtn.addEventListener('click', () => {
+                    orbitsFrozen = !orbitsFrozen;
+                    toggleOrbitFreezeBtn.querySelector('span:last-of-type').textContent = orbitsFrozen ? 'Unfreeze Orbits' : 'Freeze Orbits';
+                });
+            }
 
             // Re-enable socket wiring for data & debug
             try {
@@ -637,6 +663,28 @@
                             const edges = data?.elements?.edges?.length || 0;
                             appendDebugLine(`graph_snapshot nodes=${nodes} edges=${edges}`);
                             const gd = elementsToGraphData(data.elements || {});
+                            // Helpful breakdown: list nodes by type and their labels/ids
+                            try {
+                                const byType = {};
+                                (gd.nodes || []).forEach(n => {
+                                    const t = n.type || 'Function';
+                                    if (!byType[t]) byType[t] = [];
+                                    byType[t].push(n);
+                                });
+                                const typeSummary = Object.entries(byType)
+                                    .map(([t, arr]) => `${t}=${arr.length}`)
+                                    .join(' ');
+                                appendDebugLine(`snapshot_types ${typeSummary}`);
+                                Object.entries(byType).forEach(([t, arr]) => {
+                                    arr.slice(0, 50).forEach(n => {
+                                        appendDebugLine(`  ${t}: ${n.name || ''} [${n.id}]`);
+                                    });
+                                });
+                                // Edges overview (limit for readability)
+                                (gd.links || []).slice(0, 100).forEach(l => {
+                                    appendDebugLine(`  edge: ${String(l.source)} -> ${String(l.target)}`);
+                                });
+                            } catch (__) { /* best-effort diagnostics */ }
                             graphData.nodes = gd.nodes;
                             graphData.links = gd.links;
                             updateGraphData();
@@ -699,7 +747,38 @@
                                 activeByCall.set(callId, Math.max(0, cur-1));
                             }
                             updateMetrics();
-                            appendDebugLine(`activity ${ev} ${sid} -> ${tid}`);
+                            const model = act.function_id ? String(act.function_id) : '';
+                            let phase = '';
+                            if (ev === 'CLASSIFICATION_RESULT') phase = 'classifier';
+                            else if (ev.startsWith('LLM_CALL_')) phase = model && model.endsWith('.classifier') ? 'classifier' : 'llm';
+                            else if (ev.startsWith('FUNCTION_CALL_')) phase = 'function';
+                            else if (ev.startsWith('AGENT_')) phase = 'agent';
+                            const callShort = (callId||'').toString().slice(0,8);
+                            const tLocal = tsStrLocal();
+                            const tEvent = tsStrFromMs(ts);
+                            const parts = [];
+                            if (phase) parts.push(`phase=${phase}`);
+                            if (model) parts.push(`model=${model}`);
+                            const chainShort = (act.chain_id||'').toString().slice(0,8);
+                            if (chainShort) parts.push(`chain=${chainShort}`);
+                            parts.push(`status=${act.status||0}`);
+                            appendDebugLine(`[local:${tLocal}${tEvent?` evt:${tEvent}`:''}] ${ev} ${sid||'?'} -> ${tid||'?'}  call=${callShort} ${parts.join(' ')}`);
+
+                            // Brighten node during LLM work windows
+                            if (ev.startsWith('LLM_CALL_')) {
+                                const agentId = act.primary_agent_id || (sid === 'OpenAI' ? tid : sid);
+                                if (agentId) {
+                                    const keyId = String(agentId);
+                                    if (isStart) {
+                                        llmActiveByNode.set(keyId, (llmActiveByNode.get(keyId) || 0) + 1);
+                                        updateNodeIntensityForLLM(keyId);
+                                    } else if (isComplete) {
+                                        const cur = (llmActiveByNode.get(keyId) || 0) - 1;
+                                        if (cur > 0) llmActiveByNode.set(keyId, cur); else llmActiveByNode.delete(keyId);
+                                        updateNodeIntensityForLLM(keyId);
+                                    }
+                                }
+                            }
 
                             if (sid && tid) {
                                 if (isStart) {
@@ -826,6 +905,7 @@
         
         let nodeMaterials = {};
         let nodeMeshes = new Map();
+        let llmActiveByNode = new Map(); // nodeId -> active LLM call count
         let edgeGeom;
         let edgeMaterial;
         let linkObjects = new Map(); // key: "source->target" → THREE.Group for the link
@@ -935,18 +1015,72 @@
                             time: { value: 0.0 },
                             baseColor: { value: new THREE.Vector3(...themes[currentThemeIndex].nodeColors[node.type||'Function']) },
                             accentColor: { value: new THREE.Vector3(...themes[currentThemeIndex].accentColors[node.type||'Function']) },
-                            energy: { value: 0.0 }
+                            energy: { value: 0.0 },
+                            baseIntensity: { value: 0.15 }
                         },
                         vertexShader: document.getElementById('nodeVertexShader').textContent,
                         fragmentShader: document.getElementById('nodeFragmentShader').textContent
                     });
                     mat.userDataType = node.type||'Function';
+                    mat.userData = mat.userData || {};
+                    mat.userData.baseDim = 0.15;
                     const mesh = new THREE.Mesh(geo, mat);
                     mesh.userData.node = node;
                     scene.add(mesh);
                     nodeMeshes.set(node.id, mesh);
+                    // If this node currently has active LLM calls, brighten it now
+                    const cur = llmActiveByNode.get(String(node.id)) || 0;
+                    if (cur > 0 && mesh.material && mesh.material.uniforms && mesh.material.uniforms.baseIntensity) {
+                        mesh.material.uniforms.baseIntensity.value = (mesh.material.userData.baseDim || 0.15) * 3.0;
+                    }
                 }
             });
+        }
+
+        function adjustSpeedMultiplier(key, newValue) {
+            try {
+                const prev = speedMultiplier[key];
+                if (typeof prev !== 'number' || typeof newValue !== 'number') {
+                    speedMultiplier[key] = newValue || 1.0;
+                    return;
+                }
+                if (prev === newValue) return;
+                // Update offsets to avoid positional jumps at the moment of speed change
+                scene.traverse(obj => {
+                    if (!obj.userData || !obj.userData.node || !obj.userData.node.orbitalData) return;
+                    const node = obj.userData.node;
+                    const data = node.orbitalData;
+                    if (data.type === 'primary') {
+                        const tkey = node.type; // 'Interface' | 'Agent' | 'Service' | 'Function'
+                        const applies = (key === 'Interface' && tkey === 'Interface') ||
+                                        (key === 'Agent' && tkey === 'Agent') ||
+                                        (key === 'Service' && tkey === 'Service');
+                        if (!applies) return;
+                        const angleOld = data.angle + orbitTime * data.speed * prev + (data.offset || 0);
+                        const angleNew = data.angle + orbitTime * data.speed * newValue + (data.offset || 0);
+                        data.offset = (data.offset || 0) + (angleOld - angleNew);
+                    } else if (data.type === 'moon') {
+                        if (key !== 'FunctionMoon') return;
+                        const angleOld = data.angle + orbitTime * data.speed * prev + (data.offset || 0);
+                        const angleNew = data.angle + orbitTime * data.speed * newValue + (data.offset || 0);
+                        data.offset = (data.offset || 0) + (angleOld - angleNew);
+                    }
+                });
+                speedMultiplier[key] = newValue;
+            } catch (_) { speedMultiplier[key] = newValue; }
+        }
+
+        function updateNodeIntensityForLLM(nodeId) {
+            try {
+                const id = String(nodeId||'');
+                if (!id) return;
+                const mesh = nodeMeshes.get(id);
+                if (!mesh || !mesh.material || !mesh.material.uniforms) return;
+                const baseDim = mesh.material.userData?.baseDim ?? 0.15;
+                const activeCount = Math.max(0, llmActiveByNode.get(id) || 0);
+                const target = activeCount > 0 ? baseDim * 3.0 : baseDim;
+                mesh.material.uniforms.baseIntensity.value = target;
+            } catch (_) { /* ignore */ }
         }
 
         function createLinkObject(srcId, tgtId) {
@@ -1004,37 +1138,7 @@
             applyTheme(currentThemeIndex);
         }
         
-        function toggleMorph() {
-            const morphEffect = {
-                startTime: clock.getElapsedTime(),
-                duration: 2.0,
-                update: (elapsed) => {
-                    let progress = elapsed / morphEffect.duration;
-                    if (progress > 1) progress = 1;
-                    const eased = 0.5 - 0.5 * Math.cos(progress * Math.PI);
-                    const morphProg = isMorphed ? 1 - eased : eased;
-                    scene.traverse(obj => {
-                        if (obj.userData.node) {
-                            const geo = obj.geometry;
-                            const orig = obj.userData.originalPositions;
-                            const targ = obj.userData.targetPositions;
-                            const pos = geo.attributes.position;
-                            for (let i = 0; i < orig.count; i++) {
-                                pos.setX(i, THREE.MathUtils.lerp(orig.getX(i), targ.getX(i), morphProg));
-                                pos.setY(i, THREE.MathUtils.lerp(orig.getY(i), targ.getY(i), morphProg));
-                                pos.setZ(i, THREE.MathUtils.lerp(orig.getZ(i), targ.getZ(i), morphProg));
-                            }
-                            pos.needsUpdate = true;
-                            geo.computeVertexNormals();
-                        }
-                    });
-                },
-                end: () => {
-                    isMorphed = !isMorphed;
-                }
-            };
-            activeEffects.push(morphEffect);
-        }
+        // Morph functionality removed in this build
         
         function setLayout(layout) {
             currentLayout = layout;
@@ -1185,11 +1289,18 @@
         
         function applyOrbitalLayout() {
             // Define orbital radii and heights for layered rings
+            // Determine dynamic radii based on counts to reduce crowding
+            const countInterface = filteredGraphData.nodes.filter(n => n.type === 'Interface').length || 1;
+            const countAgent = filteredGraphData.nodes.filter(n => n.type === 'Agent').length || 1;
+            const countService = filteredGraphData.nodes.filter(n => n.type === 'Service').length || 1;
+            // Base radius per ring; add growth per item to keep spacing
+            const baseRing = 180;
+            const perItem = 9; // pixels per node increment
             const orbits = {
-                'Interface': { radius: 150, height: 100, speed: 0.05 },  // Top ring
-                'Agent': { radius: 150, height: 0, speed: 0.08 },       // Middle ring
-                'Service': { radius: 150, height: -100, speed: 0.1 },   // Bottom ring
-                'Function': { radius: 30, height: 0, speed: 0.3 }       // Small orbits around services
+                'Interface': { radius: baseRing + perItem * Math.max(0, countInterface - 8), height: 120, speed: 0.05 },
+                'Agent': { radius: baseRing + perItem * Math.max(0, countAgent - 8), height: 0, speed: 0.08 },
+                'Service': { radius: baseRing + perItem * Math.max(0, countService - 12), height: -120, speed: 0.1 },
+                'Function': { radius: 34, height: 0, speed: 0.3 }
             };
             
             // Group nodes by type
@@ -1255,7 +1366,8 @@
                         angle: angle,
                         speed: orbit.speed,
                         height: orbit.height,
-                        type: 'primary'
+                        type: 'primary',
+                        offset: 0
                     };
                     
                     console.log(`Positioned ${type} ${node.id} at angle ${angle.toFixed(2)} rad, pos (${x.toFixed(1)}, ${orbit.height}, ${z.toFixed(1)})`);
@@ -1283,7 +1395,8 @@
                             angle: moonAngle,
                             speed: 0.3,
                             height: servicePos.y,  // Store service height
-                            type: 'moon'
+                            type: 'moon',
+                            offset: 0
                         };
                     });
                 }
@@ -1363,10 +1476,16 @@
             // Remove existing orbital rings if any
             scene.children = scene.children.filter(child => !child.userData.isOrbitalRing);
             
+            // Use same dynamic radii logic for visualization rings
+            const countInterface = filteredGraphData.nodes.filter(n => n.type === 'Interface').length || 1;
+            const countAgent = filteredGraphData.nodes.filter(n => n.type === 'Agent').length || 1;
+            const countService = filteredGraphData.nodes.filter(n => n.type === 'Service').length || 1;
+            const baseRing = 180;
+            const perItem = 9;
             const ringInfo = [
-                { radius: 150, height: 100, color: 0x3366ff, opacity: 0.15, label: 'INTERFACES' },
-                { radius: 150, height: 0, color: 0x33ff66, opacity: 0.15, label: 'AGENTS' },
-                { radius: 150, height: -100, color: 0xff9933, opacity: 0.15, label: 'SERVICES' }
+                { radius: baseRing + perItem * Math.max(0, countInterface - 8), height: 120, color: 0x3366ff, opacity: 0.15, label: 'INTERFACES' },
+                { radius: baseRing + perItem * Math.max(0, countAgent - 8), height: 0, color: 0x33ff66, opacity: 0.15, label: 'AGENTS' },
+                { radius: baseRing + perItem * Math.max(0, countService - 12), height: -120, color: 0xff9933, opacity: 0.15, label: 'SERVICES' }
             ];
             
             ringInfo.forEach(ring => {
@@ -1429,8 +1548,13 @@
                     orbitalAnimationId = null;
                     return;
                 }
-                
-                const time = clock.getElapsedTime();
+                // Advance orbit time only when not frozen
+                const now = clock.getElapsedTime();
+                if (lastOrbitTs === null) lastOrbitTs = now;
+                if (!orbitsFrozen) {
+                    orbitTime += (now - lastOrbitTs);
+                }
+                lastOrbitTs = now;
                 
                 // Directly update THREE.js object positions
                 scene.traverse(obj => {
@@ -1440,7 +1564,9 @@
                         
                         if (data.type === 'primary') {
                             // Primary orbital motion
-                            const angle = data.angle + time * data.speed;
+                            const typeKey = node.type;
+                            const sm = (typeKey === 'Interface') ? speedMultiplier.Interface : (typeKey === 'Agent') ? speedMultiplier.Agent : (typeKey === 'Service') ? speedMultiplier.Service : 1.0;
+                            const angle = data.angle + orbitTime * data.speed * sm + (data.offset || 0);
                             const x = Math.cos(angle) * data.radius;
                             const z = Math.sin(angle) * data.radius;
                             obj.position.set(x, data.height, z);
@@ -1459,7 +1585,7 @@
                             });
                             
                             if (parentPos) {
-                                const angle = data.angle + time * data.speed;
+                                const angle = data.angle + orbitTime * data.speed * speedMultiplier.FunctionMoon + (data.offset || 0);
                                 const x = parentPos.x + Math.cos(angle) * data.radius;
                                 const z = parentPos.z + Math.sin(angle) * data.radius;
                                 obj.position.set(x, parentPos.y, z);
