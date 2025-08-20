@@ -301,7 +301,9 @@ class GenericFunctionClient:
                     "name": function_name,
                     "description": func_info.get('description', 'No description'),
                     "schema": schema,
-                    "service_name": service_name
+                    "service_name": service_name,
+                    # Include provider_id so callers (e.g., agents) can emit AGENT↔SERVICE activations
+                    "provider_id": provider_id
                 })
             else:
                 # Handle non-dictionary function info (unlikely but for robustness)

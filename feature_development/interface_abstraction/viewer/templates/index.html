@@ -325,6 +325,10 @@
             <span></span><span></span><span></span><span></span>
             <span>Layout: Radial</span>
         </button>
+        <button class="control-button" id="layoutOrbital">
+            <span></span><span></span><span></span><span></span>
+            <span>Layout: Orbital</span>
+        </button>
         <label class="checkbox-label" for="disconnected">
             <input type="checkbox" id="disconnected" checked>
             Disconnected
@@ -408,8 +412,7 @@
     {
         "imports": {
             "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.161.0/three.module.js",
-            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/",
-            "three-forcegraph": "https://esm.sh/three-forcegraph@1.43.0?external=three"
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/"
         }
     }
     </script>
@@ -420,13 +423,13 @@
         import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
         import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
         import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-        import ForceGraph3D from 'three-forcegraph';
         
         let scene, camera, renderer, composer, controls, clock;
-        let graph, activeEffects = [];
+        let graph = null; // Removed ForceGraph usage
+        let activeEffects = [];
         let currentThemeIndex = 0;
         let isMorphed = false;
-        let currentLayout = 'force';
+        let currentLayout = 'orbital'; // Start with orbital by default
         let edgeLabelsVisible = false;
         // Controls spacing between nodes in force layout
         let linkDistanceMultiplier = 1.2; // 2x spread
@@ -521,6 +524,8 @@
 
         // Debug helpers
         const activeByCall = new Map();
+        const lastStartByKey = new Map(); // key: callId|sid->tid => timestamp
+        const pendingCompleteByKey = new Map(); // key: callId|sid->tid => timeout id
         let totalStarts = 0, totalCompletes = 0;
         function appendDebugLine(text) {
             if (!debugPanel) return;
@@ -545,10 +550,14 @@
         function mapTypeToThemeKey(t) {
             if (!t) return 'Function';
             const T = String(t).toUpperCase();
-            if (T === 'INTERFACE') return 'Interface';
-            if (T === 'SERVICE') return 'Service';
-            if (T === 'FUNCTION') return 'Function';
-            if (T === 'PRIMARY_AGENT' || T === 'AGENT_PRIMARY' || T === 'SPECIALIZED_AGENT' || T === 'AGENT') return 'Agent';
+            if (T === 'INTERFACE' || T.includes('INTERFACE')) return 'Interface';
+            if (T === 'SERVICE' || T.includes('SERVICE')) return 'Service';
+            if (T === 'FUNCTION' || T.includes('FUNCTION')) return 'Function';
+            if (T === 'PRIMARY_AGENT' || T === 'AGENT_PRIMARY' || T === 'SPECIALIZED_AGENT' || T === 'AGENT' || T.includes('AGENT')) return 'Agent';
+            // Default based on common patterns
+            if (t.includes('Agent')) return 'Agent';
+            if (t.includes('Service')) return 'Service';
+            if (t.includes('Interface')) return 'Interface';
             return 'Function';
         }
         function elementsToGraphData(elements) {
@@ -581,7 +590,7 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             renderer.toneMapping = THREE.ACESFilmicToneMapping;
-            renderer.toneMappingExposure = 1.2;
+            renderer.toneMappingExposure = 2;
             container.appendChild(renderer.domElement);
             
             controls = new OrbitControls(camera, renderer.domElement);
@@ -593,9 +602,10 @@
             setupLighting();
             setupPostProcessing();
             createEnvironment();
-            setupGraph();
+            initEdgeMaterial();
             applyTheme(currentThemeIndex);
-            setLayout(currentLayout);
+            // Start with orbital layout demo
+            setLayout('orbital');
             
             window.addEventListener('resize', onWindowResize);
             activateButton.addEventListener('click', activateGraph);
@@ -606,26 +616,13 @@
             layoutForceButton.addEventListener('click', () => setLayout('force'));
             layoutLayeredButton.addEventListener('click', () => setLayout('layered'));
             layoutRadialButton.addEventListener('click', () => setLayout('radial'));
+            const layoutOrbitalButton = document.getElementById('layoutOrbital');
+            layoutOrbitalButton.addEventListener('click', () => setLayout('orbital'));
             disconnectedCheckbox.addEventListener('change', toggleDisconnected);
             themeButton.addEventListener('click', toggleTheme);
             morphButton.addEventListener('click', toggleMorph);
 
-            // Socket wiring
-            let graphUpdateTimer = null;
-            let graphNeedsUpdate = false;
-            
-            function scheduleGraphUpdate() {
-                graphNeedsUpdate = true;
-                if (graphUpdateTimer) return;
-                graphUpdateTimer = setTimeout(() => {
-                    graphUpdateTimer = null;
-                    if (graphNeedsUpdate) {
-                        graphNeedsUpdate = false;
-                        updateGraphData();
-                    }
-                }, 50); // Batch updates within 50ms window
-            }
-            
+            // Re-enable socket wiring for data & debug
             try {
                 const ioUrl = `${window.location.protocol}//${window.location.host}`;
                 const socket = window.io && window.io(ioUrl, { transports: ['websocket','polling'] });
@@ -643,6 +640,7 @@
                             graphData.nodes = gd.nodes;
                             graphData.links = gd.links;
                             updateGraphData();
+                            rebuildSceneForData();
                         } catch (e) { console.error(e); appendDebugLine(`snapshot error: ${e}`); }
                     });
                     socket.on('node_update', (payload) => {
@@ -650,26 +648,18 @@
                             const n = payload.node || payload || {};
                             const id = String(n.component_id || n.node_id || n.id || '');
                             if (!id) return;
-                            const type = n.component_type || n.node_type;
-                            const state = n.state || n.node_state;
+                            const type = mapTypeToThemeKey(n.component_type || n.node_type);
                             const label = (n.attrs && (n.attrs.prefered_name || n.attrs.service_name || n.attrs.function_name)) || n.node_name || id;
                             let existing = graphData.nodes.find(nd => nd.id === id);
-                            let wasNew = false;
                             if (!existing) {
-                                graphData.nodes.push({ id, type: mapTypeToThemeKey(type), name: label });
-                                appendDebugLine(`node_add id=${id} type=${type||''} label="${label||''}"`);
-                                wasNew = true;
-                                // Keep known set in sync even if we don't refresh immediately
-                                knownNodeIds.add(id);
+                                graphData.nodes.push({ id, type, name: label });
+                                appendDebugLine(`node_add id=${id} type=${type} label="${label}"`);
                             } else {
-                                existing.name = label;
-                                existing.type = mapTypeToThemeKey(type) || existing.type;
-                                appendDebugLine(`node_update id=${id} type=${type||''} label="${label||''}"`);
+                                existing.name = label; existing.type = type;
+                                appendDebugLine(`node_update id=${id} type=${type} label="${label}"`);
                             }
-                            // Don't update graph data on every node change - it clears linkObjects!
-                            if (wasNew) {
-                                scheduleGraphUpdate();
-                            }
+                            updateGraphData();
+                            rebuildSceneForData();
                         } catch (e) { /* ignore */ }
                     });
                     socket.on('edge_update', (payload) => {
@@ -677,14 +667,13 @@
                             const e = payload.edge || payload || {};
                             const sid = String(e.source_id || e.source || '');
                             const tid = String(e.target_id || e.target || '');
-                            const et = e.edge_type || e.type || '';
                             if (!sid || !tid) return;
-                            if (!graphData.links.find(l => idOf(l.source) === sid && idOf(l.target) === tid)) {
+                            if (!graphData.links.find(l => String(l.source) === sid && String(l.target) === tid)) {
                                 graphData.links.push({ source: sid, target: tid });
-                                appendDebugLine(`edge_add ${sid} -> ${tid} type=${et}`);
-                                // Don't update graph data on every edge change - it clears linkObjects!
-                                scheduleGraphUpdate();
+                                appendDebugLine(`edge_add ${sid} -> ${tid}`);
                             }
+                            updateGraphData();
+                            ensureLinkObjects();
                         } catch (e) { /* ignore */ }
                     });
                     socket.on('activity', (act) => {
@@ -695,80 +684,54 @@
                             const isStart = ev.endsWith('_START');
                             const isComplete = ev.endsWith('_COMPLETE') || ev.endsWith('RECEIVED');
                             const callId = act.call_id || `${sid}->${tid}:${ev}:${act.timestamp}`;
-                            const agentId = act.primary_agent_id || '';
-                            if (isStart) { totalStarts++; activeByCall.set(callId, (activeByCall.get(callId)||0) + 1); }
-                            if (isComplete) { const cur = activeByCall.get(callId)||0; totalCompletes++; activeByCall.set(callId, Math.max(0, cur-1)); }
-                            updateMetrics();
-                            appendDebugLine(`activity ${ev} ${sid} -> ${tid} call=${String(callId).slice(0,8)}${agentId ? ` agent=${agentId}` : ''}`);
-                            
-                            // Special node glows for classification and LLM calls
-                            if (ev === 'CLASSIFICATION_RESULT') {
-                                // Glow the agent that did the classification
-                                scene.traverse(obj => {
-                                    if (obj.userData?.node?.id === sid && obj.material?.uniforms?.energy) {
-                                        const originalEnergy = obj.material.uniforms.energy.value;
-                                        obj.material.uniforms.energy.value = 2.0;
-                                        setTimeout(() => {
-                                            if (obj.material) obj.material.uniforms.energy.value = originalEnergy;
-                                        }, 800);
-                                    }
-                                });
+                            const ts = Number(act.timestamp) || Date.now();
+                            const edgeKey = `${sid}->${tid}`;
+                            const key = `${callId}|${edgeKey}`;
+
+                            if (isStart) {
+                                totalStarts++;
+                                activeByCall.set(callId, (activeByCall.get(callId)||0) + 1);
+                                lastStartByKey.set(key, ts);
                             }
-                            // Visual pulse: prefer link pulse; if unmatched in both directions, draw an arc between node positions
+                            if (isComplete) {
+                                const cur = activeByCall.get(callId)||0;
+                                totalCompletes++;
+                                activeByCall.set(callId, Math.max(0, cur-1));
+                            }
+                            updateMetrics();
+                            appendDebugLine(`activity ${ev} ${sid} -> ${tid}`);
+
                             if (sid && tid) {
-                                const color = (isComplete ? 0x2ecc71 : 0xe74c3c);
-                                let ok = pulseLink(sid, tid, color);
-                                
-                                // Special handling for FUNCTION_CALL events
-                                if (!ok && (ev === 'FUNCTION_CALL_START' || ev === 'FUNCTION_CALL_COMPLETE')) {
-                                    const tgtNode = graphData.nodes.find(n => n.id === tid);
-                                    
-                                    // If target is a function, we need to find the right edges
-                                    if (tgtNode && tgtNode.type === 'Function') {
-                                        // Find service that owns this function
-                                        const serviceEdge = filteredGraphData.links.find(l => 
-                                            idOf(l.target) === tid && 
-                                            graphData.nodes.find(n => n.id === idOf(l.source))?.type === 'Service'
-                                        );
-                                        if (serviceEdge) {
-                                            const serviceId = idOf(serviceEdge.source);
-                                            
-                                            // If source is the service itself, pulse service->function
-                                            if (sid === serviceId) {
-                                                // Add a small delay if we just routed an agent->service call
-                                                // This makes the sequence more visible
-                                                const delay = ev === 'FUNCTION_CALL_START' ? 200 : 0;
-                                                setTimeout(() => {
-                                                    const success = pulseLink(sid, tid, color);
-                                                    if (!success) appendDebugLine(`service->function pulse failed for ${sid}->${tid}`);
-                                                }, delay);
-                                                ok = true; // Consider it handled
-                                            } else {
-                                                // Otherwise, it's an agent calling - use primary_agent_id if available
-                                                if (agentId && knownNodeIds.has(agentId)) {
-                                                    ok = pulseLink(agentId, serviceId, color);
-                                                    if (ok) appendDebugLine(`function_call_rerouted ${sid}->${tid} to agent->service ${agentId}->${serviceId}`);
-                                                } else {
-                                                    // Fallback: find which agent has access to this service
-                                                    const agentToService = filteredGraphData.links.find(l =>
-                                                        idOf(l.target) === serviceId &&
-                                                        graphData.nodes.find(n => n.id === idOf(l.source))?.type === 'Agent'
-                                                    );
-                                                    if (agentToService) {
-                                                        const foundAgentId = idOf(agentToService.source);
-                                                        ok = pulseLink(foundAgentId, serviceId, color);
-                                                        if (ok) appendDebugLine(`function_call_rerouted ${sid}->${tid} to agent->service ${foundAgentId}->${serviceId}`);
-                                                    }
-                                                }
-                                            }
-                                        }
+                                if (isStart) {
+                                    // Fire red immediately and record start
+                                    pulseLink(sid, tid, 0xe74c3c);
+                                    // If a complete is pending for this key, delay it slightly so red is visible first
+                                    const pending = pendingCompleteByKey.get(key);
+                                    if (pending) {
+                                        clearTimeout(pending);
+                                        const timeoutId = setTimeout(() => {
+                                            pulseLink(sid, tid, 0x2ecc71);
+                                            pendingCompleteByKey.delete(key);
+                                        }, 220);
+                                        pendingCompleteByKey.set(key, timeoutId);
                                     }
-                                }
-                                
-                                if (!ok) {
-                                    const a = getNodePositionById(sid);
-                                    const b = getNodePositionById(tid);
-                                    if (a && b) createArcPulseByPositions(a, b, color);
+                                } else if (isComplete) {
+                                    const last = lastStartByKey.get(key) || 0;
+                                    // If we recently saw a start for this call/edge, schedule green after a brief delay
+                                    if (last && (ts - last) < 1500) {
+                                        const timeoutId = setTimeout(() => {
+                                            pulseLink(sid, tid, 0x2ecc71);
+                                            pendingCompleteByKey.delete(key);
+                                        }, 180);
+                                        pendingCompleteByKey.set(key, timeoutId);
+                                    } else {
+                                        // No start observed yet (or out-of-order): wait briefly for a possible start, then pulse
+                                        const timeoutId = setTimeout(() => {
+                                            pulseLink(sid, tid, 0x2ecc71);
+                                            pendingCompleteByKey.delete(key);
+                                        }, 260);
+                                        pendingCompleteByKey.set(key, timeoutId);
+                                    }
                                 }
                             }
                         } catch (e) { /* ignore */ }
@@ -843,46 +806,7 @@
             });
         }
         
-        let nodeMaterials = {};
-        let edgeMaterial;
-        let linkObjects = new Map(); // key: "source->target" → THREE.Group for the link
-        let pendingLinkPulses = new Map(); // key -> [{ colorHex }]
-        function setupGraph() {
-            graph = new ForceGraph3D({
-                extraRenderers: [] // If needed for custom
-            });
-            scene.add(graph);
-            
-            // Custom node object
-            graph.nodeThreeObject(node => {
-                const geo = new THREE.IcosahedronGeometry(5 + Math.random() * 5, 3); // Size based on something
-                const mat = new THREE.ShaderMaterial({
-                    uniforms: {
-                        time: { value: 0.0 },
-                        baseColor: { value: new THREE.Vector3(...themes[currentThemeIndex].nodeColors[node.type]) },
-                        accentColor: { value: new THREE.Vector3(...themes[currentThemeIndex].accentColors[node.type]) },
-                        energy: { value: 0.0 }
-                    },
-                    vertexShader: document.getElementById('nodeVertexShader').textContent,
-                    fragmentShader: document.getElementById('nodeFragmentShader').textContent
-                });
-                const mesh = new THREE.Mesh(geo, mat);
-                mesh.userData.node = node;
-                mesh.userData.originalPositions = geo.attributes.position.clone();
-                const targetPos = new Float32Array(geo.attributes.position.count * 3);
-                for (let i = 0; i < geo.attributes.position.count; i++) {
-                    const p = new THREE.Vector3().fromBufferAttribute(geo.attributes.position, i);
-                    const cubeP = getCubePosition(p).multiplyScalar(5 + Math.random() * 5);
-                    targetPos[i*3] = cubeP.x;
-                    targetPos[i*3+1] = cubeP.y;
-                    targetPos[i*3+2] = cubeP.z;
-                }
-                mesh.userData.targetPositions = new THREE.BufferAttribute(targetPos, 3);
-                nodeMaterials[node.id] = mat;
-                return mesh;
-            });
-            
-            // Custom edge as tube with shader
+        function initEdgeMaterial() {
             edgeMaterial = new THREE.ShaderMaterial({
                 uniforms: {
                     time: { value: 0.0 },
@@ -896,89 +820,20 @@
                 blending: THREE.AdditiveBlending,
                 depthWrite: false
             });
-            const edgeGeom = new THREE.CylinderGeometry(1, 1, 1, 8, 1, false);
+            edgeGeom = new THREE.CylinderGeometry(1, 1, 1, 8, 1, false);
             edgeGeom.rotateX(Math.PI / 2);
-            graph.linkThreeObjectExtend(true)
-                .linkThreeObject(link => {
-                    const group = new THREE.Group();
-                    const cylinder = new THREE.Mesh(edgeGeom.clone(), edgeMaterial.clone());
-                    cylinder.name = 'edgeCylinder';
-                    group.add(cylinder);
-                    // Colored pulse overlay (thicker, hidden by default)
-                    const pulseMat = edgeMaterial.clone();
-                    pulseMat.uniforms.opacity.value = 0.0;
-                    const pulse = new THREE.Mesh(edgeGeom.clone(), pulseMat);
-                    pulse.name = 'edgePulse';
-                    pulse.scale.set(1.2, 1.2, 1);
-                    group.add(pulse);
-                    const labelText = `${(link.source?.name || (link.source && link.source.id) || '')} -> ${(link.target?.name || (link.target && link.target.id) || '')}`;
-                    const label = createTextSprite(labelText);
-                    label.name = 'edgeLabel';
-                    label.visible = edgeLabelsVisible;
-                    label.position.set(0, 2, 0);
-                    group.add(label);
-                    // Track object for activations
-                    const srcId = idOf(link.source);
-                    const tgtId = idOf(link.target);
-                    if (srcId && tgtId) {
-                        const key = `${srcId}->${tgtId}`;
-                        group.userData.linkKey = key;
-                        linkObjects.set(key, group);
-                        appendDebugLine(`link_object_stored key=${key}`);
-                        // Apply any pending pulses queued before the link object existed
-                        const pend = pendingLinkPulses.get(key);
-                        if (pend && pend.length) {
-                            pend.splice(0).forEach(p => {
-                                appendDebugLine(`apply_pending_pulse ${key}`);
-                                setTimeout(() => pulseLink(srcId, tgtId, p.colorHex), 0);
-                            });
-                            pendingLinkPulses.delete(key);
-                        }
-                    }
-                    return group;
-                })
-                .linkPositionUpdate((obj, { start, end }) => {
-                    const mid = new THREE.Vector3(
-                        (start.x + end.x) / 2,
-                        (start.y + end.y) / 2,
-                        (start.z + end.z) / 2
-                    );
-                    obj.position.copy(mid);
-                    obj.lookAt(new THREE.Vector3(end.x, end.y, end.z));
-                    const cylinder = obj.getObjectByName('edgeCylinder');
-                    const pulse = obj.getObjectByName('edgePulse');
-                    if (cylinder || pulse) {
-                        const dx = end.x - start.x;
-                        const dy = end.y - start.y;
-                        const dz = end.z - start.z;
-                        const distance = Math.sqrt(dx*dx + dy*dy + dz*dz);
-                        if (cylinder) cylinder.scale.set(1, 1, distance);
-                        if (pulse) pulse.scale.set(pulse.scale.x, pulse.scale.y, distance);
-                    }
-                    return true;
-                });
-            
-            // Removed linkLabel (not available in three-forcegraph); labels handled via sprites
-            
-            updateGraphData();
         }
+        
+        let nodeMaterials = {};
+        let nodeMeshes = new Map();
+        let edgeGeom;
+        let edgeMaterial;
+        let linkObjects = new Map(); // key: "source->target" → THREE.Group for the link
+        let pendingLinkPulses = new Map(); // key -> [{ colorHex }]
+        // Removed setupGraph and force-graph integration
 
         // Increase spacing for force-directed layout
-        function configureForceSpacing(mult = 3) {
-            try {
-                const linkForce = typeof graph.d3Force === 'function' ? graph.d3Force('link') : null;
-                if (linkForce && typeof linkForce.distance === 'function') {
-                    linkForce.distance(90 * mult); // base ~90, scaled up
-                }
-                const chargeForce = typeof graph.d3Force === 'function' ? graph.d3Force('charge') : null;
-                if (chargeForce && typeof chargeForce.strength === 'function') {
-                    chargeForce.strength(-60 * mult); // stronger repulsion to spread nodes
-                }
-                if (typeof graph.cooldownTicks === 'function') graph.cooldownTicks(200);
-            } catch (e) {
-                // force config not available on current layout
-            }
-        }
+        // Force-directed helpers removed in orbital build
         
         function getCubePosition(p) {
             const v = p.clone().normalize();
@@ -1033,18 +888,9 @@
                 appendDebugLine(`updateGraphData preserving ${linkObjects.size} link objects, nodes=${filteredGraphData.nodes.length} links=${filteredGraphData.links.length}`);
             }
             
-            graph.graphData(filteredGraphData);
-            // Give the graph time to build link objects before processing pending pulses
-            setTimeout(() => {
-                appendDebugLine(`post-update linkObjects count=${linkObjects.size}`);
-                // Re-process any pending pulses now that links might be ready
-                pendingLinkPulses.forEach((pulses, key) => {
-                    const [src, tgt] = key.split('->');
-                    if (src && tgt) {
-                        pulses.forEach(p => pulseLink(src, tgt, p.colorHex));
-                    }
-                });
-            }, 100);
+            // Ensure scene reflects data
+            ensureNodeMeshes();
+            ensureLinkObjects();
         }
         
         function applyTheme(index) {
@@ -1054,15 +900,103 @@
             pointLight.color.set(theme.pointLightColor);
             dirLight1.color.set(theme.dirLight1);
             dirLight2.color.set(theme.dirLight2);
+            if (edgeMaterial && edgeMaterial.uniforms && edgeMaterial.uniforms.color) {
             edgeMaterial.uniforms.color.value.set(theme.edgeColor);
-            // Update node materials
-            filteredGraphData.nodes.forEach(node => {
-                const mat = nodeMaterials[node.id];
-                if (mat) {
-                    mat.uniforms.baseColor.value.set(...theme.nodeColors[node.type]);
-                    mat.uniforms.accentColor.value.set(...theme.accentColors[node.type]);
+            }
+            // Update any existing node shader materials we created
+            Object.values(nodeMaterials).forEach(mat => {
+                if (!mat || !mat.uniforms) return;
+                const type = mat.userDataType || 'Agent';
+                const base = theme.nodeColors[type];
+                const acc  = theme.accentColors[type];
+                if (base && acc) {
+                    mat.uniforms.baseColor.value.set(...base);
+                    mat.uniforms.accentColor.value.set(...acc);
                 }
             });
+        }
+
+        function ensureNodeMeshes() {
+            const currentIds = new Set((filteredGraphData.nodes||[]).map(n => n.id));
+            // Remove stale meshes
+            Array.from(nodeMeshes.keys()).forEach(id => {
+                if (!currentIds.has(id)) {
+                    const mesh = nodeMeshes.get(id);
+                    if (mesh) scene.remove(mesh);
+                    nodeMeshes.delete(id);
+                }
+            });
+            // Create missing
+            (filteredGraphData.nodes||[]).forEach(node => {
+                if (!nodeMeshes.get(node.id)) {
+                    const geo = new THREE.IcosahedronGeometry(6 + Math.random()*4, 3);
+                    const mat = new THREE.ShaderMaterial({
+                        uniforms: {
+                            time: { value: 0.0 },
+                            baseColor: { value: new THREE.Vector3(...themes[currentThemeIndex].nodeColors[node.type||'Function']) },
+                            accentColor: { value: new THREE.Vector3(...themes[currentThemeIndex].accentColors[node.type||'Function']) },
+                            energy: { value: 0.0 }
+                        },
+                        vertexShader: document.getElementById('nodeVertexShader').textContent,
+                        fragmentShader: document.getElementById('nodeFragmentShader').textContent
+                    });
+                    mat.userDataType = node.type||'Function';
+                    const mesh = new THREE.Mesh(geo, mat);
+                    mesh.userData.node = node;
+                    scene.add(mesh);
+                    nodeMeshes.set(node.id, mesh);
+                }
+            });
+        }
+
+        function createLinkObject(srcId, tgtId) {
+            const key = `${srcId}->${tgtId}`;
+            if (linkObjects.get(key)) return;
+            const group = new THREE.Group();
+            const cylinder = new THREE.Mesh(edgeGeom.clone(), edgeMaterial.clone());
+            cylinder.name = 'edgeCylinder';
+            group.add(cylinder);
+            const pulseMat = edgeMaterial.clone();
+            pulseMat.uniforms.opacity.value = 0.0;
+            const pulse = new THREE.Mesh(edgeGeom.clone(), pulseMat);
+            pulse.name = 'edgePulse';
+            pulse.scale.set(1.2, 1.2, 1);
+            group.add(pulse);
+            const srcName = (filteredGraphData.nodes||[]).find(n=>n.id===srcId)?.name || srcId;
+            const tgtName = (filteredGraphData.nodes||[]).find(n=>n.id===tgtId)?.name || tgtId;
+            const label = createTextSprite(`${srcName} -> ${tgtName}`);
+            label.name = 'edgeLabel';
+            label.visible = edgeLabelsVisible;
+            label.position.set(0, 2, 0);
+            group.add(label);
+            group.userData.linkKey = key;
+            linkObjects.set(key, group);
+            scene.add(group);
+        }
+
+        function ensureLinkObjects() {
+            const keys = new Set((filteredGraphData.links||[]).map(l => `${String(l.source)}->${String(l.target)}`));
+            // Remove stale
+            Array.from(linkObjects.keys()).forEach(k => {
+                if (!keys.has(k)) {
+                    const obj = linkObjects.get(k);
+                    if (obj) scene.remove(obj);
+                    linkObjects.delete(k);
+                }
+            });
+            // Create missing
+            (filteredGraphData.links||[]).forEach(l => createLinkObject(String(l.source), String(l.target)));
+            updateLinkPositions();
+        }
+
+        function rebuildSceneForData() {
+            ensureNodeMeshes();
+            ensureLinkObjects();
+            if (currentLayout === 'orbital') {
+                applyOrbitalLayout();
+                orbitalActive = true;
+                if (!orbitalAnimationId) startOrbitalAnimation();
+            }
         }
         
         function toggleTheme() {
@@ -1104,16 +1038,575 @@
         
         function setLayout(layout) {
             currentLayout = layout;
-            let dagMode = null;
-            if (layout === 'layered') dagMode = 'td'; // top-down
-            else if (layout === 'radial') dagMode = 'radialout';
-            if (typeof graph.dagMode === 'function') {
-                graph.dagMode(dagMode);
+            // Only orbital mode is supported in this demo. Others are disabled.
+            if (layout !== 'orbital') {
+                stopOrbitalAnimation();
+                alert('Only the Orbital layout is enabled in this build.');
+                return;
             }
-            if (!dagMode) {
-                configureForceSpacing(linkDistanceMultiplier);
+            // Build rings for orbital layout
+            addOrbitalRings();
+            // Enable orbital animation for demo mode
+            orbitalActive = true;
+            startOrbitalAnimation();
+        }
+        
+        function applyLayeredLayout() {
+            // Define layer heights (Y positions)
+            const layerHeight = 120; // Increased vertical spacing between layers
+            const layers = {
+                'Interface': 0,
+                'Agent': 1,
+                'Service': 2,
+                'Function': 3
+            };
+            
+            // Group nodes by type
+            const nodesByType = {
+                'Interface': [],
+                'Agent': [],
+                'Service': [],
+                'Function': []
+            };
+            
+            filteredGraphData.nodes.forEach(node => {
+                const type = node.type || 'Function';
+                if (nodesByType[type]) {
+                    nodesByType[type].push(node);
+                } else {
+                    console.warn(`Unknown node type: ${type} for node ${node.id}`);
+                    nodesByType['Function'].push(node); // Default to Function
+                }
+            });
+            
+            // Debug: log node distribution
+            console.log('Node distribution by layer:');
+            Object.entries(nodesByType).forEach(([type, nodes]) => {
+                console.log(`  ${type}: ${nodes.length} nodes`);
+            });
+            
+            // Calculate positions for each layer with intelligent layout
+            const nodePositions = {};
+            
+            // For better layout, we need to understand connections
+            const connectionCounts = {};
+            filteredGraphData.links.forEach(link => {
+                const src = idOf(link.source);
+                const tgt = idOf(link.target);
+                connectionCounts[src] = (connectionCounts[src] || 0) + 1;
+                connectionCounts[tgt] = (connectionCounts[tgt] || 0) + 1;
+            });
+            
+            Object.keys(nodesByType).forEach(type => {
+                const nodesInLayer = nodesByType[type];
+                const layerY = -layers[type] * layerHeight + layerHeight * 1.5; // Center vertically
+                
+                if (nodesInLayer.length === 0) return;
+                
+                // Sort nodes by connection count (most connected in center)
+                nodesInLayer.sort((a, b) => (connectionCounts[b.id] || 0) - (connectionCounts[a.id] || 0));
+                
+                // Use circular/spiral layout for better distribution
+                if (nodesInLayer.length <= 6) {
+                    // Small number: arrange in circle
+                    const radius = nodesInLayer.length === 1 ? 0 : 50;
+                    nodesInLayer.forEach((node, index) => {
+                        const angle = (index / nodesInLayer.length) * Math.PI * 2;
+                        nodePositions[node.id] = {
+                            x: Math.cos(angle) * radius,
+                            y: layerY,
+                            z: Math.sin(angle) * radius
+                        };
+                    });
+                } else {
+                    // Larger number: use concentric circles
+                    const nodesPerRing = 8;
+                    let currentRadius = 0;
+                    let ringIndex = 0;
+                    let nodeInRing = 0;
+                    
+                    nodesInLayer.forEach((node, index) => {
+                        if (index === 0) {
+                            // Center the most connected node
+                            nodePositions[node.id] = { x: 0, y: layerY, z: 0 };
+                        } else {
+                            if (nodeInRing >= nodesPerRing * (ringIndex + 1)) {
+                                ringIndex++;
+                                currentRadius = 80 * (ringIndex + 1);
+                                nodeInRing = 0;
+                            }
+                            const nodesInThisRing = Math.min(nodesPerRing * (ringIndex + 1), nodesInLayer.length - 1);
+                            const angleOffset = (nodeInRing / nodesInThisRing) * Math.PI * 2;
+                            
+                            nodePositions[node.id] = {
+                                x: Math.cos(angleOffset) * currentRadius,
+                                y: layerY,
+                                z: Math.sin(angleOffset) * currentRadius
+                            };
+                            nodeInRing++;
+                        }
+                    });
+                }
+            });
+            
+            // Apply positions to nodes
+            filteredGraphData.nodes.forEach(node => {
+                const pos = nodePositions[node.id];
+                if (pos) {
+                    node.fx = pos.x; // Fixed x position
+                    node.fy = pos.y; // Fixed y position
+                    node.fz = pos.z; // Fixed z position
+                }
+            });
+            
+            // Disable physics forces
+            graph
+                .dagMode(null)
+                .cooldownTicks(0)
+                .d3Force('charge', null)
+                .d3Force('center', null)
+                .d3Force('link', null);
+            
+            // Force update
+            graph.numDimensions(3);
+            graph.refresh();
+            
+            // Adjust camera for better view of layers
+            camera.position.set(0, 150, 400);
+            camera.lookAt(0, -50, 0);
+            controls.target.set(0, -50, 0);
+            controls.update();
+            
+            // Add subtle layer planes for visual clarity
+            addLayerPlanes();
+        }
+        
+        let nodePositions = {}; // Make this accessible to orbital animation
+        
+        function applyOrbitalLayout() {
+            // Define orbital radii and heights for layered rings
+            const orbits = {
+                'Interface': { radius: 150, height: 100, speed: 0.05 },  // Top ring
+                'Agent': { radius: 150, height: 0, speed: 0.08 },       // Middle ring
+                'Service': { radius: 150, height: -100, speed: 0.1 },   // Bottom ring
+                'Function': { radius: 30, height: 0, speed: 0.3 }       // Small orbits around services
+            };
+            
+            // Group nodes by type
+            const nodesByType = {
+                'Interface': [],
+                'Agent': [],
+                'Service': [],
+                'Function': []
+            };
+            
+            // Also track service-function relationships
+            const functionsByService = {};
+            
+            filteredGraphData.nodes.forEach(node => {
+                const type = node.type || 'Function';
+                if (nodesByType[type]) {
+                    nodesByType[type].push(node);
+                }
+            });
+            
+            // Find which functions belong to which services
+            filteredGraphData.links.forEach(link => {
+                const source = filteredGraphData.nodes.find(n => n.id === idOf(link.source));
+                const target = filteredGraphData.nodes.find(n => n.id === idOf(link.target));
+                
+                if (source && target) {
+                    if (source.type === 'Service' && target.type === 'Function') {
+                        if (!functionsByService[source.id]) functionsByService[source.id] = [];
+                        functionsByService[source.id].push(target);
+                    } else if (target.type === 'Service' && source.type === 'Function') {
+                        if (!functionsByService[target.id]) functionsByService[target.id] = [];
+                        functionsByService[target.id].push(source);
+                    }
+                }
+            });
+            
+            // Calculate initial positions for each node
+            nodePositions = {}; // Reset positions
+            const nodeOrbitalData = {};
+            
+            // Position interfaces, agents, and services evenly around their orbits
+            ['Interface', 'Agent', 'Service'].forEach(type => {
+                const nodes = nodesByType[type];
+                const orbit = orbits[type];
+                
+                if (nodes.length === 0) return;
+                
+                nodes.forEach((node, index) => {
+                    // Evenly distribute nodes around the circle
+                    const angle = (index / nodes.length) * Math.PI * 2;
+                    const x = Math.cos(angle) * orbit.radius;
+                    const z = Math.sin(angle) * orbit.radius;
+                    
+                    nodePositions[node.id] = {
+                        x: x,
+                        y: orbit.height,
+                        z: z
+                    };
+                    
+                    // Store orbital data for animation
+                    nodeOrbitalData[node.id] = {
+                        radius: orbit.radius,
+                        angle: angle,
+                        speed: orbit.speed,
+                        height: orbit.height,
+                        type: 'primary'
+                    };
+                    
+                    console.log(`Positioned ${type} ${node.id} at angle ${angle.toFixed(2)} rad, pos (${x.toFixed(1)}, ${orbit.height}, ${z.toFixed(1)})`);
+                });
+            });
+            
+            // Position functions around their services
+            Object.entries(functionsByService).forEach(([serviceId, functions]) => {
+                const servicePos = nodePositions[serviceId];
+                if (servicePos) {
+                    functions.forEach((func, index) => {
+                        const moonAngle = (index / functions.length) * Math.PI * 2;
+                        const moonRadius = 25;
+                        
+                        // Functions orbit around their service at the service's height
+                        nodePositions[func.id] = {
+                            x: servicePos.x + Math.cos(moonAngle) * moonRadius,
+                            y: servicePos.y,  // Same height as service
+                            z: servicePos.z + Math.sin(moonAngle) * moonRadius
+                        };
+                        
+                        nodeOrbitalData[func.id] = {
+                            parentId: serviceId,
+                            radius: moonRadius,
+                            angle: moonAngle,
+                            speed: 0.3,
+                            height: servicePos.y,  // Store service height
+                            type: 'moon'
+                        };
+                    });
+                }
+            });
+            
+            // Position any unconnected functions in a small orbit below services
+            const unconnectedFunctions = nodesByType['Function'].filter(
+                func => !Object.values(functionsByService).flat().includes(func)
+            );
+            if (unconnectedFunctions.length > 0) {
+                unconnectedFunctions.forEach((func, index) => {
+                    const angle = (index / unconnectedFunctions.length) * Math.PI * 2;
+                    const radius = 40;  // Small orbit for unconnected functions
+                    const height = -150; // Below services
+                    nodePositions[func.id] = {
+                        x: Math.cos(angle) * radius,
+                        y: height,
+                        z: Math.sin(angle) * radius
+                    };
+                    
+                    nodeOrbitalData[func.id] = {
+                        radius: radius,
+                        angle: angle,
+                        speed: 0.2,
+                        height: height,
+                        type: 'primary'
+                    };
+                });
             }
-            graph.graphData(filteredGraphData);
+            
+            // Apply positions to nodes
+            filteredGraphData.nodes.forEach(node => {
+                const pos = nodePositions[node.id];
+                if (pos) {
+                    node.fx = pos.x;
+                    node.fy = pos.y;
+                    node.fz = pos.z;
+                    node.orbitalData = nodeOrbitalData[node.id];
+                }
+            });
+            
+            // Store orbital data for animation
+            orbitalActive = true;
+            
+            // Don't use graph refresh in orbital mode - directly position THREE.js objects
+            setTimeout(() => {
+                // Directly position all node meshes
+                scene.traverse(obj => {
+                    if (obj.userData && obj.userData.node) {
+                        const node = obj.userData.node;
+                        const pos = nodePositions[node.id];
+                        if (pos) {
+                            obj.position.set(pos.x, pos.y, pos.z);
+                            // Update node data for consistency
+                            node.x = pos.x;
+                            node.y = pos.y;
+                            node.z = pos.z;
+                            console.log(`Positioned node ${node.id} at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`);
+                        }
+                    }
+                });
+                
+                // Update link positions
+                updateLinkPositions();
+            }, 100);
+            
+            // Do NOT reset camera/controls here to preserve the user's zoom/angle
+            
+            // Add orbital rings for visualization
+            addOrbitalRings();
+            
+            // Start orbital animation
+            startOrbitalAnimation();
+        }
+        
+        function addOrbitalRings() {
+            // Remove existing orbital rings if any
+            scene.children = scene.children.filter(child => !child.userData.isOrbitalRing);
+            
+            const ringInfo = [
+                { radius: 150, height: 100, color: 0x3366ff, opacity: 0.15, label: 'INTERFACES' },
+                { radius: 150, height: 0, color: 0x33ff66, opacity: 0.15, label: 'AGENTS' },
+                { radius: 150, height: -100, color: 0xff9933, opacity: 0.15, label: 'SERVICES' }
+            ];
+            
+            ringInfo.forEach(ring => {
+                // Create ring geometry - just the glowing torus for the orbit path
+                const edgeGeometry = new THREE.TorusGeometry(ring.radius, 2, 16, 100);
+                const edgeMaterial = new THREE.MeshBasicMaterial({
+                    color: ring.color,
+                    transparent: true,
+                    opacity: 0.4,
+                    depthWrite: false
+                });
+                const edgeMesh = new THREE.Mesh(edgeGeometry, edgeMaterial);
+                edgeMesh.rotation.x = -Math.PI / 2;
+                edgeMesh.position.y = ring.height;
+                edgeMesh.userData.isOrbitalRing = true;
+                scene.add(edgeMesh);
+                
+                // Add a subtle filled disc
+                const discGeometry = new THREE.RingGeometry(0, ring.radius + 10, 64);
+                const discMaterial = new THREE.MeshBasicMaterial({
+                    color: ring.color,
+                    transparent: true,
+                    opacity: 0.02,
+                    side: THREE.DoubleSide,
+                    depthWrite: false
+                });
+                const discMesh = new THREE.Mesh(discGeometry, discMaterial);
+                discMesh.rotation.x = -Math.PI / 2;
+                discMesh.position.y = ring.height;
+                discMesh.userData.isOrbitalRing = true;
+                scene.add(discMesh);
+                
+                // Add label
+                const labelSprite = createLayerLabel(ring.label, ring.color);
+                labelSprite.position.set(ring.radius + 30, ring.height, 0);
+                labelSprite.userData.isOrbitalRing = true;
+                scene.add(labelSprite);
+            });
+        }
+        
+        let orbitalAnimationId = null;
+        let orbitalActive = false;
+        
+        function startOrbitalAnimation() {
+            if (orbitalAnimationId) return;
+            
+            // First, ensure initial positions are set
+            scene.traverse(obj => {
+                if (obj.userData && obj.userData.node) {
+                    const node = obj.userData.node;
+                    const pos = nodePositions[node.id];
+                    if (pos) {
+                        obj.position.set(pos.x, pos.y, pos.z);
+                    }
+                }
+            });
+            
+            const animate = () => {
+                if (currentLayout !== 'orbital' || !orbitalActive) {
+                    orbitalAnimationId = null;
+                    return;
+                }
+                
+                const time = clock.getElapsedTime();
+                
+                // Directly update THREE.js object positions
+                scene.traverse(obj => {
+                    if (obj.userData && obj.userData.node && obj.userData.node.orbitalData) {
+                        const node = obj.userData.node;
+                        const data = node.orbitalData;
+                        
+                        if (data.type === 'primary') {
+                            // Primary orbital motion
+                            const angle = data.angle + time * data.speed;
+                            const x = Math.cos(angle) * data.radius;
+                            const z = Math.sin(angle) * data.radius;
+                            obj.position.set(x, data.height, z);
+                            
+                            // Update node data for link positioning
+                            node.x = x;
+                            node.y = data.height;
+                            node.z = z;
+                        } else if (data.type === 'moon' && data.parentId) {
+                            // Find parent's THREE.js object
+                            let parentPos = null;
+                            scene.traverse(parentObj => {
+                                if (parentObj.userData && parentObj.userData.node && parentObj.userData.node.id === data.parentId) {
+                                    parentPos = parentObj.position;
+                                }
+                            });
+                            
+                            if (parentPos) {
+                                const angle = data.angle + time * data.speed;
+                                const x = parentPos.x + Math.cos(angle) * data.radius;
+                                const z = parentPos.z + Math.sin(angle) * data.radius;
+                                obj.position.set(x, parentPos.y, z);
+                                
+                                // Update node data for link positioning
+                                node.x = x;
+                                node.y = parentPos.y;
+                                node.z = z;
+                            }
+                        }
+                    }
+                });
+                
+                // Update link positions manually
+                updateLinkPositions();
+                
+                orbitalAnimationId = requestAnimationFrame(animate);
+            };
+            
+            orbitalAnimationId = requestAnimationFrame(animate);
+        }
+        
+        function updateLinkPositions() {
+            // Update link cylinder positions based on node positions
+            linkObjects.forEach((linkObj, key) => {
+                const [srcId, tgtId] = key.split('->');
+                let srcPos = null, tgtPos = null;
+                
+                scene.traverse(obj => {
+                    if (obj.userData && obj.userData.node) {
+                        if (obj.userData.node.id === srcId) srcPos = obj.position;
+                        if (obj.userData.node.id === tgtId) tgtPos = obj.position;
+                    }
+                });
+                
+                if (srcPos && tgtPos && linkObj.parent) {
+                    const mid = new THREE.Vector3(
+                        (srcPos.x + tgtPos.x) / 2,
+                        (srcPos.y + tgtPos.y) / 2,
+                        (srcPos.z + tgtPos.z) / 2
+                    );
+                    linkObj.position.copy(mid);
+                    linkObj.lookAt(tgtPos);
+                    
+                    const cylinder = linkObj.getObjectByName('edgeCylinder');
+                    const pulse = linkObj.getObjectByName('edgePulse');
+                    const distance = srcPos.distanceTo(tgtPos);
+                    
+                    if (cylinder) cylinder.scale.set(1, 1, distance);
+                    if (pulse) pulse.scale.set(pulse.scale.x, pulse.scale.y, distance);
+                }
+            });
+        }
+        
+        function stopOrbitalAnimation() {
+            if (orbitalAnimationId) {
+                cancelAnimationFrame(orbitalAnimationId);
+                orbitalAnimationId = null;
+            }
+            orbitalActive = false;
+        }
+        
+        function addLayerPlanes() {
+            // Remove existing layer planes if any
+            scene.children = scene.children.filter(child => !child.userData.isLayerPlane);
+            
+            const layerInfo = [
+                { name: 'Interface', y: 180, color: 0x3366ff, label: 'INTERFACES' },
+                { name: 'Agent', y: 60, color: 0x33ff66, label: 'AGENTS' },
+                { name: 'Service', y: -60, color: 0xff9933, label: 'SERVICES' },
+                { name: 'Function', y: -180, color: 0xff33ff, label: 'FUNCTIONS' }
+            ];
+            
+            layerInfo.forEach(layer => {
+                // Create a subtle plane for each layer
+                const planeGeometry = new THREE.PlaneGeometry(400, 400);
+                const planeMaterial = new THREE.MeshBasicMaterial({
+                    color: layer.color,
+                    transparent: true,
+                    opacity: 0.02,
+                    side: THREE.DoubleSide,
+                    depthWrite: false
+                });
+                const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+                plane.rotation.x = -Math.PI / 2;
+                plane.position.y = layer.y - 5; // Slightly below nodes
+                plane.userData.isLayerPlane = true;
+                scene.add(plane);
+                
+                // Add glowing edge ring
+                const ringGeometry = new THREE.RingGeometry(180, 200, 64);
+                const ringMaterial = new THREE.MeshBasicMaterial({
+                    color: layer.color,
+                    transparent: true,
+                    opacity: 0.1,
+                    side: THREE.DoubleSide,
+                    depthWrite: false
+                });
+                const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+                ring.rotation.x = -Math.PI / 2;
+                ring.position.y = layer.y - 5;
+                ring.userData.isLayerPlane = true;
+                scene.add(ring);
+                
+                // Add layer label
+                const labelSprite = createLayerLabel(layer.label, layer.color);
+                labelSprite.position.set(-220, layer.y, 0);
+                labelSprite.userData.isLayerPlane = true;
+                scene.add(labelSprite);
+            });
+        }
+        
+        function createLayerLabel(text, color) {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const fontSize = 48;
+            const padding = 20;
+            
+            ctx.font = `bold ${fontSize}px Orbitron, Arial, sans-serif`;
+            const metrics = ctx.measureText(text);
+            
+            canvas.width = Math.ceil(metrics.width + padding * 2);
+            canvas.height = Math.ceil(fontSize + padding * 2);
+            
+            // Redraw with actual canvas size
+            ctx.font = `bold ${fontSize}px Orbitron, Arial, sans-serif`;
+            ctx.fillStyle = new THREE.Color(color).getStyle();
+            ctx.globalAlpha = 0.6;
+            ctx.textBaseline = 'middle';
+            ctx.textAlign = 'center';
+            ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.minFilter = THREE.LinearFilter;
+            
+            const material = new THREE.SpriteMaterial({
+                map: texture,
+                transparent: true,
+                depthWrite: false,
+                depthTest: false
+            });
+            
+            const sprite = new THREE.Sprite(material);
+            const scale = 0.3;
+            sprite.scale.set(canvas.width * scale, canvas.height * scale, 1);
+            
+            return sprite;
         }
         
         function activateGraph() {
@@ -1175,15 +1668,16 @@
                 const mat = pulse.material;
                 const baseMat = cylinder ? cylinder.material : null;
                 const baseColor = new THREE.Color(themes[currentThemeIndex].edgeColor);
+                const isStartColor = (colorHex === 0xe74c3c);
                 const effect = {
                     startTime: clock.getElapsedTime(),
-                    duration: 2.2,  // Increased from 1.6 for better visibility
+                    duration: isStartColor ? 3.0 : 2.2,
                     update: (elapsed) => {
                         const progress = elapsed / effect.duration;
                         if (progress > 1) return;
                         const intensity = Math.sin(progress * Math.PI);
-                        mat.uniforms.energy.value = 0.4 + intensity * 3.2;
-                        mat.uniforms.opacity.value = 0.1 + 0.9 * intensity;
+                        mat.uniforms.energy.value = 0.4 + intensity * (isStartColor ? 3.6 : 3.2);
+                        mat.uniforms.opacity.value = (isStartColor ? 0.15 : 0.1) + 0.9 * intensity;
                         mat.uniforms.color.value.set(colorHex);
                         if (baseMat && baseMat.uniforms) {
                             baseMat.uniforms.opacity.value = 0.02 + 0.18 * (1.0 - intensity);
@@ -1318,7 +1812,7 @@
         }
         
         function refreshGraph() {
-            graph.graphData(filteredGraphData);
+            // No-op in orbital demo
         }
         
         function loadSnapshot() {
@@ -1357,7 +1851,7 @@
             const delta = clock.getDelta();
             const time = clock.getElapsedTime();
             
-            graph.tickFrame();
+            // No force-graph tick in orbital demo
             
             // Update node shaders
             scene.traverse(obj => {

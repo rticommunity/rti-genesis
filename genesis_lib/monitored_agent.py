@@ -599,6 +599,20 @@ class MonitoredAgent(GenesisAgent):
             chain_event2["status"] = 0
             self.chain_event_writer.write(chain_event2)
             self.chain_event_writer.flush()
+            try:
+                logger.info(
+                    f"CHAIN AGENT_TO_SERVICE_START chain={chain_id[:8]} call={call_id[:8]} "
+                    f"agent={self.app.agent_id} -> service={target_provider_id} function_id={function_id}"
+                )
+            except Exception:
+                pass
+        else:
+            try:
+                logger.warning(
+                    f"CHAIN A2S SKIP (no provider_id) chain={chain_id[:8]} call={call_id[:8]} agent={self.app.agent_id} function_id={function_id}"
+                )
+            except Exception:
+                pass
 
     def _publish_function_call_complete(self, chain_id: str, call_id: str, function_name: str, function_id: str, source_provider_id: str = None):
         """Publish a chain event for function call completion"""
@@ -621,8 +635,15 @@ class MonitoredAgent(GenesisAgent):
         chain_event["status"] = 0
         self.chain_event_writer.write(chain_event)
         self.chain_event_writer.flush()
+        try:
+            logger.info(
+                f"CHAIN FUNCTION_CALL_COMPLETE chain={chain_id[:8]} call={call_id[:8]} "
+                f"function_id={function_id} service={self.app.participant.instance_handle}"
+            )
+        except Exception:
+            pass
 
-        # Emit explicit AGENT->SERVICE completion event as well
+        # Emit explicit SERVICE->AGENT completion event (reply)
         if source_provider_id:
             chain_event2 = dds.DynamicData(self.chain_event_type)
             chain_event2["chain_id"] = chain_id
@@ -633,12 +654,19 @@ class MonitoredAgent(GenesisAgent):
             chain_event2["function_id"] = function_id
             chain_event2["query_id"] = str(uuid.uuid4())
             chain_event2["timestamp"] = int(time.time() * 1000)
-            chain_event2["event_type"] = "AGENT_TO_SERVICE_COMPLETE"
-            chain_event2["source_id"] = self.app.agent_id
-            chain_event2["target_id"] = source_provider_id
+            chain_event2["event_type"] = "SERVICE_TO_AGENT_COMPLETE"
+            chain_event2["source_id"] = source_provider_id
+            chain_event2["target_id"] = self.app.agent_id
             chain_event2["status"] = 0
             self.chain_event_writer.write(chain_event2)
             self.chain_event_writer.flush()
+            try:
+                logger.info(
+                    f"CHAIN SERVICE_TO_AGENT_COMPLETE chain={chain_id[:8]} call={call_id[:8]} "
+                    f"service={source_provider_id} -> agent={self.app.agent_id} function_id={function_id}"
+                )
+            except Exception:
+                pass
 
     async def execute_function_with_monitoring(self,
                                                function_name: str,

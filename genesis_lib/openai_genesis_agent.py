@@ -301,23 +301,21 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                     reason = f"provider={provider_id} client={self.app.agent_id} function={function_id} name={function_name}"
                     logger.debug(f"Publishing AGENT_TO_SERVICE edge discovery event with reason: {reason}")
 
-                    self.publish_component_lifecycle_event(
-                        category="EDGE_DISCOVERY",
-                        reason=reason,
-                        previous_state="DISCOVERING",
-                        new_state="DISCOVERING",
-                        capabilities=json.dumps({
+                    self.graph.publish_edge(
+                        source_id=self.app.agent_id,
+                        target_id=provider_id,
+                        edge_type="AGENT_TO_SERVICE",
+                        attrs={
                             "agent_type": self.agent_type,
                             "service": self.base_service_name,
                             "edge_type": "agent_to_service",
                             "provider_id": provider_id,
                             "client_id": self.app.agent_id,
                             "function_id": function_id,
-                            "function_name": function_name
-                        }),
-                        source_id=self.app.agent_id,
-                        target_id=provider_id,
-                        connection_type="AGENT_TO_SERVICE"
+                            "function_name": function_name,
+                            "reason": reason
+                        },
+                        component_type=1  # AGENT_PRIMARY
                     )
                     logger.debug("Published AGENT_TO_SERVICE edge discovery event")
 
