@@ -1243,3 +1243,35 @@ The monitoring/topology topics use the following QoS today. Note that liveliness
   - To reduce crash detection delay, set publisher liveliness to MANUAL_BY_PARTICIPANT (or AUTOMATIC) with a short lease (e.g., 750–1000 ms) and assert period < lease (participant discovery liveliness can also be tightened). This must be done on the PUBLISHER side to be effective.
   - The framework currently does not override participant-level discovery liveliness in code; defaults from RTI are used unless you provide an XML QoS profile.
 
+### Embedding the Reference Graph Viewer and Tunables
+
+The library provides a reusable blueprint and Socket.IO bridge you can drop into any Flask app:
+
+```python
+from flask import Flask
+from flask_socketio import SocketIO
+from genesis_lib.graph_state import GraphService
+from genesis_lib.web.graph_viewer import register_graph_viewer
+
+app = Flask(__name__)
+socketio = SocketIO(app, async_mode='threading', cors_allowed_origins="*")
+graph = GraphService(domain_id=0)
+graph.start()
+register_graph_viewer(app, socketio, graph, url_prefix="/genesis-graph")
+```
+
+HTML usage:
+
+```html
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+<script type="module">
+  import { initGraphViewer } from "/genesis-graph/static/reference.js";
+  initGraphViewer(document.getElementById("graph"), { socketUrl: window.location.origin });
+</script>
+```
+
+Bridge environment variables:
+- GENESIS_GRAPH_BRIDGE_UPDATE_SUPPRESS_MS (default 500)
+- GENESIS_GRAPH_BRIDGE_REMOVE_SUPPRESS_MS (default 2000)
+- GENESIS_GRAPH_BRIDGE_BATCH_MS (default 0; when > 0, emits consolidated `graph_batch` events which the reference client logs)
+

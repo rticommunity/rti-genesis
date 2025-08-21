@@ -2,6 +2,7 @@
 import os
 import sys
 from flask import Flask, render_template, jsonify, request
+import argparse
 from flask_socketio import SocketIO
 import json
 
@@ -9,7 +10,7 @@ import json
 sys.path.append(os.path.abspath("."))
 
 from genesis_lib.graph_state import GraphService  # type: ignore
-from genesis_lib.web.socketio_graph_bridge import attach_graph_to_socketio  # type: ignore
+from genesis_lib.web.graph_viewer import register_graph_viewer  # type: ignore
 
 
 SNAPSHOT_DEFAULT = os.getenv(
@@ -26,11 +27,17 @@ def create_app() -> tuple[Flask, SocketIO, GraphService]:
     graph = GraphService(domain_id=int(os.getenv("GENESIS_DOMAIN", "0")))
     graph.start()
 
-    attach_graph_to_socketio(graph, socketio)
+    # Register the reusable viewer blueprint under /genesis-graph (also attaches Socket.IO bridge)
+    register_graph_viewer(app, socketio, graph, url_prefix="/genesis-graph")
 
     @app.route("/")
     def index():
         return render_template("index.html")
+
+    # Minimal reference page that uses the library's reference.js
+    @app.route("/reference")
+    def reference():
+        return render_template("reference.html")
 
     @app.route("/api/graph")
     def api_graph():
@@ -49,11 +56,13 @@ def create_app() -> tuple[Flask, SocketIO, GraphService]:
 
 
 if __name__ == "__main__":
-    # Bind to all interfaces by default to handle localhost IPv6/IPv4 differences
-    host = os.getenv("HOST", "0.0.0.0")
-    port = int(os.getenv("PORT", "5080"))
+    # Allow CLI override: --port/-p
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-p", "--port", type=int, default=int(os.getenv("PORT", "5000")))
+    parser.add_argument("--host", default=os.getenv("HOST", "0.0.0.0"))
+    args = parser.parse_args()
     app, socketio, graph = create_app()
     try:
-        socketio.run(app, host=host, port=port, allow_unsafe_werkzeug=True)
+        socketio.run(app, host=args.host, port=args.port, allow_unsafe_werkzeug=True)
     finally:
         graph.stop()

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Genesis Graph Interface Example</title>
+    <style>
+      html, body { height:100%; margin:0; background:#0b0f16; color:#eee; font: 14px/1.4 system-ui, sans-serif; }
+      .root { display:flex; height:100%; }
+      .left { width: 50%; padding: 12px; box-sizing: border-box; border-right: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.02); display:flex; flex-direction:column; }
+      .right { width: 50%; position: relative; }
+      #graph { position:absolute; inset:0; }
+      h1 { font-size: 16px; margin: 0 0 12px; opacity: 0.9; }
+      .section { margin-bottom: 16px; }
+      label { display:block; margin: 6px 0; }
+      small { opacity: 0.7; }
+      code { background: rgba(255,255,255,0.06); padding: 2px 4px; border-radius: 4px; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+    <script type="module">
+      import { initGraphViewer3D } from "/genesis-graph/static/orbital_viewer.js";
+      window.addEventListener('DOMContentLoaded', () => {
+        const el = document.getElementById('graph');
+        initGraphViewer3D(el, { socketUrl: `${location.protocol}//${location.host}` });
+        // Chat wiring
+        const socket = window.io && window.io(`${location.protocol}//${location.host}`, { transports: ['websocket','polling'] });
+        const agentsSel = document.getElementById('agents');
+        const form = document.getElementById('chat-form');
+        const input = document.getElementById('chat-input');
+        const log = document.getElementById('chat-log');
+        const connectBtn = document.getElementById('connect-btn');
+        const refreshBtn = document.getElementById('refresh-btn');
+        function append(text){ const d=document.createElement('div'); d.textContent=text; log.appendChild(d); log.scrollTop=log.scrollHeight; }
+        if (socket){
+          socket.on('status', (m)=>append(`[status] ${m.message||''}`));
+          socket.on('agents', ({agents})=>{ agentsSel.innerHTML=''; (agents||[]).forEach(a=>{ const opt=document.createElement('option'); opt.value=a.name; opt.textContent=`${a.name}`; agentsSel.appendChild(opt); }); append(`[agents] ${agents?.length||0} available`); });
+          socket.on('agent_connected', (p)=>append(`[connected] ${p.agent_name}`));
+          socket.on('message_sent', (p)=>append(`you: ${p.message}`));
+          socket.on('agent_response', (p)=>append(`${p.agent_name||'agent'}: ${p.message}`));
+          socket.on('error', (e)=>append(`[error] ${e.message||e}`));
+        }
+        connectBtn.addEventListener('click', ()=>{ const name=agentsSel.value; if (name && socket) socket.emit('connect_to_agent', { agent_name: name }); });
+        refreshBtn.addEventListener('click', ()=>{ if (socket) socket.emit('refresh_agents'); });
+        form.addEventListener('submit', (ev)=>{ ev.preventDefault(); const msg=(input.value||'').trim(); if (!msg) return; if (socket) socket.emit('send_message', { message: msg }); input.value=''; input.focus(); });
+      });
+    </script>
+  </head>
+  <body>
+    <div class="root">
+      <div class="left">
+        <h1>Genesis Graph Interface</h1>
+        <div class="section">
+          <div><b>Agent</b></div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <select id="agents" style="flex:1; padding:6px; background:#0f1825; color:#eee; border:1px solid rgba(255,255,255,0.08); border-radius:6px;"></select>
+            <button id="refresh-btn" style="padding:6px 10px;">Refresh</button>
+            <button id="connect-btn" style="padding:6px 10px;">Connect</button>
+          </div>
+        </div>
+        <div class="section" style="flex:1; display:flex; flex-direction:column; min-height:0;">
+          <div><b>Chat</b></div>
+          <div id="chat-log" style="flex:1; min-height:0; overflow:auto; background:#0f1825; border:1px solid rgba(255,255,255,0.08); border-radius:6px; padding:8px; margin-bottom:8px;"></div>
+          <form id="chat-form" style="display:flex; gap:8px;">
+            <input id="chat-input" placeholder="Type a message…" style="flex:1; padding:8px; background:#0b1420; color:#eee; border:1px solid rgba(255,255,255,0.1); border-radius:6px;" />
+            <button type="submit">Send</button>
+          </form>
+        </div>
+      </div>
+      <div class="right">
+        <div id="graph"></div>
+      </div>
+    </div>
+  </body>
+  </html>
+
+

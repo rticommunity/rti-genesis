@@ -573,6 +573,48 @@ class GraphSubscriber:
                 "edge": EdgeInfo(source_id=src, target_id=tgt, edge_type=etype, metadata=caps)
             })
 
+        elif category == "STATE_CHANGE":
+            # Forward node update and synthesize activity for interface request start/complete
+            node_id = evt.get("component_id", "")
+            ctype_idx = evt.get("component_type", -1)
+            ctype = self._COMPONENT_TYPES[ctype_idx] if 0 <= ctype_idx < len(self._COMPONENT_TYPES) else "UNKNOWN"
+            state_idx = evt.get("new_state", 0)
+            state = self._STATES[state_idx] if 0 <= state_idx < len(self._STATES) else "UNKNOWN"
+            reason = evt.get("reason", "") or ""
+            try:
+                caps = json.loads(evt.get("capabilities") or "{}")
+            except Exception:
+                caps = {}
+            # Emit node update for state change
+            node_name = self._select_node_name(ctype, node_id, caps)
+            self._on_graph_update("node_update", {
+                "node": NodeInfo(node_id=node_id, node_type=ctype, node_name=node_name, node_state=state, metadata=caps)
+            })
+            # Synthesize INTERFACE_* activities so the viewer can pulse/log interface requests
+            try:
+                if self._on_activity is not None and ctype == "INTERFACE":
+                    evt_ts = int(evt.get("timestamp", 0))
+                    src = node_id
+                    tgt = evt.get("target_id", "") or caps.get("target_id", "")
+                    if state == "BUSY" and reason.lower().startswith("interface request"):
+                        self._on_activity({
+                            "event_type": "INTERFACE_REQUEST_START",
+                            "source_id": src,
+                            "target_id": tgt,
+                            "status": 0,
+                            "timestamp": evt_ts,
+                        })
+                    elif state == "READY" and ("response" in reason.lower() or reason.lower().startswith("interface response")):
+                        self._on_activity({
+                            "event_type": "INTERFACE_REQUEST_COMPLETE",
+                            "source_id": src,
+                            "target_id": tgt,
+                            "status": 0,
+                            "timestamp": evt_ts,
+                        })
+            except Exception:
+                pass
+
 
 class GraphService:
     """Public façade: manages subscriber and graph, provides exports and change listeners."""

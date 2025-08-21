@@ -473,15 +473,9 @@
 
         <div class="network-panel">
             <div class="panel-header">🌐 Genesis Network Topology</div>
-            
             <div class="network-container">
-                <svg id="network-svg" class="network-svg"></svg>
-                
-                <div class="network-stats" id="network-stats">
-                    <div>Nodes: <span id="node-count">0</span></div>
-                    <div>Edges: <span id="edge-count">0</span></div>
-                    <div>Status: <span id="network-status">Monitoring...</span></div>
-                </div>
+                <!-- Replace legacy D3 view with embedded reference viewer -->
+                <iframe id="graph-embed" src="/genesis-graph/reference" style="width:100%;height:100%;border:0;background:#0b0f16;"></iframe>
             </div>
         </div>
 
@@ -530,7 +524,7 @@
             }
             
             initializeSocket();
-            initializeNetworkVisualization();
+            // D3 network view replaced by embedded reference viewer (iframe)
             setupEventListeners();
         });
 
@@ -746,25 +740,7 @@
             document.getElementById('chat-input').placeholder = 'Select an agent to start chatting...';
         }
 
-        function initializeNetworkVisualization() {
-            // Get the SVG element
-            svg = d3.select('#network-svg');
-            
-            // Create a group for all visual elements
-            g = svg.append('g');
-            
-            // Add zoom behavior
-            const zoom = d3.zoom()
-                .scaleExtent([0.1, 4])
-                .on('zoom', function(event) {
-                    g.attr('transform', event.transform);
-                });
-            
-            svg.call(zoom);
-            
-            // Don't initialize simulation here - wait for data
-            simulation = null;
-        }
+        // initializeNetworkVisualization removed (using embedded viewer)
         
         function createSimulation(centerX, centerY) {
             // Create a new simulation with the correct center
@@ -805,123 +781,7 @@
             };
         }
 
-        function updateNetworkVisualization(data) {
-            // Store the data
-            networkGraph = data;
-            updateNetworkStats();
-            
-            // Clear existing visualization
-            g.selectAll('*').remove();
-            
-            // If no nodes, don't proceed
-            if (!data.nodes || data.nodes.length === 0) {
-                return;
-            }
-            
-            // Get dimensions first
-            const { width, height, centerX, centerY } = getSVGDimensions();
-            console.log(`Network visualization - Dimensions: ${width}x${height}, Center: (${centerX}, ${centerY})`);
-            
-            // Initialize node positions BEFORE creating the simulation
-            data.nodes.forEach((node, i) => {
-                // Always set initial positions
-                const angle = (i / data.nodes.length) * 2 * Math.PI;
-                const radius = Math.min(width, height) * 0.25; // Use 25% of the smaller dimension
-                
-                // Set positions relative to center
-                node.x = centerX + Math.cos(angle) * radius;
-                node.y = centerY + Math.sin(angle) * radius;
-                
-                // Also set velocity to 0 to prevent initial movement
-                node.vx = 0;
-                node.vy = 0;
-                
-                console.log(`Node ${node.id} positioned at (${node.x.toFixed(1)}, ${node.y.toFixed(1)})`);
-            });
-            
-            // Create or recreate the simulation with the correct center
-            if (!simulation) {
-                simulation = createSimulation(centerX, centerY);
-            } else {
-                // Update existing simulation center
-                simulation
-                    .force('center', d3.forceCenter(centerX, centerY))
-                    .force('x', d3.forceX(centerX).strength(0.1))
-                    .force('y', d3.forceY(centerY).strength(0.1));
-            }
-            
-            // Create visual elements
-            
-            // Links first (so they appear behind nodes)
-            const link = g.selectAll('.link')
-                .data(data.edges)
-                .enter().append('line')
-                .attr('class', d => `link link-${(d.type || 'default').toLowerCase().replace('_', '-')}`)
-                .attr('stroke-width', 2);
-            
-            // Node groups
-            const node = g.selectAll('.node')
-                .data(data.nodes)
-                .enter().append('g')
-                .attr('class', 'node')
-                .attr('transform', d => `translate(${d.x},${d.y})`); // Set initial position
-            
-            // Add circles to nodes
-            node.append('circle')
-                .attr('r', 20)
-                .attr('class', d => `node node-${(d.type || 'default').toLowerCase()}`)
-                .attr('data-id', d => d.id);
-            
-            // Add labels to nodes
-            node.append('text')
-                .attr('class', 'node-label')
-                .text(d => {
-                    const name = d.name || d.id || 'Unknown';
-                    return name.length > 8 ? name.substring(0, 8) + '...' : name;
-                });
-            
-            // Add drag behavior
-            node.call(d3.drag()
-                .on('start', function(event, d) {
-                    if (!event.active) simulation.alphaTarget(0.3).restart();
-                    d.fx = d.x;
-                    d.fy = d.y;
-                })
-                .on('drag', function(event, d) {
-                    d.fx = event.x;
-                    d.fy = event.y;
-                })
-                .on('end', function(event, d) {
-                    if (!event.active) simulation.alphaTarget(0);
-                    d.fx = null;
-                    d.fy = null;
-                }));
-            
-            // Add hover behavior
-            node.on('mouseover', showTooltip)
-                .on('mouseout', hideTooltip);
-            
-            // Configure and start the simulation
-            simulation
-                .nodes(data.nodes)
-                .on('tick', () => {
-                    // Update link positions
-                    link
-                        .attr('x1', d => d.source.x)
-                        .attr('y1', d => d.source.y)
-                        .attr('x2', d => d.target.x)
-                        .attr('y2', d => d.target.y);
-                    
-                    // Update node positions
-                    node.attr('transform', d => `translate(${d.x},${d.y})`);
-                });
-            
-            // Set up links in simulation
-            simulation.force('link').links(data.edges);
-            
-            // Start with lower alpha for gentler animation
-            simulation.alpha(0.5).restart();
-        }
+        // updateNetworkVisualization removed (embedded viewer manages its own rendering)
         
         function updateNetworkStats() {
             // Update stats from current networkGraph

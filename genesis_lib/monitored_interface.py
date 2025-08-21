@@ -192,6 +192,20 @@ class MonitoredInterface(GenesisInterface):
         if not self._agent_found_event.is_set():
             logger.debug("<MonitoredInterface Handler> Signaling internal agent found event.")
             self._agent_found_event.set()
+    async def connect_to_agent(self, service_name: str) -> bool:
+        """Override to remember the connected agent GUID for ChainEvent target_id."""
+        ok = await super().connect_to_agent(service_name)
+        if ok:
+            # Try to resolve the chosen agent's instance_id by service_name or name
+            try:
+                for aid, info in self.available_agents.items():
+                    if info.get('service_name') == service_name or info.get('prefered_name') == service_name:
+                        self._connected_agent_id = aid
+                        break
+            except Exception:
+                pass
+        return ok
+
 
     async def _handle_agent_departed(self, instance_id: str):
         if instance_id in self.available_agents:
@@ -233,6 +247,7 @@ class MonitoredInterface(GenesisInterface):
                 ev["status"] = 0
                 self._chain_event_writer.write(ev)
                 self._chain_event_writer.flush()
+                logger.debug("ChainEvent INTERFACE_REQUEST_START emitted")
                 # Persist IDs for completion correlation
                 self._last_chain_id = chain_id
                 self._last_call_id = call_id
@@ -264,6 +279,7 @@ class MonitoredInterface(GenesisInterface):
                 ev["status"] = 0
                 self._chain_event_writer.write(ev)
                 self._chain_event_writer.flush()
+                logger.debug("ChainEvent INTERFACE_REQUEST_COMPLETE emitted")
                 # Clear persisted IDs
                 try:
                     del self._last_chain_id

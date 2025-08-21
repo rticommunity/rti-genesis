@@ -68,10 +68,15 @@ class WeatherAgent(OpenAIGenesisAgent):
             logger.info("🚀 Initializing WeatherAgent with @genesis_tool auto-discovery")
         
         # Initialize with specialized weather configuration
+        # Generate unique service instance tag using agent ID or timestamp
+        import time
+        service_tag = f"WE_{int(time.time() * 1000) % 1000000}"
+        
         super().__init__(
             model_name="gpt-4o",
             agent_name="WeatherExpert",
             base_service_name="OpenAIAgent",
+            service_instance_tag=service_tag,  # Unique tag for this instance
             description="Specialized weather agent with @genesis_tool auto-discovery - provides real weather data and forecasts",
             enable_agent_communication=True,
             enable_tracing=enable_tracing  # Use demo configuration

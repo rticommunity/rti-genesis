@@ -34,6 +34,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 
 from genesis_lib.monitored_interface import MonitoredInterface
 from genesis_lib.utils import get_datamodel_path
+from genesis_lib.graph_state import GraphService  # type: ignore
+from genesis_lib.web.graph_viewer import register_graph_viewer  # type: ignore
 
 # Configure logging to be less verbose for GUI
 logging.basicConfig(level=logging.WARNING)
@@ -898,6 +900,11 @@ class MultiAgentGUI:
         
         # SocketIO setup
         self.socketio = SocketIO(self.app, cors_allowed_origins="*")
+
+        # Embed the reusable graph viewer (dark-themed client) under /genesis-graph
+        self.graph_service = GraphService(domain_id=int(os.getenv("GENESIS_DOMAIN", "0")))
+        self.graph_service.start()
+        register_graph_viewer(self.app, self.socketio, self.graph_service, url_prefix="/genesis-graph")
         
         # Genesis interface
         self.interface = None
@@ -1151,6 +1158,11 @@ class MultiAgentGUI:
                 self.network_monitor.stop_monitoring()
             if self.interface:
                 asyncio.create_task(self.interface.close())
+            try:
+                if self.graph_service:
+                    self.graph_service.stop()
+            except Exception:
+                pass
     
     def _create_template_structure(self):
         """Create basic template structure if missing"""
