@@ -45,7 +45,9 @@
 # This script runs each test script with a timeout and proper error handling
 # If any test fails, the script will stop for debugging
 
-# Set strict error handling
+###############################
+# Strict mode and preamble    #
+###############################
 set -e
 
 # Configuration
@@ -61,6 +63,67 @@ if [ "$(basename "$PWD")" != "run_scripts" ]; then
     cd "$SCRIPT_DIR"
 fi
 
+#########################################
+# Environment activation and preflight  #
+#########################################
+
+# Activate venv if not already active
+if [ -z "${VIRTUAL_ENV:-}" ] && [ -f "$PROJECT_ROOT/venv/bin/activate" ]; then
+    # shellcheck disable=SC1091
+    source "$PROJECT_ROOT/venv/bin/activate"
+fi
+
+# Load project .env if present to pick up NDDSHOME and API keys
+if [ -f "$PROJECT_ROOT/.env" ]; then
+    # shellcheck disable=SC1091
+    source "$PROJECT_ROOT/.env"
+fi
+
+# Ensure expected Python version (3.10.x)
+PY_MM=$(python - <<'EOF'
+import sys
+print(f"{sys.version_info.major}.{sys.version_info.minor}")
+EOF
+)
+if [ "${PY_MM%%.*}" != "3" ] || [ "${PY_MM#*.}" != "10" ]; then
+    echo "Error: Python 3.10 is required. Current python is ${PY_MM}." >&2
+    echo "Hint: run 'source venv/bin/activate' before invoking this script." >&2
+    exit 2
+fi
+
+# Attempt to locate NDDSHOME if not set
+if [ -z "${NDDSHOME:-}" ]; then
+    # Common macOS and Linux install locations
+    guess=$(ls -d /Applications/rti_connext_dds-* 2>/dev/null | sort -V | tail -n1)
+    if [ -z "$guess" ]; then
+        guess=$(ls -d "$HOME"/rti_connext_dds-* 2>/dev/null | sort -V | tail -n1)
+    fi
+    if [ -n "$guess" ]; then
+        export NDDSHOME="$guess"
+    fi
+fi
+
+# Resolve rtiddsspy location with overrides
+# Priority: RTIDDSSPY_BIN -> RTI_BIN_DIR/rtiddsspy -> $NDDSHOME/bin/rtiddsspy
+if [ -n "${RTIDDSSPY_BIN:-}" ]; then
+    CANDIDATE_RTIDDSSPY="$RTIDDSSPY_BIN"
+elif [ -n "${RTI_BIN_DIR:-}" ]; then
+    CANDIDATE_RTIDDSSPY="$RTI_BIN_DIR/rtiddsspy"
+else
+    CANDIDATE_RTIDDSSPY="${NDDSHOME:-}/bin/rtiddsspy"
+fi
+
+if [ ! -x "$CANDIDATE_RTIDDSSPY" ]; then
+    echo "Error: Could not find an executable 'rtiddsspy'." >&2
+    echo "Checked: RTIDDSSPY_BIN='$RTIDDSSPY_BIN', RTI_BIN_DIR='$RTI_BIN_DIR', NDDSHOME='$NDDSHOME'" >&2
+    echo "Tips:" >&2
+    echo "  - Ensure NDDSHOME is set correctly (e.g., /Applications/rti_connext_dds-7.3.0)" >&2
+    echo "  - Or copy the binary locally: mkdir -p \"$PROJECT_ROOT/bin\" && cp \"$NDDSHOME/bin/rtiddsspy\" \"$PROJECT_ROOT/bin/\"" >&2
+    echo "    then run: export RTI_BIN_DIR=\"$PROJECT_ROOT/bin\"" >&2
+    exit 2
+fi
+RTIDDSSPY_BIN="$CANDIDATE_RTIDDSSPY"
+
 # Set up log directory
 LOG_DIR="$PROJECT_ROOT/logs"
 mkdir -p "$LOG_DIR"
@@ -71,7 +134,7 @@ check_and_cleanup_dds() {
     
     # Start spy to check for DDS activity
     SPY_LOG="$LOG_DIR/dds_check.log"
-    "$NDDSHOME/bin/rtiddsspy" -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$SPY_LOG" 2>&1 &
+    "$RTIDDSSPY_BIN" -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$SPY_LOG" 2>&1 &
     SPY_PID=$!
     
     # Wait a bit to see if any DDS activity is detected
@@ -105,7 +168,7 @@ check_and_cleanup_dds() {
         
         # Start a new spy to verify cleanup
         rm -f "$SPY_LOG"
-        "$NDDSHOME/bin/rtiddsspy" -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$SPY_LOG" 2>&1 &
+        "$RTIDDSSPY_BIN" -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$SPY_LOG" 2>&1 &
         SPY_PID=$!
         sleep 5
         

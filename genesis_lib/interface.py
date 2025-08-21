@@ -209,6 +209,10 @@ class GenesisInterface(ABC):
 
         logger.debug(f"🔗 TRACE: Attempting to connect to agent service: {service_name}")
         try:
+            print(f"[INTERFACE_RPC] bind: service='{service_name}' timeout={timeout_seconds}s")
+        except Exception:
+            pass
+        try:
             self.requester = rpc.Requester(
                 request_type=self.request_type,
                 reply_type=self.reply_type,
@@ -221,6 +225,10 @@ class GenesisInterface(ABC):
             while self.requester.matched_replier_count == 0:
                 if time.time() - start_time > timeout_seconds:
                     logger.error(f"❌ TRACE: Timeout ({timeout_seconds}s) waiting for DDS replier match for service '{service_name}'")
+                    try:
+                        print(f"[INTERFACE_RPC] bind-timeout: service='{service_name}' repliers=0")
+                    except Exception:
+                        pass
                     self.requester.close()
                     self.requester = None
                     self.discovered_agent_service_name = None
@@ -228,6 +236,10 @@ class GenesisInterface(ABC):
                 await asyncio.sleep(0.1)
             
             logger.debug(f"✅ TRACE: RPC Requester created and DDS replier matched for service: {service_name}")
+            try:
+                print(f"[INTERFACE_RPC] bind-ok: service='{service_name}' repliers={self.requester.matched_replier_count}")
+            except Exception:
+                pass
             return True
             
         except Exception as req_e:
@@ -260,6 +272,11 @@ class GenesisInterface(ABC):
                 
             # Send request and wait for reply using synchronous API in a thread
             logger.debug(f"Sending request to agent service '{self.discovered_agent_service_name}': {request_data}")
+            try:
+                msg_preview = request_data.get('message') if isinstance(request_data, dict) else str(request_data)
+                print(f"[INTERFACE_RPC] send: service='{self.discovered_agent_service_name}' msg='{str(msg_preview)[:120]}' timeout={timeout_seconds}s")
+            except Exception:
+                pass
             
             def _send_request_sync(requester, req, timeout):
                 # Ensure the requester is valid before using it
@@ -271,14 +288,36 @@ class GenesisInterface(ABC):
                     # Convert float seconds to int seconds and nanoseconds
                     seconds = int(timeout)
                     nanoseconds = int((timeout - seconds) * 1e9)
+                    # First reply (blocking up to full timeout)
                     replies = requester.receive_replies(
                         max_wait=dds.Duration(seconds=seconds, nanoseconds=nanoseconds),
                         min_count=1,
                         related_request_id=request_id
                     )
-                    if replies:
-                        return replies[0]  # Returns (reply, info) tuple
-                    return None
+                    if not replies:
+                        try:
+                            print(f"[INTERFACE_RPC] recv-timeout: service='{self.discovered_agent_service_name}'")
+                        except Exception:
+                            pass
+                        return None
+                    last = replies[0]
+                    # Drain additional replies for a short quiet window so we return the final reply
+                    quiet_seconds = 1.0
+                    while True:
+                        try:
+                            more = requester.receive_replies(
+                                max_wait=dds.Duration(seconds=int(quiet_seconds), nanoseconds=int((quiet_seconds - int(quiet_seconds))*1e9)),
+                                min_count=1,
+                                related_request_id=request_id
+                            )
+                            if more:
+                                last = more[0]
+                                # continue draining until no more within quiet window
+                                continue
+                            break
+                        except Exception:
+                            break
+                    return last  # (reply, info)
                 except Exception as sync_e:
                     logger.error(f"❌ TRACE: Error in _send_request_sync: {sync_e}")
                     logger.error(traceback.format_exc())
@@ -294,16 +333,33 @@ class GenesisInterface(ABC):
                     reply_dict[member] = reply[member]
                     
                 logger.debug(f"Received reply from agent: {reply_dict}")
+                try:
+                    reply_msg = reply_dict.get('message') if isinstance(reply_dict, dict) else str(reply_dict)
+                    print(f"[INTERFACE_RPC] recv-ok: service='{self.discovered_agent_service_name}' msg='{str(reply_msg)[:120]}'")
+                except Exception:
+                    pass
                 return reply_dict
             else:
                 logger.error("No reply received")
+                try:
+                    print(f"[INTERFACE_RPC] recv-none: service='{self.discovered_agent_service_name}'")
+                except Exception:
+                    pass
                 return None
             
         except dds.TimeoutError:
             logger.error(f"Timeout waiting for reply after {timeout_seconds} seconds")
+            try:
+                print(f"[INTERFACE_RPC] recv-timeout-ex: service='{self.discovered_agent_service_name}'")
+            except Exception:
+                pass
             return None
         except Exception as e:
             logger.error(f"Error sending request: {e}")
+            try:
+                print(f"[INTERFACE_RPC] send-ex: service='{self.discovered_agent_service_name}' err='{e}'")
+            except Exception:
+                pass
             return None
 
     async def close(self):

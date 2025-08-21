@@ -301,23 +301,21 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                     reason = f"provider={provider_id} client={self.app.agent_id} function={function_id} name={function_name}"
                     logger.debug(f"Publishing AGENT_TO_SERVICE edge discovery event with reason: {reason}")
 
-                    self.publish_component_lifecycle_event(
-                        category="EDGE_DISCOVERY",
-                        reason=reason,
-                        previous_state="DISCOVERING",
-                        new_state="DISCOVERING",
-                        capabilities=json.dumps({
+                    self.graph.publish_edge(
+                        source_id=self.app.agent_id,
+                        target_id=provider_id,
+                        edge_type="AGENT_TO_SERVICE",
+                        attrs={
                             "agent_type": self.agent_type,
                             "service": self.base_service_name,
                             "edge_type": "agent_to_service",
                             "provider_id": provider_id,
                             "client_id": self.app.agent_id,
                             "function_id": function_id,
-                            "function_name": function_name
-                        }),
-                        source_id=self.app.agent_id,
-                        target_id=provider_id,
-                        connection_type="AGENT_TO_SERVICE"
+                            "function_name": function_name,
+                            "reason": reason
+                        },
+                        component_type=1  # AGENT_PRIMARY
                     )
                     logger.debug("Published AGENT_TO_SERVICE edge discovery event")
 
@@ -1030,11 +1028,27 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             
             # Extract the response
             message = response.choices[0].message
+
+            # DEBUG: Log tool calls returned by the primary LLM
+            try:
+                if hasattr(message, 'tool_calls') and message.tool_calls:
+                    debug_tools = []
+                    for tc in message.tool_calls:
+                        try:
+                            debug_tools.append({
+                                "name": getattr(tc.function, 'name', 'unknown'),
+                                "arguments": getattr(tc.function, 'arguments', '')
+                            })
+                        except Exception:
+                            pass
+                    logger.info(f"LLM_TOOL_SELECTION primary: chain={chain_id[:8]} call={call_id[:8]} tools={debug_tools}")
+            except Exception:
+                pass
             
             # Check if the model wants to call a function
             if message.tool_calls:
                 logger.debug(f"===== TRACING: Model requested function call(s): {len(message.tool_calls)} =======")
-                
+                print(f"==== Full on print to trace message calls. {message.tool_calls} ====")
                 # Process each tool call (function or agent)
                 tool_responses = []
                 for tool_call in message.tool_calls:
@@ -1047,33 +1061,32 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                     is_function_call = tool_name in self.function_cache
                     is_agent_call = tool_name in self.agent_cache
                     is_internal_tool_call = hasattr(self, 'internal_tools_cache') and tool_name in self.internal_tools_cache
+
+                    # DEBUG: Decision record for this tool call
+                    try:
+                        logger.info(
+                            f"TOOL_CALL_DECISION chain={chain_id[:8]} call={call_id[:8]} name={tool_name} "
+                            f"is_agent={is_agent_call} is_function={is_function_call} is_internal={is_internal_tool_call} "
+                            f"args={tool_args}"
+                        )
+                    except Exception:
+                        pass
                     
                     try:
                         if is_function_call:
                             logger.debug(f"===== TRACING: Tool {tool_name} is a FUNCTION call =====")
                             
-                            # Create chain event for function call start
-                            self._publish_function_call_start(
-                                chain_id=chain_id,
-                                call_id=call_id,
-                                function_name=tool_name,
-                                function_id=self.function_cache[tool_name]["function_id"],
-                                target_provider_id=self.function_cache[tool_name].get("provider_id")
-                            )
-                            
-                            # Call the function through the generic client
+                            # Delegate monitoring and execution to base class helper
                             start_time = time.time()
-                            tool_result = await self._call_function(tool_name, **tool_args)
-                            end_time = time.time()
-                            
-                            # Create chain event for function call completion
-                            self._publish_function_call_complete(
-                                chain_id=chain_id,
-                                call_id=call_id,
+                            tool_result = await self.execute_function_with_monitoring(
                                 function_name=tool_name,
                                 function_id=self.function_cache[tool_name]["function_id"],
-                                source_provider_id=self.function_cache[tool_name].get("provider_id")
+                                provider_id=self.function_cache[tool_name].get("provider_id"),
+                                tool_args=tool_args,
+                                chain_id=chain_id,
+                                call_id=call_id,
                             )
+                            end_time = time.time()
                             
                             logger.debug(f"===== TRACING: Function call completed in {end_time - start_time:.2f} seconds =====")
                             
@@ -1092,6 +1105,21 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                             
                             # Create chain event for agent call start
                             agent_info = self.agent_cache[tool_name]
+                            try:
+                                logger.info(
+                                    f"AGENT_TOOL_SELECTED primary: chain={chain_id[:8]} call={call_id[:8]} tool={tool_name} "
+                                    f"target_agent_id={agent_info.get('agent_id','')}"
+                                )
+                            except Exception:
+                                pass
+                            # Log the outbound agent request payload for traceability
+                            try:
+                                logger.info(
+                                    f"AGENT_REQUEST_START payload: chain={chain_id[:8]} call={call_id[:8]} "
+                                    f"from={self.app.agent_id} to={agent_info.get('agent_id','')} message={tool_args.get('message','')}"
+                                )
+                            except Exception:
+                                pass
                             self._publish_agent_chain_event(
                                 chain_id=chain_id,
                                 call_id=call_id,

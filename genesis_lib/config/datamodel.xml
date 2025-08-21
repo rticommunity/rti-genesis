@@ -219,6 +219,24 @@
       <member name="status" type="int32"/>
     </struct>
 
+    <!-- Durable graph topology types (nodes and edges) -->
+    <struct name="GenesisGraphNode">
+      <member name="node_id" type="string" key="true" stringMaxLength="128"/>
+      <member name="node_type" type="string" stringMaxLength="32"/>
+      <member name="node_state" type="string" stringMaxLength="32"/>
+      <member name="node_name" type="string" stringMaxLength="256"/>
+      <member name="metadata" type="string" stringMaxLength="8192"/>
+      <member name="timestamp" type="int64"/>
+    </struct>
+
+    <struct name="GenesisGraphEdge">
+      <member name="source_id" type="string" key="true" stringMaxLength="128"/>
+      <member name="target_id" type="string" key="true" stringMaxLength="128"/>
+      <member name="edge_type" type="string" key="true" stringMaxLength="64"/>
+      <member name="metadata" type="string" stringMaxLength="4096"/>
+      <member name="timestamp" type="int64"/>
+    </struct>
+
     <struct name="LivelinessUpdate">
       <member name="component_id" type="string" key="true" stringMaxLength="128"/>
       <member name="component_type" type="nonBasic" nonBasicTypeName="ComponentType"/>

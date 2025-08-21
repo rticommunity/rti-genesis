@@ -1211,3 +1211,67 @@ GENESIS provides comprehensive, real-time monitoring and observability by publis
 - **Extensibility:** New monitoring tools or learning agents can be added at any time, simply by subscribing to the relevant DDS topics—no changes to the core system required.
 
 This observability layer is a foundational feature of GENESIS, enabling not just robust operations but also future research and innovation in multi-agent systems.
+
+### DDS QoS and Liveliness (Current Settings)
+
+The monitoring/topology topics use the following QoS today. Note that liveliness detection is governed by the PUBLISHER side; the subscriber cannot speed it up without compatible publisher QoS.
+
+- ComponentLifecycleEvent and ChainEvent (monitoring/logging topics)
+  - Writer QoS: TRANSIENT_LOCAL durability, RELIABLE reliability. Liveliness is not explicitly set; defaults to RTI Connext defaults (typically AUTOMATIC, infinite lease).
+  - Where configured: `genesis_lib/graph_monitoring.py` (`_DDSWriters.component_lifecycle_writer`)
+
+- GenesisGraphNode / GenesisGraphEdge (durable topology)
+  - Writer QoS: TRANSIENT_LOCAL, RELIABLE, KEEP_LAST depth=1
+  - Reader QoS (graph viewer/subscriber): TRANSIENT_LOCAL, RELIABLE, KEEP_ALL (to receive NOT_ALIVE transitions and removals)
+  - Where configured:
+    - Writers: `genesis_lib/graph_monitoring.py` (`_DDSWriters.graph_node_writer`, `graph_edge_writer`)
+    - Readers: `genesis_lib/graph_state.py` (`GraphSubscriber` durable readers)
+
+- Registration / Discovery and some agent communication topics
+  - Writers/Readers often set liveliness explicitly to AUTOMATIC with lease_duration ≈ 2s
+  - Where configured:
+    - Registration writer: `genesis_lib/genesis_app.py` (writer_qos.liveliness.kind = AUTOMATIC, lease_duration = 2s)
+    - FunctionCapability writer/reader: `genesis_lib/function_discovery.py` (AUTOMATIC, 2s)
+    - Interface registration reader: `genesis_lib/interface.py` (AUTOMATIC, 2s)
+
+- Removal behavior (crash vs graceful)
+  - The graph viewer listens to ComponentLifecycleEvent and the durable GenesisGraphNode/Edge topics.
+  - Graceful shutdowns typically publish OFFLINE states and/or DISPOSE; ungraceful exits are detected when writers/participants become NOT_ALIVE (e.g., NOT_ALIVE_NO_WRITERS), after liveliness/discovery timeouts.
+  - Current crash-detection latency is therefore determined by publisher/participant liveliness and built-in discovery QoS, not the subscriber.
+
+- Tuning (optional)
+  - To reduce crash detection delay, set publisher liveliness to MANUAL_BY_PARTICIPANT (or AUTOMATIC) with a short lease (e.g., 750–1000 ms) and assert period < lease (participant discovery liveliness can also be tightened). This must be done on the PUBLISHER side to be effective.
+  - The framework currently does not override participant-level discovery liveliness in code; defaults from RTI are used unless you provide an XML QoS profile.
+
+### Embedding the Reference Graph Viewer and Tunables
+
+The library provides a reusable blueprint and Socket.IO bridge you can drop into any Flask app:
+
+```python
+from flask import Flask
+from flask_socketio import SocketIO
+from genesis_lib.graph_state import GraphService
+from genesis_lib.web.graph_viewer import register_graph_viewer
+
+app = Flask(__name__)
+socketio = SocketIO(app, async_mode='threading', cors_allowed_origins="*")
+graph = GraphService(domain_id=0)
+graph.start()
+register_graph_viewer(app, socketio, graph, url_prefix="/genesis-graph")
+```
+
+HTML usage:
+
+```html
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+<script type="module">
+  import { initGraphViewer } from "/genesis-graph/static/reference.js";
+  initGraphViewer(document.getElementById("graph"), { socketUrl: window.location.origin });
+</script>
+```
+
+Bridge environment variables:
+- GENESIS_GRAPH_BRIDGE_UPDATE_SUPPRESS_MS (default 500)
+- GENESIS_GRAPH_BRIDGE_REMOVE_SUPPRESS_MS (default 2000)
+- GENESIS_GRAPH_BRIDGE_BATCH_MS (default 0; when > 0, emits consolidated `graph_batch` events which the reference client logs)
+

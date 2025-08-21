@@ -1,0 +1,2063 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stunning Graph Visualization</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@300;500;700;900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+       
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: radial-gradient(circle at center, #0a0f1a 0%, #020408 100%);
+            height: 100vh;
+            width: 100vw;
+            font-family: 'Inter', 'Orbitron', sans-serif;
+        }
+       
+        #container {
+            width: 100%;
+            height: 100%;
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+       
+        .controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 100;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 12px;
+            align-items: center;
+            padding: 8px;
+            background: rgba(255, 255, 255, 0.01);
+            backdrop-filter: blur(40px) saturate(180%);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow:
+                0 25px 50px rgba(0, 0, 0, 0.25),
+                0 0 0 1px rgba(255, 255, 255, 0.02),
+                inset 0 1px 0 rgba(255, 255, 255, 0.1),
+                inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+        }
+       
+        .control-button {
+            position: relative;
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(20px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 12px;
+            padding: 10px 18px;
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 12px;
+            font-weight: 500;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow: hidden;
+            user-select: none;
+            letter-spacing: 0.5px;
+            text-transform: none;
+            min-width: 100px;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            flex-shrink: 0;
+            box-shadow:
+                0 8px 32px rgba(0, 0, 0, 0.12),
+                0 1px 2px rgba(0, 0, 0, 0.24),
+                inset 0 1px 0 rgba(255, 255, 255, 0.15),
+                inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+        }
+        .control-button:hover {
+            background: rgba(255, 255, 255, 0.12);
+            border-color: rgba(255, 255, 255, 0.2);
+            color: rgba(255, 255, 255, 1);
+            transform: translateY(-2px);
+            box-shadow:
+                0 12px 36px rgba(0, 0, 0, 0.2),
+                0 1px 3px rgba(0,0,0,0.24),
+                inset 0 1px 0 rgba(255,255,255,0.15),
+                inset 0 -1px 0 rgba(0,0,0,0.1);
+        }
+       
+        .control-button:active {
+            background: rgba(255, 255, 255, 0.15);
+            transform: translateY(0);
+            box-shadow:
+                0 8px 32px rgba(0, 0, 0, 0.12),
+                0 1px 2px rgba(0, 0, 0, 0.24),
+                inset 0 2px 4px rgba(0, 0, 0, 0.1),
+                inset 0 1px 0 rgba(255, 255, 255, 0.15);
+        }
+        .control-button > span:last-of-type {
+            position: relative;
+            z-index: 2;
+        }
+        .control-button > span:not(:last-of-type) {
+            position: absolute;
+            display: block;
+            box-shadow: 0 0 15px rgba(128, 200, 255, 0.9), 0 0 30px rgba(128, 200, 255, 0.7);
+        }
+        .control-button > span:nth-child(1) {
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, rgba(128, 200, 255, 1));
+        }
+        .control-button:hover > span:nth-child(1) {
+            animation: animateBorder1 2s linear infinite;
+        }
+        .control-button > span:nth-child(2) {
+            top: -100%;
+            right: 0;
+            width: 2px;
+            height: 100%;
+            background: linear-gradient(180deg, transparent, rgba(128, 200, 255, 1));
+        }
+        .control-button:hover > span:nth-child(2) {
+            animation: animateBorder2 2s linear infinite;
+            animation-delay: 0.5s;
+        }
+        .control-button > span:nth-child(3) {
+            bottom: 0;
+            right: -100%;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(270deg, transparent, rgba(128, 200, 255, 1));
+        }
+        .control-button:hover > span:nth-child(3) {
+            animation: animateBorder3 2s linear infinite;
+            animation-delay: 1s;
+        }
+        .control-button > span:nth-child(4) {
+            bottom: -100%;
+            left: 0;
+            width: 2px;
+            height: 100%;
+            background: linear-gradient(0deg, transparent, rgba(128, 200, 255, 1));
+        }
+        .control-button:hover > span:nth-child(4) {
+            animation: animateBorder4 2s linear infinite;
+            animation-delay: 1.5s;
+        }
+        @keyframes animateBorder1 { 0% { left: -100%; } 50%, 100% { left: 100%; } }
+        @keyframes animateBorder2 { 0% { top: -100%; } 50%, 100% { top: 100%; } }
+        @keyframes animateBorder3 { 0% { right: -100%; } 50%, 100% { right: 100%; } }
+        @keyframes animateBorder4 { 0% { bottom: -100%; } 50%, 100% { bottom: 100%; } }
+        .activate-button {
+            background: linear-gradient(135deg,
+                rgba(255, 100, 100, 0.15) 0%,
+                rgba(255, 50, 50, 0.1) 100%);
+            border: 1px solid rgba(255, 100, 100, 0.3);
+            color: rgba(255, 150, 150, 0.95);
+        }
+       
+        .activate-button:hover {
+            background: linear-gradient(135deg,
+                rgba(255, 120, 120, 0.2) 0%,
+                rgba(255, 80, 80, 0.15) 100%);
+            border-color: rgba(255, 150, 150, 0.4);
+            color: rgba(255, 200, 200, 1);
+        }
+       
+        .activate-button > span:not(:last-of-type) {
+            box-shadow: 0 0 15px rgba(255, 120, 120, 0.9), 0 0 30px rgba(255, 120, 120, 0.7);
+        }
+        .activate-button > span:nth-child(1) { background: linear-gradient(90deg, transparent, rgba(255, 120, 120, 1)); }
+        .activate-button > span:nth-child(2) { background: linear-gradient(180deg, transparent, rgba(255, 120, 120, 1)); }
+        .activate-button > span:nth-child(3) { background: linear-gradient(270deg, transparent, rgba(255, 120, 120, 1)); }
+        .activate-button > span:nth-child(4) { background: linear-gradient(0deg, transparent, rgba(255, 120, 120, 1)); }
+       
+        .stats {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 10px;
+            font-weight: 400;
+            font-family: 'Inter', sans-serif;
+            pointer-events: none;
+            z-index: 5;
+            text-shadow: 0 0 10px rgba(0, 0, 0, 0.8);
+            line-height: 1.6;
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(20px) saturate(150%);
+            padding: 10px 14px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            box-shadow:
+                0 8px 32px rgba(0, 0, 0, 0.12),
+                inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        }
+       
+        .stats div {
+            margin-bottom: 4px;
+            padding: 2px 0;
+        }
+       
+        .stats div:last-child {
+            margin-bottom: 0;
+        }
+       
+        .control-button .icon {
+            width: 16px;
+            height: 16px;
+            opacity: 0.8;
+            transition: opacity 0.3s ease;
+        }
+       
+        .control-button:hover .icon {
+            opacity: 1;
+        }
+       
+        .controls::before {
+            content: '';
+            position: absolute;
+            top: -1px;
+            left: -1px;
+            right: -1px;
+            bottom: -1px;
+            background: linear-gradient(45deg,
+                rgba(255, 255, 255, 0.05) 0%,
+                transparent 25%,
+                transparent 75%,
+                rgba(255, 255, 255, 0.05) 100%);
+            border-radius: 21px;
+            z-index: -1;
+            opacity: 0.5;
+        }
+        @media (max-width: 768px) {
+             .controls {
+                 gap: 8px;
+                 bottom: 15px;
+                 left: 15px;
+                 right: 15px;
+                 transform: translateX(0);
+                 width: auto;
+                 flex-direction: column;
+             }
+            .control-button {
+                 padding: 10px 14px;
+                 font-size: 11px;
+                 flex-grow: 1;
+                 width: 100%;
+             }
+            .stats {
+                 top: 15px;
+                 right: 15px;
+                 padding: 8px 12px;
+             }
+        }
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 12px;
+            cursor: pointer;
+        }
+        input[type="checkbox"] {
+            margin-right: 8px;
+        }
+        .debug-panel {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: 220px;
+            overflow: auto;
+            color: rgba(255, 255, 255, 0.85);
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 12px;
+            background: rgba(0, 0, 0, 0.35);
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            z-index: 6;
+            padding: 8px 10px;
+        }
+        .debug-panel.hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div id="container"></div>
+    <div class="stats" id="stats">
+        <div>Active: 0</div>
+        <div>Starts: 0</div>
+        <div>Completes: 0</div>
+        <div>Unmatched starts: 0</div>
+    </div>
+    <div class="controls">
+        
+        <button class="control-button" id="edgeLabels">
+            <span></span><span></span><span></span><span></span>
+            <span>Edge Labels: Off</span>
+        </button>
+        <button class="control-button" id="debugLog">
+            <span></span><span></span><span></span><span></span>
+            <span>Debug Log</span>
+        </button>
+        <button class="control-button" id="layoutOrbital">
+            <span></span><span></span><span></span><span></span>
+            <span>Layout: Orbital</span>
+        </button>
+        <label class="checkbox-label" for="disconnected">
+            <input type="checkbox" id="disconnected" checked>
+            Disconnected
+        </label>
+        <button class="control-button activate-button" id="activateTrigger">
+            <span></span><span></span><span></span><span></span>
+            <span>Activate Graph</span>
+        </button>
+        <button class="control-button" id="toggleTheme">
+            <span></span><span></span><span></span><span></span>
+            <span>Theme: Inferno</span>
+        </button>
+        <button class="control-button" id="toggleOrbitFreeze">
+            <span></span><span></span><span></span><span></span>
+            <span>Freeze Orbits</span>
+        </button>
+
+        <label class="checkbox-label" for="speedInterface">
+            Interface speed: <input type="range" id="speedInterface" min="0" max="3" step="0.05" value="1">
+            <span id="speedInterfaceVal">1.00x</span>
+        </label>
+        <label class="checkbox-label" for="speedAgent">
+            Agent speed: <input type="range" id="speedAgent" min="0" max="3" step="0.05" value="1">
+            <span id="speedAgentVal">1.00x</span>
+        </label>
+        <label class="checkbox-label" for="speedService">
+            Service speed: <input type="range" id="speedService" min="0" max="3" step="0.05" value="1">
+            <span id="speedServiceVal">1.00x</span>
+        </label>
+        <label class="checkbox-label" for="speedFunction">
+            Function speed: <input type="range" id="speedFunction" min="0" max="3" step="0.05" value="1">
+            <span id="speedFunctionVal">1.00x</span>
+        </label>
+    </div>
+    <div id="debugPanel" class="debug-panel hidden"></div>
+    <script id="nodeVertexShader" type="x-shader/x-vertex">
+        varying vec3 vPosition;
+        varying vec3 vNormal;
+        varying vec2 vUv;
+        void main() {
+            vPosition = position;
+            vNormal = normal;
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    </script>
+    <script id="nodeFragmentShader" type="x-shader/x-fragment">
+        uniform float time;
+        uniform vec3 baseColor;
+        uniform vec3 accentColor;
+        uniform float energy;
+        uniform float baseIntensity;
+        varying vec3 vPosition;
+        varying vec3 vNormal;
+        varying vec2 vUv;
+        float noise(vec2 p) {
+            return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+        }
+        void main() {
+            vec2 uv = vUv + time * 0.02;
+            float n1 = noise(uv * 8.0);
+            float n2 = noise(uv * 16.0);
+            float pattern = n1 * 0.7 + n2 * 0.3;
+            vec3 color = mix(baseColor, accentColor, pattern);
+            float fresnel = pow(1.0 - abs(dot(vNormal, vec3(0.0, 0.0, 1.0))), 1.5);
+            color += fresnel * accentColor * 0.5;
+            color *= baseIntensity * (1.0 + energy * 0.8);
+            gl_FragColor = vec4(color, 1.0);
+        }
+    </script>
+    <script id="edgeVertexShader" type="x-shader/x-vertex">
+        varying vec2 vUv;
+        varying vec3 vPosition;
+        void main() {
+            vUv = uv;
+            vPosition = position;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    </script>
+    <script id="edgeFragmentShader" type="x-shader/x-fragment">
+        uniform float time;
+        uniform vec3 color;
+        uniform float opacity;
+        uniform float energy;
+        varying vec2 vUv;
+        varying vec3 vPosition;
+        void main() {
+            float flow = abs(sin(vUv.x * 15.0 - time * 12.0));
+            float pulse = sin(time * 8.0) * 0.5 + 0.5;
+            float pattern = pow(flow, 1.5) * (1.0 + pulse * energy);
+            float fade = sin(vUv.x * 3.14159);
+            vec3 finalColor = color * (pattern * 2.0 + 0.3);
+            float alpha = fade * opacity * (pattern + 0.2) * (1.0 + energy);
+            gl_FragColor = vec4(finalColor, alpha);
+        }
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.161.0/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/"
+        }
+    }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+        import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+        
+        let scene, camera, renderer, composer, controls, clock;
+        let graph = null; // Removed ForceGraph usage
+        let activeEffects = [];
+        let currentThemeIndex = 0;
+        let currentLayout = 'orbital'; // Start with orbital by default
+        let edgeLabelsVisible = false;
+        // Controls spacing between nodes in force layout
+        let linkDistanceMultiplier = 1.2; // 2x spread
+        // Orbital controls
+        let speedMultiplier = { Interface: 1.0, Agent: 1.0, Service: 1.0, FunctionMoon: 1.0 };
+        let orbitsFrozen = false;
+        let orbitTime = 0; // accumulated time only when not frozen
+        let lastOrbitTs = null;
+        
+        const container = document.getElementById('container');
+        const statsDiv = document.getElementById('stats');
+        const activateButton = document.getElementById('activateTrigger');
+        const edgeLabelsButton = document.getElementById('edgeLabels');
+        const debugLogButton = document.getElementById('debugLog');
+        const disconnectedCheckbox = document.getElementById('disconnected');
+        const themeButton = document.getElementById('toggleTheme');
+        const debugPanel = document.getElementById('debugPanel');
+        // Speed controls
+        const speedInterfaceInput = document.getElementById('speedInterface');
+        const speedAgentInput = document.getElementById('speedAgent');
+        const speedServiceInput = document.getElementById('speedService');
+        const speedFunctionInput = document.getElementById('speedFunction');
+        const speedInterfaceVal = document.getElementById('speedInterfaceVal');
+        const speedAgentVal = document.getElementById('speedAgentVal');
+        const speedServiceVal = document.getElementById('speedServiceVal');
+        const speedFunctionVal = document.getElementById('speedFunctionVal');
+        const toggleOrbitFreezeBtn = document.getElementById('toggleOrbitFreeze');
+        
+        const themes = [
+            {
+                name: 'Contrast',
+                nodeColors: {
+                    Interface: [0.20, 0.70, 1.00],   // blue
+                    Agent:     [0.20, 1.00, 0.55],   // green
+                    Service:    [1.00, 0.60, 0.20],   // orange
+                    Function:   [0.90, 0.30, 0.95]    // magenta
+                },
+                accentColors: {
+                    Interface: [0.60, 0.90, 1.00],
+                    Agent:     [0.60, 1.00, 0.85],
+                    Service:    [1.00, 0.85, 0.60],
+                    Function:   [1.00, 0.60, 1.00]
+                },
+                edgeColor: 0xeef3ff,
+                ambientLightColor: 0x0a1020,
+                pointLightColor: 0xaad4ff,
+                dirLight1: 0x44aaff,
+                dirLight2: 0x44ff88
+            },
+            {
+                name: 'Veridian',
+                nodeColors: { Interface: [0.2, 0.8, 0.5], Agent: [0.1, 0.6, 0.7], Service: [0.5, 0.8, 0.2], Function: [0.3, 0.7, 0.4] },
+                accentColors: { Interface: [0.8, 1.0, 0.9], Agent: [0.5, 0.9, 1.0], Service: [0.9, 1.0, 0.6], Function: [0.6, 0.9, 0.7] },
+                edgeColor: 0xeeffee,
+                ambientLightColor: 0x0a3024,
+                pointLightColor: 0xccffdd,
+                dirLight1: 0x33cc88,
+                dirLight2: 0x4488cc
+            },
+            {
+                name: 'Celestial',
+                nodeColors: { Interface: [1.0, 0.4, 0.4], Agent: [0.3, 0.8, 0.3], Service: [0.3, 0.4, 1.0], Function: [0.5, 0.5, 1.0] },
+                accentColors: { Interface: [1.0, 0.8, 0.2], Agent: [0.6, 1.0, 0.8], Service: [0.8, 0.6, 1.0], Function: [0.7, 0.7, 1.0] },
+                edgeColor: 0xffeebb,
+                ambientLightColor: 0x1a2440,
+                pointLightColor: 0xffe4b5,
+                dirLight1: 0x4488ff,
+                dirLight2: 0x8844ff
+            }
+        ];
+        
+        // Graph data populated from server events/snapshot
+        const graphData = {
+            nodes: [],
+            links: []
+        };
+        
+        let filteredGraphData = {...graphData};
+        let knownNodeIds = new Set();
+        function idOf(val) {
+            if (val && typeof val === 'object') return String(val.id ?? '');
+            return String(val ?? '');
+        }
+        function getNodeMeta(id) {
+            const s = String(id);
+            const n = graphData.nodes.find(nd => String(nd.id) === s) || filteredGraphData.nodes.find(nd => String(nd.id) === s);
+            return n ? { id: s, label: n.name || '', type: n.type || '' } : { id: s, label: '', type: '' };
+        }
+        function linkKeysForSource(src) {
+            const s = String(src);
+            return (filteredGraphData.links || [])
+                .filter(l => idOf(l.source) === s)
+                .map(l => `${idOf(l.source)}->${idOf(l.target)}`);
+        }
+        function linkKeysForTarget(tgt) {
+            const t = String(tgt);
+            return (filteredGraphData.links || [])
+                .filter(l => idOf(l.target) === t)
+                .map(l => `${idOf(l.source)}->${idOf(l.target)}`);
+        }
+
+        // Debug helpers
+        const activeByCall = new Map();
+        const lastStartByKey = new Map(); // key: callId|sid->tid => timestamp
+        const pendingCompleteByKey = new Map(); // key: callId|sid->tid => timeout id
+        let totalStarts = 0, totalCompletes = 0;
+        function appendDebugLine(text) {
+            if (!debugPanel) return;
+            const div = document.createElement('div');
+            div.textContent = text;
+            debugPanel.appendChild(div);
+            while (debugPanel.childElementCount > 500) debugPanel.removeChild(debugPanel.firstElementChild);
+            debugPanel.scrollTop = debugPanel.scrollHeight;
+        }
+        function setDebugVisible(visible) {
+            if (!debugPanel) return;
+            debugPanel.classList.toggle('hidden', !visible);
+        }
+        function updateMetrics() {
+            let active = 0; activeByCall.forEach(v => { if (v > 0) active += v; });
+            const unmatched = Array.from(activeByCall.values()).reduce((a,b)=> a + (b>0?b:0), 0);
+            statsDiv.children[0].textContent = `Active: ${active}`;
+            statsDiv.children[1].textContent = `Starts: ${totalStarts}`;
+            statsDiv.children[2].textContent = `Completes: ${totalCompletes}`;
+            statsDiv.children[3].textContent = `Unmatched starts: ${unmatched}`;
+        }
+        function tsStrLocal(){ try { const d = new Date(); return d.toTimeString().slice(0,8); } catch(_) { return ''; } }
+        function tsStrFromMs(ms){ try { const d = new Date((ms||0) > 1e12 ? ms : (ms||0)*1000); return d.toTimeString().slice(0,8); } catch(_) { return ''; } }
+        function mapTypeToThemeKey(t) {
+            if (!t) return 'Function';
+            const T = String(t).toUpperCase();
+            if (T === 'INTERFACE' || T.includes('INTERFACE')) return 'Interface';
+            if (T === 'SERVICE' || T.includes('SERVICE')) return 'Service';
+            if (T === 'FUNCTION' || T.includes('FUNCTION')) return 'Function';
+            if (T === 'PRIMARY_AGENT' || T === 'AGENT_PRIMARY' || T === 'SPECIALIZED_AGENT' || T === 'AGENT' || T.includes('AGENT')) return 'Agent';
+            // Default based on common patterns
+            if (t.includes('Agent')) return 'Agent';
+            if (t.includes('Service')) return 'Service';
+            if (t.includes('Interface')) return 'Interface';
+            return 'Function';
+        }
+        function elementsToGraphData(elements) {
+            const nodes = [];
+            const links = [];
+            (elements?.nodes || []).forEach(n => {
+                const d = n.data || {};
+                const id = String(d.id || d.node_id || '');
+                if (!id) return;
+                nodes.push({ id, type: mapTypeToThemeKey(d.type), name: d.label || id });
+            });
+            (elements?.edges || []).forEach(e => {
+                const d = e.data || {};
+                const source = String(d.source || d.source_id || '');
+                const target = String(d.target || d.target_id || '');
+                if (!source || !target) return;
+                links.push({ source, target });
+            });
+            return { nodes, links };
+        }
+        
+        function init() {
+            scene = new THREE.Scene();
+            clock = new THREE.Clock();
+            
+            camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 10000);
+            camera.position.set(100, 80, 100);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 2;
+            container.appendChild(renderer.domElement);
+            
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.minDistance = 10;
+            controls.maxDistance = 3000;
+            
+            setupLighting();
+            setupPostProcessing();
+            createEnvironment();
+            initEdgeMaterial();
+            applyTheme(currentThemeIndex);
+            // Start with orbital layout demo
+            setLayout('orbital');
+            
+            window.addEventListener('resize', onWindowResize);
+            activateButton.addEventListener('click', activateGraph);
+            edgeLabelsButton.addEventListener('click', toggleEdgeLabels);
+            debugLogButton.addEventListener('click', () => setDebugVisible(debugPanel.classList.contains('hidden')));
+            const layoutOrbitalButton = document.getElementById('layoutOrbital');
+            layoutOrbitalButton.addEventListener('click', () => setLayout('orbital'));
+            disconnectedCheckbox.addEventListener('change', toggleDisconnected);
+            themeButton.addEventListener('click', toggleTheme);
+            // Initialize slider displays without changing current positions
+            if (speedInterfaceInput) {
+                const setLabel = (labelEl, value) => { if (labelEl) labelEl.textContent = (value||1).toFixed(2) + 'x'; };
+                const adjust = (key, value, labelEl) => { adjustSpeedMultiplier(key, value); setLabel(labelEl, value); };
+                setLabel(speedInterfaceVal, speedMultiplier.Interface);
+                setLabel(speedAgentVal, speedMultiplier.Agent);
+                setLabel(speedServiceVal, speedMultiplier.Service);
+                setLabel(speedFunctionVal, speedMultiplier.FunctionMoon);
+                speedInterfaceInput.value = String(speedMultiplier.Interface);
+                speedAgentInput.value = String(speedMultiplier.Agent);
+                speedServiceInput.value = String(speedMultiplier.Service);
+                speedFunctionInput.value = String(speedMultiplier.FunctionMoon);
+                speedInterfaceInput.addEventListener('input', () => adjust('Interface', parseFloat(speedInterfaceInput.value||'1')||1, speedInterfaceVal));
+                speedAgentInput.addEventListener('input', () => adjust('Agent', parseFloat(speedAgentInput.value||'1')||1, speedAgentVal));
+                speedServiceInput.addEventListener('input', () => adjust('Service', parseFloat(speedServiceInput.value||'1')||1, speedServiceVal));
+                speedFunctionInput.addEventListener('input', () => adjust('FunctionMoon', parseFloat(speedFunctionInput.value||'1')||1, speedFunctionVal));
+            }
+            if (toggleOrbitFreezeBtn) {
+                toggleOrbitFreezeBtn.addEventListener('click', () => {
+                    orbitsFrozen = !orbitsFrozen;
+                    toggleOrbitFreezeBtn.querySelector('span:last-of-type').textContent = orbitsFrozen ? 'Unfreeze Orbits' : 'Freeze Orbits';
+                });
+            }
+
+            // Re-enable socket wiring for data & debug
+            try {
+                const ioUrl = `${window.location.protocol}//${window.location.host}`;
+                const socket = window.io && window.io(ioUrl, { transports: ['websocket','polling'] });
+                if (!socket) {
+                    appendDebugLine('Socket.IO not available');
+                } else {
+                    socket.on('connect', () => { appendDebugLine('socket connected'); socket.emit('graph_snapshot'); });
+                    socket.on('disconnect', () => { appendDebugLine('socket disconnected'); });
+                    socket.on('graph_snapshot', (data) => {
+                        try {
+                            const nodes = data?.elements?.nodes?.length || 0;
+                            const edges = data?.elements?.edges?.length || 0;
+                            appendDebugLine(`graph_snapshot nodes=${nodes} edges=${edges}`);
+                            const gd = elementsToGraphData(data.elements || {});
+                            // Helpful breakdown: list nodes by type and their labels/ids
+                            try {
+                                const byType = {};
+                                (gd.nodes || []).forEach(n => {
+                                    const t = n.type || 'Function';
+                                    if (!byType[t]) byType[t] = [];
+                                    byType[t].push(n);
+                                });
+                                const typeSummary = Object.entries(byType)
+                                    .map(([t, arr]) => `${t}=${arr.length}`)
+                                    .join(' ');
+                                appendDebugLine(`snapshot_types ${typeSummary}`);
+                                Object.entries(byType).forEach(([t, arr]) => {
+                                    arr.slice(0, 50).forEach(n => {
+                                        appendDebugLine(`  ${t}: ${n.name || ''} [${n.id}]`);
+                                    });
+                                });
+                                // Edges overview (limit for readability)
+                                (gd.links || []).slice(0, 100).forEach(l => {
+                                    appendDebugLine(`  edge: ${String(l.source)} -> ${String(l.target)}`);
+                                });
+                            } catch (__) { /* best-effort diagnostics */ }
+                            graphData.nodes = gd.nodes;
+                            graphData.links = gd.links;
+                            updateGraphData();
+                            rebuildSceneForData();
+                        } catch (e) { console.error(e); appendDebugLine(`snapshot error: ${e}`); }
+                    });
+                    socket.on('node_update', (payload) => {
+                        try {
+                            const n = payload.node || payload || {};
+                            const id = String(n.component_id || n.node_id || n.id || '');
+                            if (!id) return;
+                            const type = mapTypeToThemeKey(n.component_type || n.node_type);
+                            const label = (n.attrs && (n.attrs.prefered_name || n.attrs.service_name || n.attrs.function_name)) || n.node_name || id;
+                            let existing = graphData.nodes.find(nd => nd.id === id);
+                            if (!existing) {
+                                graphData.nodes.push({ id, type, name: label });
+                                appendDebugLine(`node_add id=${id} type=${type} label="${label}"`);
+                            } else {
+                                existing.name = label; existing.type = type;
+                                appendDebugLine(`node_update id=${id} type=${type} label="${label}"`);
+                            }
+                            updateGraphData();
+                            rebuildSceneForData();
+                        } catch (e) { /* ignore */ }
+                    });
+                    socket.on('edge_update', (payload) => {
+                        try {
+                            const e = payload.edge || payload || {};
+                            const sid = String(e.source_id || e.source || '');
+                            const tid = String(e.target_id || e.target || '');
+                            if (!sid || !tid) return;
+                            if (!graphData.links.find(l => String(l.source) === sid && String(l.target) === tid)) {
+                                graphData.links.push({ source: sid, target: tid });
+                                appendDebugLine(`edge_add ${sid} -> ${tid}`);
+                            }
+                            updateGraphData();
+                            ensureLinkObjects();
+                        } catch (e) { /* ignore */ }
+                    });
+                    socket.on('node_remove', (payload) => {
+                        try {
+                            const nodeId = String((payload && (payload.node_id || (payload.node && payload.node.node_id))) || '');
+                            if (!nodeId) return;
+                            appendDebugLine(`node_remove id=${nodeId}`);
+                            removeNodeById(nodeId);
+                        } catch (_) { /* ignore */ }
+                    });
+                    socket.on('edge_remove', (payload) => {
+                        try {
+                            const e = (payload && (payload.edge || payload)) || {};
+                            const sid = String(e.source_id || e.source || '');
+                            const tid = String(e.target_id || e.target || '');
+                            if (!sid || !tid) return;
+                            appendDebugLine(`edge_remove ${sid} -> ${tid}`);
+                            removeEdgeByEndpoints(sid, tid);
+                        } catch (_) { /* ignore */ }
+                    });
+                    socket.on('activity', (act) => {
+                        try {
+                            const sid = act.source_id || '';
+                            const tid = act.target_id || '';
+                            const ev = String(act.event_type || '');
+                            const isStart = ev.endsWith('_START');
+                            const isComplete = ev.endsWith('_COMPLETE') || ev.endsWith('RECEIVED');
+                            const callId = act.call_id || `${sid}->${tid}:${ev}:${act.timestamp}`;
+                            const ts = Number(act.timestamp) || Date.now();
+                            const edgeKey = `${sid}->${tid}`;
+                            const key = `${callId}|${edgeKey}`;
+
+                            if (isStart) {
+                                totalStarts++;
+                                activeByCall.set(callId, (activeByCall.get(callId)||0) + 1);
+                                lastStartByKey.set(key, ts);
+                            }
+                            if (isComplete) {
+                                const cur = activeByCall.get(callId)||0;
+                                totalCompletes++;
+                                activeByCall.set(callId, Math.max(0, cur-1));
+                            }
+                            updateMetrics();
+                            const model = act.function_id ? String(act.function_id) : '';
+                            let phase = '';
+                            if (ev === 'CLASSIFICATION_RESULT') phase = 'classifier';
+                            else if (ev.startsWith('LLM_CALL_')) phase = model && model.endsWith('.classifier') ? 'classifier' : 'llm';
+                            else if (ev.startsWith('FUNCTION_CALL_')) phase = 'function';
+                            else if (ev.startsWith('AGENT_')) phase = 'agent';
+                            const callShort = (callId||'').toString().slice(0,8);
+                            const tLocal = tsStrLocal();
+                            const tEvent = tsStrFromMs(ts);
+                            const parts = [];
+                            if (phase) parts.push(`phase=${phase}`);
+                            if (model) parts.push(`model=${model}`);
+                            const chainShort = (act.chain_id||'').toString().slice(0,8);
+                            if (chainShort) parts.push(`chain=${chainShort}`);
+                            parts.push(`status=${act.status||0}`);
+                            appendDebugLine(`[local:${tLocal}${tEvent?` evt:${tEvent}`:''}] ${ev} ${sid||'?'} -> ${tid||'?'}  call=${callShort} ${parts.join(' ')}`);
+
+                            // Brighten node during LLM work windows
+                            if (ev.startsWith('LLM_CALL_')) {
+                                const agentId = act.primary_agent_id || (sid === 'OpenAI' ? tid : sid);
+                                if (agentId) {
+                                    const keyId = String(agentId);
+                                    if (isStart) {
+                                        llmActiveByNode.set(keyId, (llmActiveByNode.get(keyId) || 0) + 1);
+                                        updateNodeIntensityForLLM(keyId);
+                                    } else if (isComplete) {
+                                        const cur = (llmActiveByNode.get(keyId) || 0) - 1;
+                                        if (cur > 0) llmActiveByNode.set(keyId, cur); else llmActiveByNode.delete(keyId);
+                                        updateNodeIntensityForLLM(keyId);
+                                    }
+                                }
+                            }
+
+                            if (sid && tid) {
+                                if (isStart) {
+                                    // Fire red immediately and record start
+                                    pulseLink(sid, tid, 0xe74c3c);
+                                    // If a complete is pending for this key, delay it slightly so red is visible first
+                                    const pending = pendingCompleteByKey.get(key);
+                                    if (pending) {
+                                        clearTimeout(pending);
+                                        const timeoutId = setTimeout(() => {
+                                            pulseLink(sid, tid, 0x2ecc71);
+                                            pendingCompleteByKey.delete(key);
+                                        }, 220);
+                                        pendingCompleteByKey.set(key, timeoutId);
+                                    }
+                                } else if (isComplete) {
+                                    const last = lastStartByKey.get(key) || 0;
+                                    // If we recently saw a start for this call/edge, schedule green after a brief delay
+                                    if (last && (ts - last) < 1500) {
+                                        const timeoutId = setTimeout(() => {
+                                            pulseLink(sid, tid, 0x2ecc71);
+                                            pendingCompleteByKey.delete(key);
+                                        }, 180);
+                                        pendingCompleteByKey.set(key, timeoutId);
+                                    } else {
+                                        // No start observed yet (or out-of-order): wait briefly for a possible start, then pulse
+                                        const timeoutId = setTimeout(() => {
+                                            pulseLink(sid, tid, 0x2ecc71);
+                                            pendingCompleteByKey.delete(key);
+                                        }, 260);
+                                        pendingCompleteByKey.set(key, timeoutId);
+                                    }
+                                }
+                            }
+                        } catch (e) { /* ignore */ }
+                    });
+                }
+            } catch (e) { appendDebugLine(`socket error: ${e}`); }
+        }
+        
+        let ambientLight, pointLight, dirLight1, dirLight2;
+        function setupLighting() {
+            ambientLight = new THREE.AmbientLight(0x1a2440, 0.8);
+            scene.add(ambientLight);
+            
+            pointLight = new THREE.PointLight(0xffe4b5, 3, 500);
+            pointLight.position.set(0, 0, 0);
+            scene.add(pointLight);
+            
+            dirLight1 = new THREE.DirectionalLight(0x4488ff, 0.5);
+            dirLight1.position.set(-200, 100, -100);
+            scene.add(dirLight1);
+            
+            dirLight2 = new THREE.DirectionalLight(0x8844ff, 0.3);
+            dirLight2.position.set(100, -50, 200);
+            scene.add(dirLight2);
+        }
+        
+        function setupPostProcessing() {
+            composer = new EffectComposer(renderer);
+            composer.addPass(new RenderPass(scene, camera));
+            const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.8, 0.4, 0.1);
+            composer.addPass(bloomPass);
+            composer.addPass(new OutputPass());
+        }
+        
+        function createEnvironment() {
+            // Similar to example, add starfield layers
+            const layers = [
+                { count: 5000, distance: [200, 500], size: [0.5, 1.0], color: 0x6688bb },
+                { count: 3000, distance: [500, 1000], size: [0.8, 1.5], color: 0x88aadd },
+                { count: 2000, distance: [1000, 2000], size: [1.0, 2.0], color: 0xaaccff }
+            ];
+            layers.forEach(layer => {
+                const geometry = new THREE.BufferGeometry();
+                const positions = new Float32Array(layer.count * 3);
+                const colors = new Float32Array(layer.count * 3);
+                const sizes = new Float32Array(layer.count);
+                const color = new THREE.Color(layer.color);
+                for (let i = 0; i < layer.count; i++) {
+                    const theta = Math.random() * 2 * Math.PI;
+                    const phi = Math.acos(2 * Math.random() - 1);
+                    const r = layer.distance[0] + Math.random() * (layer.distance[1] - layer.distance[0]);
+                    positions[i*3] = r * Math.sin(phi) * Math.cos(theta);
+                    positions[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+                    positions[i*3+2] = r * Math.cos(phi);
+                    colors[i*3] = color.r;
+                    colors[i*3+1] = color.g;
+                    colors[i*3+2] = color.b;
+                    sizes[i] = layer.size[0] + Math.random() * (layer.size[1] - layer.size[0]);
+                }
+                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+                geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+                const material = new THREE.PointsMaterial({
+                    size: 1.5,
+                    vertexColors: true,
+                    sizeAttenuation: true,
+                    transparent: true,
+                    opacity: 0.7
+                });
+                const starfield = new THREE.Points(geometry, material);
+                scene.add(starfield);
+            });
+        }
+        
+        function initEdgeMaterial() {
+            edgeMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    time: { value: 0.0 },
+                    color: { value: new THREE.Color(themes[currentThemeIndex].edgeColor) },
+                    opacity: { value: 0.02 },
+                    energy: { value: 0.0 }
+                },
+                vertexShader: document.getElementById('edgeVertexShader').textContent,
+                fragmentShader: document.getElementById('edgeFragmentShader').textContent,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+            edgeGeom = new THREE.CylinderGeometry(1, 1, 1, 8, 1, false);
+            edgeGeom.rotateX(Math.PI / 2);
+        }
+        
+        let nodeMaterials = {};
+        let nodeMeshes = new Map();
+        let llmActiveByNode = new Map(); // nodeId -> active LLM call count
+        let edgeGeom;
+        let edgeMaterial;
+        let linkObjects = new Map(); // key: "source->target" → THREE.Group for the link
+        let pendingLinkPulses = new Map(); // key -> [{ colorHex }]
+        // Removed setupGraph and force-graph integration
+
+        // Increase spacing for force-directed layout
+        // Force-directed helpers removed in orbital build
+        
+        function getCubePosition(p) {
+            const v = p.clone().normalize();
+            const max = Math.max(Math.abs(v.x), Math.abs(v.y), Math.abs(v.z));
+            return v.divideScalar(max);
+        }
+        
+        function createTextSprite(text) {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const fontSize = 64;
+            const padding = 16;
+            ctx.font = `${fontSize}px Inter, Arial, sans-serif`;
+            const metrics = ctx.measureText(text);
+            canvas.width = Math.ceil(metrics.width + padding * 2);
+            canvas.height = Math.ceil(fontSize + padding * 2);
+            ctx.font = `${fontSize}px Inter, Arial, sans-serif`;
+            ctx.fillStyle = 'rgba(255,255,255,0.95)';
+            ctx.textBaseline = 'top';
+            ctx.fillText(text, padding, padding);
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.minFilter = THREE.LinearFilter;
+            const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
+            const sprite = new THREE.Sprite(material);
+            const scaleFactor = 0.05;
+            sprite.scale.set(canvas.width * scaleFactor, canvas.height * scaleFactor, 1);
+            sprite.userData.isLinkLabel = true;
+            return sprite;
+        }
+        
+        function updateGraphData() {
+            if (!disconnectedCheckbox.checked) {
+                // Filter out disconnected nodes
+                const connectedNodes = new Set();
+                graphData.links.forEach(link => {
+                    connectedNodes.add(link.source);
+                    connectedNodes.add(link.target);
+                });
+                filteredGraphData.nodes = graphData.nodes.filter(node => connectedNodes.has(node.id));
+                filteredGraphData.links = graphData.links;
+            } else {
+                filteredGraphData = {...graphData};
+            }
+            // Update known nodes immediately
+            knownNodeIds = new Set(filteredGraphData.nodes.map(n => String(n.id)));
+            
+            // Don't clear linkObjects if we're just adding nodes/edges
+            const wasEmpty = linkObjects.size === 0;
+            if (wasEmpty) {
+                appendDebugLine(`updateGraphData initial build, nodes=${filteredGraphData.nodes.length} links=${filteredGraphData.links.length}`);
+            } else {
+                appendDebugLine(`updateGraphData preserving ${linkObjects.size} link objects, nodes=${filteredGraphData.nodes.length} links=${filteredGraphData.links.length}`);
+            }
+            
+            // Ensure scene reflects data
+            ensureNodeMeshes();
+            ensureLinkObjects();
+        }
+        
+        function applyTheme(index) {
+            const theme = themes[index];
+            themeButton.querySelector('span:last-of-type').textContent = `Theme: ${theme.name}`;
+            ambientLight.color.set(theme.ambientLightColor);
+            pointLight.color.set(theme.pointLightColor);
+            dirLight1.color.set(theme.dirLight1);
+            dirLight2.color.set(theme.dirLight2);
+            if (edgeMaterial && edgeMaterial.uniforms && edgeMaterial.uniforms.color) {
+            edgeMaterial.uniforms.color.value.set(theme.edgeColor);
+            }
+            // Update any existing node shader materials we created
+            Object.values(nodeMaterials).forEach(mat => {
+                if (!mat || !mat.uniforms) return;
+                const type = mat.userDataType || 'Agent';
+                const base = theme.nodeColors[type];
+                const acc  = theme.accentColors[type];
+                if (base && acc) {
+                    mat.uniforms.baseColor.value.set(...base);
+                    mat.uniforms.accentColor.value.set(...acc);
+                }
+            });
+        }
+
+        function ensureNodeMeshes() {
+            const currentIds = new Set((filteredGraphData.nodes||[]).map(n => n.id));
+            // Remove stale meshes
+            Array.from(nodeMeshes.keys()).forEach(id => {
+                if (!currentIds.has(id)) {
+                    const mesh = nodeMeshes.get(id);
+                    if (mesh) scene.remove(mesh);
+                    nodeMeshes.delete(id);
+                }
+            });
+            // Create missing
+            (filteredGraphData.nodes||[]).forEach(node => {
+                if (!nodeMeshes.get(node.id)) {
+                    const geo = new THREE.IcosahedronGeometry(6 + Math.random()*4, 3);
+                    const mat = new THREE.ShaderMaterial({
+                        uniforms: {
+                            time: { value: 0.0 },
+                            baseColor: { value: new THREE.Vector3(...themes[currentThemeIndex].nodeColors[node.type||'Function']) },
+                            accentColor: { value: new THREE.Vector3(...themes[currentThemeIndex].accentColors[node.type||'Function']) },
+                            energy: { value: 0.0 },
+                            baseIntensity: { value: 0.15 }
+                        },
+                        vertexShader: document.getElementById('nodeVertexShader').textContent,
+                        fragmentShader: document.getElementById('nodeFragmentShader').textContent
+                    });
+                    mat.userDataType = node.type||'Function';
+                    mat.userData = mat.userData || {};
+                    mat.userData.baseDim = 0.15;
+                    const mesh = new THREE.Mesh(geo, mat);
+                    mesh.userData.node = node;
+                    scene.add(mesh);
+                    nodeMeshes.set(node.id, mesh);
+                    // If this node currently has active LLM calls, brighten it now
+                    const cur = llmActiveByNode.get(String(node.id)) || 0;
+                    if (cur > 0 && mesh.material && mesh.material.uniforms && mesh.material.uniforms.baseIntensity) {
+                        mesh.material.uniforms.baseIntensity.value = (mesh.material.userData.baseDim || 0.15) * 3.0;
+                    }
+                }
+            });
+        }
+
+        function adjustSpeedMultiplier(key, newValue) {
+            try {
+                const prev = speedMultiplier[key];
+                if (typeof prev !== 'number' || typeof newValue !== 'number') {
+                    speedMultiplier[key] = newValue || 1.0;
+                    return;
+                }
+                if (prev === newValue) return;
+                // Update offsets to avoid positional jumps at the moment of speed change
+                scene.traverse(obj => {
+                    if (!obj.userData || !obj.userData.node || !obj.userData.node.orbitalData) return;
+                    const node = obj.userData.node;
+                    const data = node.orbitalData;
+                    if (data.type === 'primary') {
+                        const tkey = node.type; // 'Interface' | 'Agent' | 'Service' | 'Function'
+                        const applies = (key === 'Interface' && tkey === 'Interface') ||
+                                        (key === 'Agent' && tkey === 'Agent') ||
+                                        (key === 'Service' && tkey === 'Service');
+                        if (!applies) return;
+                        const angleOld = data.angle + orbitTime * data.speed * prev + (data.offset || 0);
+                        const angleNew = data.angle + orbitTime * data.speed * newValue + (data.offset || 0);
+                        data.offset = (data.offset || 0) + (angleOld - angleNew);
+                    } else if (data.type === 'moon') {
+                        if (key !== 'FunctionMoon') return;
+                        const angleOld = data.angle + orbitTime * data.speed * prev + (data.offset || 0);
+                        const angleNew = data.angle + orbitTime * data.speed * newValue + (data.offset || 0);
+                        data.offset = (data.offset || 0) + (angleOld - angleNew);
+                    }
+                });
+                speedMultiplier[key] = newValue;
+            } catch (_) { speedMultiplier[key] = newValue; }
+        }
+
+        function updateNodeIntensityForLLM(nodeId) {
+            try {
+                const id = String(nodeId||'');
+                if (!id) return;
+                const mesh = nodeMeshes.get(id);
+                if (!mesh || !mesh.material || !mesh.material.uniforms) return;
+                const baseDim = mesh.material.userData?.baseDim ?? 0.15;
+                const activeCount = Math.max(0, llmActiveByNode.get(id) || 0);
+                const target = activeCount > 0 ? baseDim * 3.0 : baseDim;
+                mesh.material.uniforms.baseIntensity.value = target;
+            } catch (_) { /* ignore */ }
+        }
+
+        function createLinkObject(srcId, tgtId) {
+            const key = `${srcId}->${tgtId}`;
+            if (linkObjects.get(key)) return;
+            const group = new THREE.Group();
+            const cylinder = new THREE.Mesh(edgeGeom.clone(), edgeMaterial.clone());
+            cylinder.name = 'edgeCylinder';
+            group.add(cylinder);
+            const pulseMat = edgeMaterial.clone();
+            pulseMat.uniforms.opacity.value = 0.0;
+            const pulse = new THREE.Mesh(edgeGeom.clone(), pulseMat);
+            pulse.name = 'edgePulse';
+            pulse.scale.set(1.2, 1.2, 1);
+            group.add(pulse);
+            const srcName = (filteredGraphData.nodes||[]).find(n=>n.id===srcId)?.name || srcId;
+            const tgtName = (filteredGraphData.nodes||[]).find(n=>n.id===tgtId)?.name || tgtId;
+            const label = createTextSprite(`${srcName} -> ${tgtName}`);
+            label.name = 'edgeLabel';
+            label.visible = edgeLabelsVisible;
+            label.position.set(0, 2, 0);
+            group.add(label);
+            group.userData.linkKey = key;
+            linkObjects.set(key, group);
+            scene.add(group);
+        }
+
+        function ensureLinkObjects() {
+            const keys = new Set((filteredGraphData.links||[]).map(l => `${String(l.source)}->${String(l.target)}`));
+            // Remove stale
+            Array.from(linkObjects.keys()).forEach(k => {
+                if (!keys.has(k)) {
+                    const obj = linkObjects.get(k);
+                    if (obj) scene.remove(obj);
+                    linkObjects.delete(k);
+                }
+            });
+            // Create missing
+            (filteredGraphData.links||[]).forEach(l => createLinkObject(String(l.source), String(l.target)));
+            updateLinkPositions();
+        }
+
+        function rebuildSceneForData() {
+            ensureNodeMeshes();
+            ensureLinkObjects();
+            if (currentLayout === 'orbital') {
+                applyOrbitalLayout();
+                orbitalActive = true;
+                if (!orbitalAnimationId) startOrbitalAnimation();
+            }
+        }
+        
+        function toggleTheme() {
+            currentThemeIndex = (currentThemeIndex + 1) % themes.length;
+            applyTheme(currentThemeIndex);
+        }
+        
+        // Morph functionality removed in this build
+        
+        function setLayout(layout) {
+            currentLayout = layout;
+            // Only orbital mode is supported in this demo. Others are disabled.
+            if (layout !== 'orbital') {
+                stopOrbitalAnimation();
+                alert('Only the Orbital layout is enabled in this build.');
+                return;
+            }
+            // Build rings for orbital layout
+            addOrbitalRings();
+            // Enable orbital animation for demo mode
+            orbitalActive = true;
+            startOrbitalAnimation();
+        }
+        
+        function applyLayeredLayout() {
+            // Define layer heights (Y positions)
+            const layerHeight = 120; // Increased vertical spacing between layers
+            const layers = {
+                'Interface': 0,
+                'Agent': 1,
+                'Service': 2,
+                'Function': 3
+            };
+            
+            // Group nodes by type
+            const nodesByType = {
+                'Interface': [],
+                'Agent': [],
+                'Service': [],
+                'Function': []
+            };
+            
+            filteredGraphData.nodes.forEach(node => {
+                const type = node.type || 'Function';
+                if (nodesByType[type]) {
+                    nodesByType[type].push(node);
+                } else {
+                    console.warn(`Unknown node type: ${type} for node ${node.id}`);
+                    nodesByType['Function'].push(node); // Default to Function
+                }
+            });
+            
+            // Debug: log node distribution
+            console.log('Node distribution by layer:');
+            Object.entries(nodesByType).forEach(([type, nodes]) => {
+                console.log(`  ${type}: ${nodes.length} nodes`);
+            });
+            
+            // Calculate positions for each layer with intelligent layout
+            const nodePositions = {};
+            
+            // For better layout, we need to understand connections
+            const connectionCounts = {};
+            filteredGraphData.links.forEach(link => {
+                const src = idOf(link.source);
+                const tgt = idOf(link.target);
+                connectionCounts[src] = (connectionCounts[src] || 0) + 1;
+                connectionCounts[tgt] = (connectionCounts[tgt] || 0) + 1;
+            });
+            
+            Object.keys(nodesByType).forEach(type => {
+                const nodesInLayer = nodesByType[type];
+                const layerY = -layers[type] * layerHeight + layerHeight * 1.5; // Center vertically
+                
+                if (nodesInLayer.length === 0) return;
+                
+                // Sort nodes by connection count (most connected in center)
+                nodesInLayer.sort((a, b) => (connectionCounts[b.id] || 0) - (connectionCounts[a.id] || 0));
+                
+                // Use circular/spiral layout for better distribution
+                if (nodesInLayer.length <= 6) {
+                    // Small number: arrange in circle
+                    const radius = nodesInLayer.length === 1 ? 0 : 50;
+                    nodesInLayer.forEach((node, index) => {
+                        const angle = (index / nodesInLayer.length) * Math.PI * 2;
+                        nodePositions[node.id] = {
+                            x: Math.cos(angle) * radius,
+                            y: layerY,
+                            z: Math.sin(angle) * radius
+                        };
+                    });
+                } else {
+                    // Larger number: use concentric circles
+                    const nodesPerRing = 8;
+                    let currentRadius = 0;
+                    let ringIndex = 0;
+                    let nodeInRing = 0;
+                    
+                    nodesInLayer.forEach((node, index) => {
+                        if (index === 0) {
+                            // Center the most connected node
+                            nodePositions[node.id] = { x: 0, y: layerY, z: 0 };
+                        } else {
+                            if (nodeInRing >= nodesPerRing * (ringIndex + 1)) {
+                                ringIndex++;
+                                currentRadius = 80 * (ringIndex + 1);
+                                nodeInRing = 0;
+                            }
+                            const nodesInThisRing = Math.min(nodesPerRing * (ringIndex + 1), nodesInLayer.length - 1);
+                            const angleOffset = (nodeInRing / nodesInThisRing) * Math.PI * 2;
+                            
+                            nodePositions[node.id] = {
+                                x: Math.cos(angleOffset) * currentRadius,
+                                y: layerY,
+                                z: Math.sin(angleOffset) * currentRadius
+                            };
+                            nodeInRing++;
+                        }
+                    });
+                }
+            });
+            
+            // Apply positions to nodes
+            filteredGraphData.nodes.forEach(node => {
+                const pos = nodePositions[node.id];
+                if (pos) {
+                    node.fx = pos.x; // Fixed x position
+                    node.fy = pos.y; // Fixed y position
+                    node.fz = pos.z; // Fixed z position
+                }
+            });
+            
+            // Disable physics forces
+            graph
+                .dagMode(null)
+                .cooldownTicks(0)
+                .d3Force('charge', null)
+                .d3Force('center', null)
+                .d3Force('link', null);
+            
+            // Force update
+            graph.numDimensions(3);
+            graph.refresh();
+            
+            // Adjust camera for better view of layers
+            camera.position.set(0, 150, 400);
+            camera.lookAt(0, -50, 0);
+            controls.target.set(0, -50, 0);
+            controls.update();
+            
+            // Add subtle layer planes for visual clarity
+            addLayerPlanes();
+        }
+        
+        let nodePositions = {}; // Make this accessible to orbital animation
+        
+        function applyOrbitalLayout() {
+            // Define orbital radii and heights for layered rings
+            // Determine dynamic radii based on counts to reduce crowding
+            const countInterface = filteredGraphData.nodes.filter(n => n.type === 'Interface').length || 1;
+            const countAgent = filteredGraphData.nodes.filter(n => n.type === 'Agent').length || 1;
+            const countService = filteredGraphData.nodes.filter(n => n.type === 'Service').length || 1;
+            // Base radius per ring; add growth per item to keep spacing
+            const baseRing = 180;
+            const perItem = 9; // pixels per node increment
+            const orbits = {
+                'Interface': { radius: baseRing + perItem * Math.max(0, countInterface - 8), height: 120, speed: 0.05 },
+                'Agent': { radius: baseRing + perItem * Math.max(0, countAgent - 8), height: 0, speed: 0.08 },
+                'Service': { radius: baseRing + perItem * Math.max(0, countService - 12), height: -120, speed: 0.1 },
+                'Function': { radius: 34, height: 0, speed: 0.3 }
+            };
+            
+            // Group nodes by type
+            const nodesByType = {
+                'Interface': [],
+                'Agent': [],
+                'Service': [],
+                'Function': []
+            };
+            
+            // Also track service-function relationships
+            const functionsByService = {};
+            
+            filteredGraphData.nodes.forEach(node => {
+                const type = node.type || 'Function';
+                if (nodesByType[type]) {
+                    nodesByType[type].push(node);
+                }
+            });
+            
+            // Find which functions belong to which services
+            filteredGraphData.links.forEach(link => {
+                const source = filteredGraphData.nodes.find(n => n.id === idOf(link.source));
+                const target = filteredGraphData.nodes.find(n => n.id === idOf(link.target));
+                
+                if (source && target) {
+                    if (source.type === 'Service' && target.type === 'Function') {
+                        if (!functionsByService[source.id]) functionsByService[source.id] = [];
+                        functionsByService[source.id].push(target);
+                    } else if (target.type === 'Service' && source.type === 'Function') {
+                        if (!functionsByService[target.id]) functionsByService[target.id] = [];
+                        functionsByService[target.id].push(source);
+                    }
+                }
+            });
+            
+            // Calculate initial positions for each node
+            nodePositions = {}; // Reset positions
+            const nodeOrbitalData = {};
+            
+            // Position interfaces, agents, and services evenly around their orbits
+            ['Interface', 'Agent', 'Service'].forEach(type => {
+                const nodes = nodesByType[type];
+                const orbit = orbits[type];
+                
+                if (nodes.length === 0) return;
+                
+                nodes.forEach((node, index) => {
+                    // Evenly distribute nodes around the circle
+                    const angle = (index / nodes.length) * Math.PI * 2;
+                    const x = Math.cos(angle) * orbit.radius;
+                    const z = Math.sin(angle) * orbit.radius;
+                    
+                    nodePositions[node.id] = {
+                        x: x,
+                        y: orbit.height,
+                        z: z
+                    };
+                    
+                    // Store orbital data for animation
+                    nodeOrbitalData[node.id] = {
+                        radius: orbit.radius,
+                        angle: angle,
+                        speed: orbit.speed,
+                        height: orbit.height,
+                        type: 'primary',
+                        offset: 0
+                    };
+                    
+                    console.log(`Positioned ${type} ${node.id} at angle ${angle.toFixed(2)} rad, pos (${x.toFixed(1)}, ${orbit.height}, ${z.toFixed(1)})`);
+                });
+            });
+            
+            // Position functions around their services
+            Object.entries(functionsByService).forEach(([serviceId, functions]) => {
+                const servicePos = nodePositions[serviceId];
+                if (servicePos) {
+                    functions.forEach((func, index) => {
+                        const moonAngle = (index / functions.length) * Math.PI * 2;
+                        const moonRadius = 25;
+                        
+                        // Functions orbit around their service at the service's height
+                        nodePositions[func.id] = {
+                            x: servicePos.x + Math.cos(moonAngle) * moonRadius,
+                            y: servicePos.y,  // Same height as service
+                            z: servicePos.z + Math.sin(moonAngle) * moonRadius
+                        };
+                        
+                        nodeOrbitalData[func.id] = {
+                            parentId: serviceId,
+                            radius: moonRadius,
+                            angle: moonAngle,
+                            speed: 0.3,
+                            height: servicePos.y,  // Store service height
+                            type: 'moon',
+                            offset: 0
+                        };
+                    });
+                }
+            });
+            
+            // Position any unconnected functions in a small orbit below services
+            const unconnectedFunctions = nodesByType['Function'].filter(
+                func => !Object.values(functionsByService).flat().includes(func)
+            );
+            if (unconnectedFunctions.length > 0) {
+                unconnectedFunctions.forEach((func, index) => {
+                    const angle = (index / unconnectedFunctions.length) * Math.PI * 2;
+                    const radius = 40;  // Small orbit for unconnected functions
+                    const height = -150; // Below services
+                    nodePositions[func.id] = {
+                        x: Math.cos(angle) * radius,
+                        y: height,
+                        z: Math.sin(angle) * radius
+                    };
+                    
+                    nodeOrbitalData[func.id] = {
+                        radius: radius,
+                        angle: angle,
+                        speed: 0.2,
+                        height: height,
+                        type: 'primary'
+                    };
+                });
+            }
+            
+            // Apply positions to nodes
+            filteredGraphData.nodes.forEach(node => {
+                const pos = nodePositions[node.id];
+                if (pos) {
+                    node.fx = pos.x;
+                    node.fy = pos.y;
+                    node.fz = pos.z;
+                    node.orbitalData = nodeOrbitalData[node.id];
+                }
+            });
+            
+            // Store orbital data for animation
+            orbitalActive = true;
+            
+            // Don't use graph refresh in orbital mode - directly position THREE.js objects
+            setTimeout(() => {
+                // Directly position all node meshes
+                scene.traverse(obj => {
+                    if (obj.userData && obj.userData.node) {
+                        const node = obj.userData.node;
+                        const pos = nodePositions[node.id];
+                        if (pos) {
+                            obj.position.set(pos.x, pos.y, pos.z);
+                            // Update node data for consistency
+                            node.x = pos.x;
+                            node.y = pos.y;
+                            node.z = pos.z;
+                            console.log(`Positioned node ${node.id} at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`);
+                        }
+                    }
+                });
+                
+                // Update link positions
+                updateLinkPositions();
+            }, 100);
+            
+            // Do NOT reset camera/controls here to preserve the user's zoom/angle
+            
+            // Add orbital rings for visualization
+            addOrbitalRings();
+            
+            // Start orbital animation
+            startOrbitalAnimation();
+        }
+        
+        function addOrbitalRings() {
+            // Remove existing orbital rings if any
+            scene.children = scene.children.filter(child => !child.userData.isOrbitalRing);
+            
+            // Use same dynamic radii logic for visualization rings
+            const countInterface = filteredGraphData.nodes.filter(n => n.type === 'Interface').length || 1;
+            const countAgent = filteredGraphData.nodes.filter(n => n.type === 'Agent').length || 1;
+            const countService = filteredGraphData.nodes.filter(n => n.type === 'Service').length || 1;
+            const baseRing = 180;
+            const perItem = 9;
+            const ringInfo = [
+                { radius: baseRing + perItem * Math.max(0, countInterface - 8), height: 120, color: 0x3366ff, opacity: 0.15, label: 'INTERFACES' },
+                { radius: baseRing + perItem * Math.max(0, countAgent - 8), height: 0, color: 0x33ff66, opacity: 0.15, label: 'AGENTS' },
+                { radius: baseRing + perItem * Math.max(0, countService - 12), height: -120, color: 0xff9933, opacity: 0.15, label: 'SERVICES' }
+            ];
+            
+            ringInfo.forEach(ring => {
+                // Create ring geometry - just the glowing torus for the orbit path
+                const edgeGeometry = new THREE.TorusGeometry(ring.radius, 2, 16, 100);
+                const edgeMaterial = new THREE.MeshBasicMaterial({
+                    color: ring.color,
+                    transparent: true,
+                    opacity: 0.4,
+                    depthWrite: false
+                });
+                const edgeMesh = new THREE.Mesh(edgeGeometry, edgeMaterial);
+                edgeMesh.rotation.x = -Math.PI / 2;
+                edgeMesh.position.y = ring.height;
+                edgeMesh.userData.isOrbitalRing = true;
+                scene.add(edgeMesh);
+                
+                // Add a subtle filled disc
+                const discGeometry = new THREE.RingGeometry(0, ring.radius + 10, 64);
+                const discMaterial = new THREE.MeshBasicMaterial({
+                    color: ring.color,
+                    transparent: true,
+                    opacity: 0.02,
+                    side: THREE.DoubleSide,
+                    depthWrite: false
+                });
+                const discMesh = new THREE.Mesh(discGeometry, discMaterial);
+                discMesh.rotation.x = -Math.PI / 2;
+                discMesh.position.y = ring.height;
+                discMesh.userData.isOrbitalRing = true;
+                scene.add(discMesh);
+                
+                // Add label
+                const labelSprite = createLayerLabel(ring.label, ring.color);
+                labelSprite.position.set(ring.radius + 30, ring.height, 0);
+                labelSprite.userData.isOrbitalRing = true;
+                scene.add(labelSprite);
+            });
+        }
+        
+        let orbitalAnimationId = null;
+        let orbitalActive = false;
+        
+        function startOrbitalAnimation() {
+            if (orbitalAnimationId) return;
+            
+            // First, ensure initial positions are set
+            scene.traverse(obj => {
+                if (obj.userData && obj.userData.node) {
+                    const node = obj.userData.node;
+                    const pos = nodePositions[node.id];
+                    if (pos) {
+                        obj.position.set(pos.x, pos.y, pos.z);
+                    }
+                }
+            });
+            
+            const animate = () => {
+                if (currentLayout !== 'orbital' || !orbitalActive) {
+                    orbitalAnimationId = null;
+                    return;
+                }
+                // Advance orbit time only when not frozen
+                const now = clock.getElapsedTime();
+                if (lastOrbitTs === null) lastOrbitTs = now;
+                if (!orbitsFrozen) {
+                    orbitTime += (now - lastOrbitTs);
+                }
+                lastOrbitTs = now;
+                
+                // Directly update THREE.js object positions
+                scene.traverse(obj => {
+                    if (obj.userData && obj.userData.node && obj.userData.node.orbitalData) {
+                        const node = obj.userData.node;
+                        const data = node.orbitalData;
+                        
+                        if (data.type === 'primary') {
+                            // Primary orbital motion
+                            const typeKey = node.type;
+                            const sm = (typeKey === 'Interface') ? speedMultiplier.Interface : (typeKey === 'Agent') ? speedMultiplier.Agent : (typeKey === 'Service') ? speedMultiplier.Service : 1.0;
+                            const angle = data.angle + orbitTime * data.speed * sm + (data.offset || 0);
+                            const x = Math.cos(angle) * data.radius;
+                            const z = Math.sin(angle) * data.radius;
+                            obj.position.set(x, data.height, z);
+                            
+                            // Update node data for link positioning
+                            node.x = x;
+                            node.y = data.height;
+                            node.z = z;
+                        } else if (data.type === 'moon' && data.parentId) {
+                            // Find parent's THREE.js object
+                            let parentPos = null;
+                            scene.traverse(parentObj => {
+                                if (parentObj.userData && parentObj.userData.node && parentObj.userData.node.id === data.parentId) {
+                                    parentPos = parentObj.position;
+                                }
+                            });
+                            
+                            if (parentPos) {
+                                const angle = data.angle + orbitTime * data.speed * speedMultiplier.FunctionMoon + (data.offset || 0);
+                                const x = parentPos.x + Math.cos(angle) * data.radius;
+                                const z = parentPos.z + Math.sin(angle) * data.radius;
+                                obj.position.set(x, parentPos.y, z);
+                                
+                                // Update node data for link positioning
+                                node.x = x;
+                                node.y = parentPos.y;
+                                node.z = z;
+                            }
+                        }
+                    }
+                });
+                
+                // Update link positions manually
+                updateLinkPositions();
+                
+                orbitalAnimationId = requestAnimationFrame(animate);
+            };
+            
+            orbitalAnimationId = requestAnimationFrame(animate);
+        }
+        
+        function updateLinkPositions() {
+            // Update link cylinder positions based on node positions
+            linkObjects.forEach((linkObj, key) => {
+                const [srcId, tgtId] = key.split('->');
+                let srcPos = null, tgtPos = null;
+                
+                scene.traverse(obj => {
+                    if (obj.userData && obj.userData.node) {
+                        if (obj.userData.node.id === srcId) srcPos = obj.position;
+                        if (obj.userData.node.id === tgtId) tgtPos = obj.position;
+                    }
+                });
+                
+                if (srcPos && tgtPos && linkObj.parent) {
+                    const mid = new THREE.Vector3(
+                        (srcPos.x + tgtPos.x) / 2,
+                        (srcPos.y + tgtPos.y) / 2,
+                        (srcPos.z + tgtPos.z) / 2
+                    );
+                    linkObj.position.copy(mid);
+                    linkObj.lookAt(tgtPos);
+                    
+                    const cylinder = linkObj.getObjectByName('edgeCylinder');
+                    const pulse = linkObj.getObjectByName('edgePulse');
+                    const distance = srcPos.distanceTo(tgtPos);
+                    
+                    if (cylinder) cylinder.scale.set(1, 1, distance);
+                    if (pulse) pulse.scale.set(pulse.scale.x, pulse.scale.y, distance);
+                }
+            });
+        }
+        
+        function stopOrbitalAnimation() {
+            if (orbitalAnimationId) {
+                cancelAnimationFrame(orbitalAnimationId);
+                orbitalAnimationId = null;
+            }
+            orbitalActive = false;
+        }
+
+        function removeNodeById(nodeId) {
+            try {
+                const id = String(nodeId);
+                graphData.nodes = (graphData.nodes || []).filter(n => String(n.id) !== id);
+                graphData.links = (graphData.links || []).filter(l => String(idOf(l.source)) !== id && String(idOf(l.target)) !== id);
+                const mesh = nodeMeshes.get(id);
+                if (mesh) { scene.remove(mesh); nodeMeshes.delete(id); }
+                Array.from(linkObjects.keys()).forEach(k => {
+                    const [s,t] = k.split('->');
+                    if (s === id || t === id) {
+                        const obj = linkObjects.get(k);
+                        if (obj) scene.remove(obj);
+                        linkObjects.delete(k);
+                        pendingLinkPulses.delete(k);
+                    }
+                });
+                updateGraphData();
+                rebuildSceneForData();
+            } catch (_) { /* ignore */ }
+        }
+
+        function removeEdgeByEndpoints(srcId, tgtId) {
+            try {
+                const sid = String(srcId), tid = String(tgtId);
+                graphData.links = (graphData.links || []).filter(l => !(String(idOf(l.source)) === sid && String(idOf(l.target)) === tid));
+                const key = `${sid}->${tid}`;
+                const obj = linkObjects.get(key);
+                if (obj) { scene.remove(obj); linkObjects.delete(key); }
+                pendingLinkPulses.delete(key);
+                updateGraphData();
+            } catch (_) { /* ignore */ }
+        }
+        
+        function addLayerPlanes() {
+            // Remove existing layer planes if any
+            scene.children = scene.children.filter(child => !child.userData.isLayerPlane);
+            
+            const layerInfo = [
+                { name: 'Interface', y: 180, color: 0x3366ff, label: 'INTERFACES' },
+                { name: 'Agent', y: 60, color: 0x33ff66, label: 'AGENTS' },
+                { name: 'Service', y: -60, color: 0xff9933, label: 'SERVICES' },
+                { name: 'Function', y: -180, color: 0xff33ff, label: 'FUNCTIONS' }
+            ];
+            
+            layerInfo.forEach(layer => {
+                // Create a subtle plane for each layer
+                const planeGeometry = new THREE.PlaneGeometry(400, 400);
+                const planeMaterial = new THREE.MeshBasicMaterial({
+                    color: layer.color,
+                    transparent: true,
+                    opacity: 0.02,
+                    side: THREE.DoubleSide,
+                    depthWrite: false
+                });
+                const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+                plane.rotation.x = -Math.PI / 2;
+                plane.position.y = layer.y - 5; // Slightly below nodes
+                plane.userData.isLayerPlane = true;
+                scene.add(plane);
+                
+                // Add glowing edge ring
+                const ringGeometry = new THREE.RingGeometry(180, 200, 64);
+                const ringMaterial = new THREE.MeshBasicMaterial({
+                    color: layer.color,
+                    transparent: true,
+                    opacity: 0.1,
+                    side: THREE.DoubleSide,
+                    depthWrite: false
+                });
+                const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+                ring.rotation.x = -Math.PI / 2;
+                ring.position.y = layer.y - 5;
+                ring.userData.isLayerPlane = true;
+                scene.add(ring);
+                
+                // Add layer label
+                const labelSprite = createLayerLabel(layer.label, layer.color);
+                labelSprite.position.set(-220, layer.y, 0);
+                labelSprite.userData.isLayerPlane = true;
+                scene.add(labelSprite);
+            });
+        }
+        
+        function createLayerLabel(text, color) {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const fontSize = 48;
+            const padding = 20;
+            
+            ctx.font = `bold ${fontSize}px Orbitron, Arial, sans-serif`;
+            const metrics = ctx.measureText(text);
+            
+            canvas.width = Math.ceil(metrics.width + padding * 2);
+            canvas.height = Math.ceil(fontSize + padding * 2);
+            
+            // Redraw with actual canvas size
+            ctx.font = `bold ${fontSize}px Orbitron, Arial, sans-serif`;
+            ctx.fillStyle = new THREE.Color(color).getStyle();
+            ctx.globalAlpha = 0.6;
+            ctx.textBaseline = 'middle';
+            ctx.textAlign = 'center';
+            ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.minFilter = THREE.LinearFilter;
+            
+            const material = new THREE.SpriteMaterial({
+                map: texture,
+                transparent: true,
+                depthWrite: false,
+                depthTest: false
+            });
+            
+            const sprite = new THREE.Sprite(material);
+            const scale = 0.3;
+            sprite.scale.set(canvas.width * scale, canvas.height * scale, 1);
+            
+            return sprite;
+        }
+        
+        function activateGraph() {
+            // Simulate activation: randomly select a link and pulse it
+            const randomLink = filteredGraphData.links[Math.floor(Math.random() * filteredGraphData.links.length)];
+            if (randomLink) {
+                createPulse(randomLink.source, randomLink.target);
+                pulseLink(randomLink.source?.id || randomLink.source, randomLink.target?.id || randomLink.target, 0xe74c3c);
+                // Update stats placeholder
+                statsDiv.children[0].textContent = `Active: ${parseInt(statsDiv.children[0].textContent.split(': ')[1]) + 1}`;
+                statsDiv.children[1].textContent = `Starts: ${parseInt(statsDiv.children[1].textContent.split(': ')[1]) + 1}`;
+            }
+        }
+
+        function pulseLink(sourceId, targetId, colorHex) {
+            try {
+                const key = `${sourceId}->${targetId}`;
+                let obj = linkObjects.get(key);
+                if (!obj) {
+                    // Try reverse direction if only INTERFACE_TO_AGENT edge exists
+                    const rkey = `${targetId}->${sourceId}`;
+                    const robj = linkObjects.get(rkey);
+                    // Debug: log what keys exist
+                    const allKeys = Array.from(linkObjects.keys());
+                    appendDebugLine(`pulse_lookup key=${key} exists=${!!obj} rkey=${rkey} rexists=${!!robj} total_keys=${allKeys.length}`);
+                    if (robj) {
+                        obj = robj;
+                        appendDebugLine(`redirect_pulse ${key} -> ${rkey}`);
+                    }
+                }
+                if (!obj) {
+                    // Suppress unmatched for non-graph endpoints like OpenAI
+                    const srcKnown = knownNodeIds.has(String(sourceId));
+                    const tgtKnown = knownNodeIds.has(String(targetId));
+                    if (srcKnown && tgtKnown) {
+                        // helpful diagnostics with labels/types
+                        const srcInfo = getNodeMeta(sourceId);
+                        const tgtInfo = getNodeMeta(targetId);
+                        const srcOut = linkKeysForSource(sourceId).slice(0, 10);
+                        const srcIn  = linkKeysForTarget(sourceId).slice(0, 10);
+                        const tgtOut = linkKeysForSource(targetId).slice(0, 10);
+                        const tgtIn  = linkKeysForTarget(targetId).slice(0, 10);
+                        appendDebugLine(
+                            `UNMATCHED activity link ${key} ` +
+                            `src=[${srcInfo.label||'?'} ${srcInfo.type||''} ${srcInfo.id}] ` +
+                            `tgt=[${tgtInfo.label||'?'} ${tgtInfo.type||''} ${tgtInfo.id}] ` +
+                            `src_out=[${srcOut.join(', ')}] src_in=[${srcIn.join(', ')}] ` +
+                            `tgt_out=[${tgtOut.join(', ')}] tgt_in=[${tgtIn.join(', ')}]`
+                        );
+                    }
+                    const arr = pendingLinkPulses.get(key) || [];
+                    arr.push({ colorHex });
+                    pendingLinkPulses.set(key, arr);
+                    return false;
+                }
+                const pulse = obj.getObjectByName('edgePulse');
+                const cylinder = obj.getObjectByName('edgeCylinder');
+                if (!pulse || !pulse.material || !pulse.material.uniforms) return false;
+                const mat = pulse.material;
+                const baseMat = cylinder ? cylinder.material : null;
+                const baseColor = new THREE.Color(themes[currentThemeIndex].edgeColor);
+                const isStartColor = (colorHex === 0xe74c3c);
+                const effect = {
+                    startTime: clock.getElapsedTime(),
+                    duration: isStartColor ? 3.0 : 2.2,
+                    update: (elapsed) => {
+                        const progress = elapsed / effect.duration;
+                        if (progress > 1) return;
+                        const intensity = Math.sin(progress * Math.PI);
+                        mat.uniforms.energy.value = 0.4 + intensity * (isStartColor ? 3.6 : 3.2);
+                        mat.uniforms.opacity.value = (isStartColor ? 0.15 : 0.1) + 0.9 * intensity;
+                        mat.uniforms.color.value.set(colorHex);
+                        if (baseMat && baseMat.uniforms) {
+                            baseMat.uniforms.opacity.value = 0.02 + 0.18 * (1.0 - intensity);
+                        }
+                    },
+                    end: () => {
+                        mat.uniforms.energy.value = 0.0;
+                        mat.uniforms.opacity.value = 0.0;
+                        mat.uniforms.color.value.copy(baseColor);
+                        if (baseMat && baseMat.uniforms) {
+                            baseMat.uniforms.opacity.value = 0.02;
+                        }
+                    }
+                };
+                activeEffects.push(effect);
+                return true;
+            } catch (_) { return false; }
+        }
+        
+        function createPulse(sourceNode, targetNode) {
+            const arcMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    time: { value: 0.0 },
+                    color: { value: new THREE.Color(0xff0000) },
+                    opacity: { value: 0.0 },
+                    energy: { value: 0.0 }
+                },
+                vertexShader: document.getElementById('edgeVertexShader').textContent,
+                fragmentShader: document.getElementById('edgeFragmentShader').textContent,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+            });
+            const effect = {
+                startTime: clock.getElapsedTime(),
+                duration: 3.0,
+                mesh: null,
+                update: (elapsed) => {
+                    const progress = elapsed / effect.duration;
+                    if (progress > 1) return;
+                    const start = new THREE.Vector3(sourceNode.x, sourceNode.y, sourceNode.z);
+                    const end = new THREE.Vector3(targetNode.x, targetNode.y, targetNode.z);
+                    const mid = start.clone().lerp(end, 0.5);
+                    const control = mid.clone().add(new THREE.Vector3(0, start.distanceTo(end) * 0.3, 0));
+                    const curve = new THREE.QuadraticBezierCurve3(start, control, end);
+                    const geo = new THREE.TubeGeometry(curve, 64, 2, 8, false);
+                    if (!effect.mesh) {
+                        effect.mesh = new THREE.Mesh(geo, arcMaterial);
+                        scene.add(effect.mesh);
+                    } else {
+                        effect.mesh.geometry.dispose();
+                        effect.mesh.geometry = geo;
+                    }
+                    const intensity = Math.sin(progress * Math.PI);
+                    arcMaterial.uniforms.opacity.value = intensity;
+                    arcMaterial.uniforms.energy.value = intensity * 2;
+                    arcMaterial.uniforms.time.value += clock.getDelta();
+                },
+                end: () => {
+                    if (effect.mesh) {
+                        scene.remove(effect.mesh);
+                        effect.mesh.geometry.dispose();
+                        arcMaterial.dispose();
+                    }
+                }
+            };
+            activeEffects.push(effect);
+        }
+
+        function getNodePositionById(nodeId) {
+            let found = null;
+            try {
+                scene.traverse(obj => {
+                    if (found) return;
+                    if (obj.userData && obj.userData.node && String(obj.userData.node.id) === String(nodeId)) {
+                        const p = obj.position;
+                        found = { x: p.x, y: p.y, z: p.z };
+                    }
+                });
+            } catch (_) {}
+            return found;
+        }
+
+        function createArcPulseByPositions(srcPos, tgtPos, colorHex) {
+            const arcMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    time: { value: 0.0 },
+                    color: { value: new THREE.Color(colorHex || 0xff0000) },
+                    opacity: { value: 0.0 },
+                    energy: { value: 0.0 }
+                },
+                vertexShader: document.getElementById('edgeVertexShader').textContent,
+                fragmentShader: document.getElementById('edgeFragmentShader').textContent,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+            });
+            const effect = {
+                startTime: clock.getElapsedTime(),
+                duration: 1.6,
+                mesh: null,
+                update: (elapsed) => {
+                    const progress = elapsed / effect.duration;
+                    if (progress > 1) return;
+                    const start = new THREE.Vector3(srcPos.x, srcPos.y, srcPos.z);
+                    const end = new THREE.Vector3(tgtPos.x, tgtPos.y, tgtPos.z);
+                    const mid = start.clone().lerp(end, 0.5);
+                    const control = mid.clone().add(new THREE.Vector3(0, start.distanceTo(end) * 0.3, 0));
+                    const curve = new THREE.QuadraticBezierCurve3(start, control, end);
+                    const geo = new THREE.TubeGeometry(curve, 48, 1.8, 8, false);
+                    if (!effect.mesh) {
+                        effect.mesh = new THREE.Mesh(geo, arcMaterial);
+                        scene.add(effect.mesh);
+                    } else {
+                        effect.mesh.geometry.dispose();
+                        effect.mesh.geometry = geo;
+                    }
+                    const intensity = Math.sin(progress * Math.PI);
+                    arcMaterial.uniforms.opacity.value = 0.2 + 0.8 * intensity;
+                    arcMaterial.uniforms.energy.value = intensity * 2.5;
+                    arcMaterial.uniforms.time.value += clock.getDelta();
+                },
+                end: () => {
+                    if (effect.mesh) {
+                        scene.remove(effect.mesh);
+                        effect.mesh.geometry.dispose();
+                        arcMaterial.dispose();
+                    }
+                }
+            };
+            activeEffects.push(effect);
+        }
+        
+        function refreshGraph() {
+            // No-op in orbital demo
+        }
+        
+        function loadSnapshot() {
+            // Placeholder: load new data
+            alert('Load Snapshot functionality not implemented.');
+        }
+        
+        function toggleEdgeLabels() {
+            edgeLabelsVisible = !edgeLabelsVisible;
+            edgeLabelsButton.querySelector('span:last-of-type').textContent = `Edge Labels: ${edgeLabelsVisible ? 'On' : 'Off'}`;
+            scene.traverse(obj => {
+                if (obj.name === 'edgeLabel' || (obj.userData && obj.userData.isLinkLabel)) {
+                    obj.visible = edgeLabelsVisible;
+                }
+            });
+        }
+        
+        function toggleDebugLog() {
+            // Placeholder
+            alert('Debug Log functionality not implemented.');
+        }
+        
+        function toggleDisconnected() {
+            updateGraphData();
+        }
+        
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+            const time = clock.getElapsedTime();
+            
+            // No force-graph tick in orbital demo
+            
+            // Update node shaders
+            scene.traverse(obj => {
+                if (obj.userData.node && obj.material && obj.material.uniforms && obj.material.uniforms.time) {
+                    obj.material.uniforms.time.value = time;
+                }
+                if (obj.material && obj.material.uniforms && obj.material.uniforms.time) {
+                    obj.material.uniforms.time.value = time;
+                }
+            });
+            
+            // edgeMaterial is cloned per link, so update all clones via traversal above
+            
+            activeEffects.forEach((effect, i) => {
+                const elapsed = time - effect.startTime;
+                if (elapsed > effect.duration) {
+                    effect.end();
+                    activeEffects.splice(i, 1);
+                } else {
+                    effect.update(elapsed);
+                }
+            });
+            
+            controls.update();
+            composer.render();
+        }
+        
+        init();
+        animate();
+    </script>
+</body>
+</html>

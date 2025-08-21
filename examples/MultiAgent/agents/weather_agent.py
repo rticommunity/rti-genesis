@@ -56,8 +56,8 @@ class WeatherAgent(OpenAIGenesisAgent):
         # Get weather API key first
         self.weather_api_key = os.getenv('OPENWEATHERMAP_API_KEY')
         
-        # Determine tracing mode based on demo configuration
-        enable_tracing = should_trace_agents()
+        # Determine tracing mode based on demo configuration (force-enable for debugging)
+        enable_tracing = True
         
         # Show API status only if configured to do so
         if SHOW_WEATHER_API_STATUS:
@@ -68,17 +68,22 @@ class WeatherAgent(OpenAIGenesisAgent):
             logger.info("🚀 Initializing WeatherAgent with @genesis_tool auto-discovery")
         
         # Initialize with specialized weather configuration
+        # Generate unique service instance tag using agent ID or timestamp
+        import time
+        service_tag = f"WE_{int(time.time() * 1000) % 1000000}"
+        
         super().__init__(
             model_name="gpt-4o",
             agent_name="WeatherExpert",
             base_service_name="OpenAIAgent",
+            service_instance_tag=service_tag,  # Unique tag for this instance
             description="Specialized weather agent with @genesis_tool auto-discovery - provides real weather data and forecasts",
             enable_agent_communication=True,
             enable_tracing=enable_tracing  # Use demo configuration
         )
         
         if enable_tracing:
-            logger.info(f"✅ WeatherAgent initialized with agent_id: {self.app.agent_id}")
+            logger.info(f"✅ WeatherAgent initialized with agent_id: {self.app.agent_id} (TRACING ENABLED)")
         elif demo_mode_active():
             # In demo mode, show minimal startup message
             print("✅ WeatherAgent ready")
