@@ -3,6 +3,8 @@ from __future__ import annotations
 import threading
 import json
 from dataclasses import dataclass
+import logging
+import os
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import rti.connextdds as dds
@@ -141,9 +143,33 @@ class GraphSubscriber:
         self._graph_node_reader = None
         self._graph_edge_reader = None
         self._chain_reader = None
+        # Track instance handles to ids for removal on NOT_ALIVE states
+        self._node_handle_to_id: Dict[Any, str] = {}
+        self._edge_handle_to_key: Dict[Any, Tuple[str, str, str]] = {}
+        # Built-in topic aids: map publication handle → participant key, and participant key → set of node_ids
+        self._pub_handle_to_participant: Dict[Any, str] = {}
+        self._participant_to_nodes: Dict[str, set[str]] = {}
+        # Logger
+        self._logger = logging.getLogger("genesis.graph_state")
+        if not self._logger.handlers:
+            level_name = os.getenv("GENESIS_GRAPH_STATE_LEVEL", "DEBUG").upper()
+            self._logger.setLevel(getattr(logging, level_name, logging.INFO))
+            sh = logging.StreamHandler()
+            sh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] graph_state: %(message)s"))
+            self._logger.addHandler(sh)
+            try:
+                log_dir = os.path.join("logs")
+                os.makedirs(log_dir, exist_ok=True)
+                fh = logging.FileHandler(os.path.join(log_dir, "graph_state.log"), mode='w')
+                fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] graph_state: %(message)s"))
+                self._logger.addHandler(fh)
+            except Exception:
+                # If file handler fails, continue with stream only
+                pass
 
     def start(self) -> None:
         config_path = get_datamodel_path()
+        self._logger.info(f"Starting GraphSubscriber on domain {self._domain_id}")
         self._participant = dds.DomainParticipant(self._domain_id)
         self._subscriber = dds.Subscriber(self._participant)
         provider = dds.QosProvider(config_path)
@@ -155,6 +181,10 @@ class GraphSubscriber:
         except Exception:
             graph_node_type = None
             graph_edge_type = None
+        if graph_node_type is None or graph_edge_type is None:
+            self._logger.warning("Durable GenesisGraphNode/Edge types not found; removals rely on lifecycle or may be delayed")
+        else:
+            self._logger.info("Durable topology readers enabled (GenesisGraphNode/Edge)")
 
         lifecycle_type = provider.type("genesis_lib", "ComponentLifecycleEvent")
         lifecycle_topic = dds.DynamicData.Topic(self._participant, "ComponentLifecycleEvent", lifecycle_type)
@@ -172,6 +202,85 @@ class GraphSubscriber:
             listener=listener,
             mask=dds.StatusMask.DATA_AVAILABLE,
         )
+        self._logger.info("Lifecycle reader started (ComponentLifecycleEvent)")
+
+        # Built-in topics to detect ungraceful participant loss
+        try:
+            builtin_sub = self._participant.builtin_subscriber  # type: ignore[attr-defined]
+
+            class _BuiltInParticipantListener(dds.ParticipantBuiltinTopicData.DataReaderListener):  # type: ignore[attr-defined]
+                def __init__(self, outer):
+                    super().__init__()
+                    self._outer = outer
+                def on_data_available(self, reader):  # type: ignore[override]
+                    try:
+                        for sample in reader.take():
+                            info = sample.info
+                            if not getattr(info, 'valid_data', False):
+                                st = getattr(info, 'instance_state', None)
+                                if st in (dds.InstanceState.NOT_ALIVE_NO_WRITERS, dds.InstanceState.NOT_ALIVE_DISPOSED):
+                                    # Attempt to get participant key from the instance handle via data if present
+                                    part_key = ''
+                                    try:
+                                        if sample.data is not None:
+                                            part_key = str(getattr(sample.data, 'key', ''))
+                                    except Exception:
+                                        part_key = ''
+                                    # Fallback: stringify instance handle
+                                    if not part_key:
+                                        try:
+                                            part_key = str(getattr(info, 'instance_handle', ''))
+                                        except Exception:
+                                            part_key = ''
+                                    try:
+                                        self._outer._logger.info(f"participant_lost state={st} key={part_key}")
+                                    except Exception:
+                                        pass
+                                    if part_key:
+                                        # Remove all nodes mapped to this participant
+                                        try:
+                                            node_ids = list(self._outer._participant_to_nodes.get(part_key, set()))
+                                            for nid in node_ids:
+                                                self._outer._on_graph_event("node_remove", {"node_id": nid})
+                                            self._outer._participant_to_nodes.pop(part_key, None)
+                                        except Exception:
+                                            pass
+                    except Exception:
+                        pass
+
+            class _BuiltInPublicationListener(dds.PublicationBuiltinTopicData.DataReaderListener):  # type: ignore[attr-defined]
+                def __init__(self, outer):
+                    super().__init__()
+                    self._outer = outer
+                def on_data_available(self, reader):  # type: ignore[override]
+                    try:
+                        for sample in reader.take():
+                            info = sample.info
+                            data = sample.data
+                            try:
+                                pub_h = getattr(info, 'instance_handle', None)
+                                part_key = str(getattr(data, 'participant_key', ''))
+                                if pub_h is not None and part_key:
+                                    self._outer._pub_handle_to_participant[pub_h] = part_key
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+
+            try:
+                p_reader = dds.ParticipantBuiltinTopicData.DataReader(builtin_sub)  # type: ignore[attr-defined]
+                p_reader.bind_listener(_BuiltInParticipantListener(self), dds.StatusMask.DATA_AVAILABLE)
+                self._logger.info("Built-in Participant reader started")
+            except Exception:
+                self._logger.debug("Built-in Participant reader unavailable")
+            try:
+                pub_reader = dds.PublicationBuiltinTopicData.DataReader(builtin_sub)  # type: ignore[attr-defined]
+                pub_reader.bind_listener(_BuiltInPublicationListener(self), dds.StatusMask.DATA_AVAILABLE)
+                self._logger.info("Built-in Publication reader started")
+            except Exception:
+                self._logger.debug("Built-in Publication reader unavailable")
+        except Exception:
+            self._logger.debug("Built-in subscriber not available")
 
         # Durable topology readers
         if graph_node_type is not None and graph_edge_type is not None:
@@ -180,8 +289,8 @@ class GraphSubscriber:
             durable_qos = dds.QosProvider.default.datareader_qos
             durable_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
             durable_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
-            durable_qos.history.kind = dds.HistoryKind.KEEP_LAST
-            durable_qos.history.depth = 1
+            # Keep all to ensure instance-state transitions (NOT_ALIVE) are delivered
+            durable_qos.history.kind = dds.HistoryKind.KEEP_ALL
 
             class _NodeListener(dds.DynamicData.NoOpDataReaderListener):
                 def __init__(self, outer):
@@ -190,8 +299,28 @@ class GraphSubscriber:
                 def on_data_available(self, reader):  # type: ignore[override]
                     try:
                         for data, info in reader.take():
+                            # Valid data → update mapping and forward update
                             if info.valid:
-                                node_id = str(data["node_id"])
+                                node_id = str(data["node_id"]) if data["node_id"] else ""
+                                if node_id:
+                                    # Remember handle→id to support removal when instance goes NOT_ALIVE
+                                    try:
+                                        self._outer._node_handle_to_id[info.instance_handle] = node_id
+                                    except Exception:
+                                        pass
+                                    # Try to associate this node with a participant via publication handle mapping
+                                    try:
+                                        pub_h = getattr(info, 'publication_handle', None)
+                                        if pub_h is not None:
+                                            part_key = self._outer._pub_handle_to_participant.get(pub_h)
+                                            if part_key:
+                                                s = self._outer._participant_to_nodes.get(part_key)
+                                                if s is None:
+                                                    s = set()
+                                                    self._outer._participant_to_nodes[part_key] = s
+                                                s.add(node_id)
+                                    except Exception:
+                                        pass
                                 node_type = str(data["node_type"]) or "UNKNOWN"
                                 node_state = str(data["node_state"]) or "UNKNOWN"
                                 node_name = str(data["node_name"]) or node_id
@@ -200,7 +329,38 @@ class GraphSubscriber:
                                     caps = json.loads(md)
                                 except Exception:
                                     caps = {}
+                                try:
+                                    self._outer._logger.debug(f"node_update {node_id} type={node_type} state={node_state} name=\"{node_name}\"")
+                                except Exception:
+                                    pass
                                 self._outer._on_graph_update("node_update", {"node": NodeInfo(node_id, node_type, node_name, node_state, caps)})
+                            else:
+                                # Handle instance transitions to NOT_ALIVE to trigger node removal
+                                try:
+                                    st = info.state.instance_state
+                                except Exception:
+                                    st = None
+                                if st in (dds.InstanceState.NOT_ALIVE_DISPOSED, dds.InstanceState.NOT_ALIVE_NO_WRITERS):
+                                    try:
+                                        ih = getattr(info, 'instance_handle', None)
+                                        self._outer._logger.debug(f"node_instance_not_alive state={st} handle={ih}")
+                                    except Exception:
+                                        pass
+                                    node_id = self._outer._node_handle_to_id.pop(info.instance_handle, "")
+                                    if node_id:
+                                        try:
+                                            self._outer._logger.info(f"node_remove due to {st}: id={node_id}")
+                                        except Exception:
+                                            pass
+                                        try:
+                                            self._outer._on_graph_update("node_remove", {"node_id": node_id})
+                                        except Exception:
+                                            pass
+                                    else:
+                                        try:
+                                            self._outer._logger.debug(f"NOT_ALIVE for unknown node handle={info.instance_handle}; no removal emitted")
+                                        except Exception:
+                                            pass
                     except Exception:
                         pass
 
@@ -215,12 +375,43 @@ class GraphSubscriber:
                                 src = str(data["source_id"]) or ""
                                 tgt = str(data["target_id"]) or ""
                                 et = str(data["edge_type"]) or ""
+                                if src and tgt:
+                                    try:
+                                        self._outer._edge_handle_to_key[info.instance_handle] = (src, tgt, et)
+                                    except Exception:
+                                        pass
                                 md = str(data["metadata"]) or "{}"
                                 try:
                                     caps = json.loads(md)
                                 except Exception:
                                     caps = {}
+                                try:
+                                    self._outer._logger.debug(f"edge_update {src}->{tgt}:{et}")
+                                except Exception:
+                                    pass
                                 self._outer._on_graph_update("edge_update", {"edge": EdgeInfo(src, tgt, et, caps)})
+                            else:
+                                try:
+                                    st = info.state.instance_state
+                                except Exception:
+                                    st = None
+                                if st in (dds.InstanceState.NOT_ALIVE_DISPOSED, dds.InstanceState.NOT_ALIVE_NO_WRITERS):
+                                    key = self._outer._edge_handle_to_key.pop(info.instance_handle, None)
+                                    if key is not None:
+                                        src, tgt, et = key
+                                        try:
+                                            self._outer._logger.info(f"edge_remove due to {st}: {src}->{tgt}:{et}")
+                                        except Exception:
+                                            pass
+                                        try:
+                                            self._outer._on_graph_update("edge_remove", {"edge": {"source_id": src, "target_id": tgt, "edge_type": et}})
+                                        except Exception:
+                                            pass
+                                    else:
+                                        try:
+                                            self._outer._logger.debug(f"NOT_ALIVE for unknown edge handle={info.instance_handle}; no removal emitted")
+                                        except Exception:
+                                            pass
                     except Exception:
                         pass
 
@@ -238,6 +429,7 @@ class GraphSubscriber:
                 listener=_EdgeListener(self),
                 mask=dds.StatusMask.DATA_AVAILABLE,
             )
+            self._logger.info("Durable Node/Edge readers started")
 
         # Activity (ChainEvent) - volatile
         try:
@@ -303,12 +495,14 @@ class GraphSubscriber:
                     listener=_ChainListener(self._on_activity),
                     mask=dds.StatusMask.DATA_AVAILABLE,
                 )
+                self._logger.info("ChainEvent reader started (volatile)")
         except Exception:
             # ChainEvent may not exist yet; ignore
             pass
 
     def stop(self) -> None:
         try:
+            self._logger.info("Stopping GraphSubscriber")
             if self._graph_edge_reader:
                 self._graph_edge_reader.close()
             if self._graph_node_reader:
@@ -355,6 +549,10 @@ class GraphSubscriber:
             node_name = self._select_node_name(ctype, node_id, caps)
             state_idx = evt.get("new_state", 0)
             state = self._STATES[state_idx] if 0 <= state_idx < len(self._STATES) else "UNKNOWN"
+            try:
+                self._logger.debug(f"lifecycle NODE_DISCOVERY id={node_id} type={ctype} state={state} name=\"{node_name}\"")
+            except Exception:
+                pass
             self._on_graph_update("node_update", {
                 "node": NodeInfo(node_id=node_id, node_type=ctype, node_name=node_name, node_state=state, metadata=caps)
             })
@@ -367,6 +565,10 @@ class GraphSubscriber:
                 caps = json.loads(evt.get("capabilities") or "{}")
             except Exception:
                 caps = {}
+            try:
+                self._logger.debug(f"lifecycle EDGE_DISCOVERY {src}->{tgt}:{etype}")
+            except Exception:
+                pass
             self._on_graph_update("edge_update", {
                 "edge": EdgeInfo(source_id=src, target_id=tgt, edge_type=etype, metadata=caps)
             })
@@ -417,6 +619,17 @@ class GraphService:
         elif event == "edge_update":
             edge: EdgeInfo = payload["edge"]
             self._graph.add_or_update_edge(edge)
+        elif event == "node_remove":
+            node_id = payload.get("node_id") or payload.get("node", {}).get("node_id")
+            if node_id:
+                self._graph.remove_node(str(node_id))
+        elif event == "edge_remove":
+            e = payload.get("edge") or payload
+            src = e.get("source_id")
+            tgt = e.get("target_id")
+            ety = e.get("edge_type")
+            if src and tgt:
+                self._graph.remove_edge(str(src), str(tgt), str(ety) if ety is not None else None)
         self._notify(event, payload)
 
     def _on_activity_event(self, activity: Dict[str, Any]) -> None:

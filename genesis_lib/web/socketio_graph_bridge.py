@@ -72,6 +72,22 @@ def attach_graph_to_socketio(graph: GraphService, socketio: "SocketIO") -> None:
                     logger.info(f"Forwarded edge_update ({src}->{tgt}:{ety}, create=True) → clients")
                 else:
                     logger.debug(f"Forwarded edge_update ({src}->{tgt}:{ety}, create=False) → clients")
+            elif event == "node_remove":
+                # Clear seen caches so future re-discovery will count as create
+                node_id = payload_json.get('node_id') if isinstance(payload_json, dict) else None
+                if node_id and node_id in seen_node_ids:
+                    seen_node_ids.discard(node_id)
+                logger.info(f"Forwarded node_remove (node_id={node_id}) → clients")
+            elif event == "edge_remove":
+                edge = payload_json.get("edge") if isinstance(payload_json, dict) else None
+                src = edge and edge.get('source_id')
+                tgt = edge and edge.get('target_id')
+                ety = edge and edge.get('edge_type')
+                if src and tgt:
+                    edge_key = f"{src}->{tgt}:{ety or ''}"
+                    if edge_key in seen_edge_ids:
+                        seen_edge_ids.discard(edge_key)
+                logger.info(f"Forwarded edge_remove ({src}->{tgt}:{ety}) → clients")
             else:
                 logger.debug(f"Forwarded event {event} → clients")
 

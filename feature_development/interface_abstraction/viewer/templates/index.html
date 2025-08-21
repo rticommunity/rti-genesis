@@ -724,6 +724,24 @@
                             ensureLinkObjects();
                         } catch (e) { /* ignore */ }
                     });
+                    socket.on('node_remove', (payload) => {
+                        try {
+                            const nodeId = String((payload && (payload.node_id || (payload.node && payload.node.node_id))) || '');
+                            if (!nodeId) return;
+                            appendDebugLine(`node_remove id=${nodeId}`);
+                            removeNodeById(nodeId);
+                        } catch (_) { /* ignore */ }
+                    });
+                    socket.on('edge_remove', (payload) => {
+                        try {
+                            const e = (payload && (payload.edge || payload)) || {};
+                            const sid = String(e.source_id || e.source || '');
+                            const tid = String(e.target_id || e.target || '');
+                            if (!sid || !tid) return;
+                            appendDebugLine(`edge_remove ${sid} -> ${tid}`);
+                            removeEdgeByEndpoints(sid, tid);
+                        } catch (_) { /* ignore */ }
+                    });
                     socket.on('activity', (act) => {
                         try {
                             const sid = act.source_id || '';
@@ -1646,6 +1664,39 @@
                 orbitalAnimationId = null;
             }
             orbitalActive = false;
+        }
+
+        function removeNodeById(nodeId) {
+            try {
+                const id = String(nodeId);
+                graphData.nodes = (graphData.nodes || []).filter(n => String(n.id) !== id);
+                graphData.links = (graphData.links || []).filter(l => String(idOf(l.source)) !== id && String(idOf(l.target)) !== id);
+                const mesh = nodeMeshes.get(id);
+                if (mesh) { scene.remove(mesh); nodeMeshes.delete(id); }
+                Array.from(linkObjects.keys()).forEach(k => {
+                    const [s,t] = k.split('->');
+                    if (s === id || t === id) {
+                        const obj = linkObjects.get(k);
+                        if (obj) scene.remove(obj);
+                        linkObjects.delete(k);
+                        pendingLinkPulses.delete(k);
+                    }
+                });
+                updateGraphData();
+                rebuildSceneForData();
+            } catch (_) { /* ignore */ }
+        }
+
+        function removeEdgeByEndpoints(srcId, tgtId) {
+            try {
+                const sid = String(srcId), tid = String(tgtId);
+                graphData.links = (graphData.links || []).filter(l => !(String(idOf(l.source)) === sid && String(idOf(l.target)) === tid));
+                const key = `${sid}->${tid}`;
+                const obj = linkObjects.get(key);
+                if (obj) { scene.remove(obj); linkObjects.delete(key); }
+                pendingLinkPulses.delete(key);
+                updateGraphData();
+            } catch (_) { /* ignore */ }
         }
         
         function addLayerPlanes() {
