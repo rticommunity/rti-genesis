@@ -178,7 +178,7 @@ GENESIS is built on the philosophy that agent networks should be self-organizing
 
 A key component of this automation philosophy is the planned **Genesis Wrapper** system. This system will allow existing agents to be integrated into Genesis *without any code changes*.
 
-```
+```mermaid
 graph TD
     A[Existing Agent] --> W[Genesis Wrapper]
     W --> D[DDS Network]
@@ -230,7 +230,7 @@ This wrapper system exemplifies Genesis's commitment to automation and ease of u
 
 ### Example: Automated Connection Flow
 
-```
+```mermaid
 sequenceDiagram
     participant A as New Agent
     participant N as Network (DDS)
@@ -256,7 +256,7 @@ sequenceDiagram
 
 GENESIS employs a revolutionary modular architecture built upon RTI Connext DDS with breakthrough agent-as-tool integration.
 
-```
+```mermaid
 graph TD
     subgraph "Genesis Application Layer"
         I[Interface Agent] -- interacts --> PA[Primary Agent with Agent-as-Tool]
@@ -310,9 +310,9 @@ graph TD
 
     subgraph "DDS Communication Layer"
         DDS[RTI Connext DDS]
-        DDS -- Pub/Sub --> Discovery[Discovery Topics (FunctionCapability, AgentCapability)]
-        DDS -- Req/Rep --> RPC_Topics[RPC Topics (FunctionExecution, AgentAgent)]
-        DDS -- Pub/Sub --> Monitoring_Topics[Monitoring Topics (ChainEvent, LifecycleEvent)]
+        DDS -- Pub/Sub --> Discovery[FunctionCapability, AgentCapability]
+        DDS -- Req/Rep --> RPC_Topics[FunctionExecution, AgentAgent]
+        DDS -- Pub/Sub --> Monitoring_Topics[ChainEvent, LifecycleEvent]
     end
 
     Genesis_App_Layer -- utilizes --> Core_Services
@@ -575,7 +575,7 @@ Genesis's dynamic function discovery and potential for automated chaining lay gr
 
 ### Lifelong Learning Components (Conceptual)
 
-```
+```mermaid
 graph TD
     A[Agent Network] --> B[Experience Collection]
     B --> C[Chain Optimization / Evolution]
