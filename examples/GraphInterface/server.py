@@ -10,6 +10,10 @@ from flask_socketio import SocketIO, emit
 # Ensure local imports
 sys.path.append(os.path.abspath("."))
 
+# Add Genesis library to path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+
+
 from genesis_lib.graph_state import GraphService  # type: ignore
 from genesis_lib.web.graph_viewer import register_graph_viewer  # type: ignore
 from genesis_lib.monitored_interface import MonitoredInterface  # type: ignore
