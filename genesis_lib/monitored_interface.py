@@ -192,9 +192,9 @@ class MonitoredInterface(GenesisInterface):
         if not self._agent_found_event.is_set():
             logger.debug("<MonitoredInterface Handler> Signaling internal agent found event.")
             self._agent_found_event.set()
-    async def connect_to_agent(self, service_name: str) -> bool:
+    async def connect_to_agent(self, service_name: str, timeout_seconds: Optional[float] = None) -> bool:
         """Override to remember the connected agent GUID for ChainEvent target_id."""
-        ok = await super().connect_to_agent(service_name)
+        ok = await super().connect_to_agent(service_name, timeout_seconds=timeout_seconds)
         if ok:
             # Try to resolve the chosen agent's instance_id by service_name or name
             try:

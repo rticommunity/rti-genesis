@@ -130,36 +130,36 @@ class WeatherAgent(OpenAIGenesisAgent):
     # DOMAIN LOGIC METHODS (not auto-discovered tools)
     # =============================================================================
 
-    def get_agent_capabilities(self):
-        """Return weather-specific agent capabilities"""
-        return {
-            "agent_type": "specialized",
-            "specializations": ["weather", "meteorology", "climate"],
-            "capabilities": [
-                "current_weather", "weather_forecast", "weather_alerts",
-                "temperature_analysis", "precipitation_forecast", "weather_conditions",
-                "humidity_check", "wind_speed", "atmospheric_pressure"
-            ],
-            "classification_tags": [
-                "weather", "temperature", "forecast", "rain", "snow", "storm", 
-                "climate", "humidity", "wind", "pressure", "sunny", "cloudy",
-                "precipitation", "conditions", "meteorology", "celsius", 
-                "fahrenheit", "degrees", "hot", "cold", "warm", "cool"
-            ],
-            "model_info": {
-                "type": "weather_specialist",
-                "llm_model": "gpt-4o",
-                "data_source": "OpenWeatherMap API" if self.weather_api_key else "mock_data",
-                "real_api": bool(self.weather_api_key)
-            },
-            "default_capable": False,  # Specialized agent
-            "performance_metrics": {
-                "avg_response_time": 2.5,
-                "accuracy_score": 95.0,
-                "availability": 99.5,
-                "data_freshness": "real_time" if self.weather_api_key else "simulated"
-            }
-        }
+    # def get_agent_capabilities(self):
+    #     """Return weather-specific agent capabilities"""
+    #     return {
+    #         "agent_type": "specialized",
+    #         "specializations": ["weather", "meteorology", "climate"],
+    #         "capabilities": [
+    #             "current_weather", "weather_forecast", "weather_alerts",
+    #             "temperature_analysis", "precipitation_forecast", "weather_conditions",
+    #             "humidity_check", "wind_speed", "atmospheric_pressure"
+    #         ],
+    #         "classification_tags": [
+    #             "weather", "temperature", "forecast", "rain", "snow", "storm", 
+    #             "climate", "humidity", "wind", "pressure", "sunny", "cloudy",
+    #             "precipitation", "conditions", "meteorology", "celsius", 
+    #             "fahrenheit", "degrees", "hot", "cold", "warm", "cool"
+    #         ],
+    #         "model_info": {
+    #             "type": "weather_specialist",
+    #             "llm_model": "gpt-4o",
+    #             "data_source": "OpenWeatherMap API" if self.weather_api_key else "mock_data",
+    #             "real_api": bool(self.weather_api_key)
+    #         },
+    #         "default_capable": False,  # Specialized agent
+    #         "performance_metrics": {
+    #             "avg_response_time": 2.5,
+    #             "accuracy_score": 95.0,
+    #             "availability": 99.5,
+    #             "data_freshness": "real_time" if self.weather_api_key else "simulated"
+    #         }
+    #     }
 
     async def get_weather_data(self, location: str, forecast: bool = False) -> Dict[str, Any]:
         """Get weather data for a location (real or mock)"""

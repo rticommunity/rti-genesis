@@ -198,7 +198,7 @@ class GenesisInterface(ABC):
             logger.error(traceback.format_exc())
             raise
 
-    async def connect_to_agent(self, service_name: str, timeout_seconds: float = 5.0) -> bool:
+    async def connect_to_agent(self, service_name: str, timeout_seconds: Optional[float] = None) -> bool:
         """
         Create the RPC Requester to connect to a specific agent service.
         Waits briefly for the underlying DDS replier endpoint to be matched.
@@ -209,7 +209,8 @@ class GenesisInterface(ABC):
 
         logger.debug(f"🔗 TRACE: Attempting to connect to agent service: {service_name}")
         try:
-            print(f"[INTERFACE_RPC] bind: service='{service_name}' timeout={timeout_seconds}s")
+            timeout_label = "∞" if timeout_seconds is None else str(timeout_seconds)
+            print(f"[INTERFACE_RPC] bind: service='{service_name}' timeout={timeout_label}s")
         except Exception:
             pass
         try:
@@ -223,7 +224,7 @@ class GenesisInterface(ABC):
 
             start_time = time.time()
             while self.requester.matched_replier_count == 0:
-                if time.time() - start_time > timeout_seconds:
+                if timeout_seconds is not None and (time.time() - start_time > timeout_seconds):
                     logger.error(f"❌ TRACE: Timeout ({timeout_seconds}s) waiting for DDS replier match for service '{service_name}'")
                     try:
                         print(f"[INTERFACE_RPC] bind-timeout: service='{service_name}' repliers=0")

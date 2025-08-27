@@ -409,6 +409,96 @@ class GenesisAgent(ABC):
             return self.agent_communication.get_agents_by_model_type(model_type)
         return []
     
+    def _auto_generate_capabilities(self) -> Dict[str, Any]:
+        """
+        Auto-generate capability metadata from @genesis_tool methods and init fields.
+        Subclasses can override get_agent_capabilities for custom behavior.
+        """
+        try:
+            tool_methods: List[Dict[str, Any]] = []
+            for attr_name in dir(self):
+                if attr_name.startswith('_'):
+                    continue
+                attr = getattr(self, attr_name)
+                if callable(attr) and hasattr(attr, '__is_genesis_tool__'):
+                    meta = getattr(attr, '__genesis_tool_meta__', {}) or {}
+                    if meta:
+                        tool_methods.append(meta)
+            # Build capabilities list from function names and operation types
+            capability_items: List[str] = []
+            classification_tags: List[str] = []
+            for meta in tool_methods:
+                func_name = meta.get('function_name')
+                if func_name:
+                    capability_items.append(func_name)
+                    classification_tags.extend(str(func_name).lower().replace('_', ' ').split())
+                op_type = meta.get('operation_type')
+                if op_type:
+                    capability_items.append(str(op_type))
+                    classification_tags.extend(str(op_type).lower().split())
+                desc = meta.get('description')
+                if isinstance(desc, str) and desc:
+                    # Pick a few keywords from description (very lightweight heuristic)
+                    for token in desc.lower().split():
+                        if token.isalpha() and len(token) >= 4:
+                            classification_tags.append(token)
+            # Add context from init fields
+            base_service = getattr(self, 'base_service_name', None)
+            if isinstance(base_service, str) and base_service:
+                classification_tags.extend(base_service.lower().split('_'))
+            agent_name = getattr(self, 'agent_name', None)
+            if isinstance(agent_name, str) and agent_name:
+                classification_tags.extend(agent_name.lower().split('_'))
+            # Deduplicate while preserving order
+            def _dedupe(seq: List[str]) -> List[str]:
+                seen = set()
+                result: List[str] = []
+                for item in seq:
+                    if item not in seen:
+                        seen.add(item)
+                        result.append(item)
+                return result
+            capability_items = _dedupe([c for c in capability_items if isinstance(c, str) and c])
+            classification_tags = _dedupe([t for t in classification_tags if isinstance(t, str) and t])
+            # Heuristic specializations: common domains often occur in names/tags
+            specializations: List[str] = []
+            domain_hints = ['weather', 'finance', 'math', 'translation', 'graph', 'image', 'audio', 'diagnostic']
+            for hint in domain_hints:
+                if any(hint in t for t in classification_tags):
+                    specializations.append(hint)
+            specializations = _dedupe(specializations)
+            # Model info from common attributes
+            model_info: Optional[Dict[str, Any]] = None
+            model_name = getattr(self, 'model_name', None)
+            if isinstance(model_name, str) and model_name:
+                model_info = {
+                    'llm_model': model_name,
+                    'auto_discovery': bool(tool_methods)
+                }
+            # Default capable: true when we have no strong specialization hints
+            default_capable = not bool(specializations)
+            # Build result
+            return {
+                'agent_type': 'general',
+                'specializations': specializations,
+                'capabilities': capability_items if capability_items else ['general_assistance'],
+                'classification_tags': classification_tags if classification_tags else ['general', 'assistant'],
+                'model_info': model_info,
+                'default_capable': default_capable if capability_items else True,
+                'performance_metrics': None,
+            }
+        except Exception as e:
+            logger.warning(f"Auto capability generation failed, falling back to defaults: {e}")
+            return {
+                'agent_type': 'general',
+                'specializations': [],
+                'capabilities': ['general_assistance'],
+                'classification_tags': ['general', 'assistant'],
+                'model_info': None,
+                'default_capable': True,
+                'performance_metrics': None,
+            }
+
     def get_agent_capabilities(self) -> Dict[str, Any]:
         """
         Define this agent's capabilities for advertisement.
@@ -426,16 +516,8 @@ class GenesisAgent(ABC):
             - default_capable: Boolean indicating if agent can handle general requests
             - performance_metrics: Optional performance information
         """
-        # Default implementation for base GenesisAgent
-        return {
-            "agent_type": "general",
-            "specializations": [],
-            "capabilities": ["general_assistance"],
-            "classification_tags": ["general", "assistant"],
-            "model_info": None,
-            "default_capable": True,
-            "performance_metrics": None
-        }
+        # Default implementation for base GenesisAgent uses auto-generation.
+        return self._auto_generate_capabilities()
     
     async def route_request_to_best_agent(self, request_message: str, 
                                         conversation_id: Optional[str] = None,
