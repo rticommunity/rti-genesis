@@ -90,36 +90,36 @@ class WeatherAgent(OpenAIGenesisAgent):
         
         logger.info("WeatherAgent ready with @genesis_tool auto-discovery")
 
-    def get_agent_capabilities(self):
-        """Define weather-specific capabilities for agent discovery"""
-        return {
-            "agent_type": "specialized",
-            "specializations": ["weather", "meteorology", "climate", "forecasting"],
-            "capabilities": [
-                "current_weather", "weather_forecast", "weather_analysis",
-                "temperature_data", "humidity_readings", "wind_conditions",
-                "atmospheric_pressure", "weather_alerts", "climate_trends"
-            ],
-            "classification_tags": [
-                "weather", "temperature", "forecast", "humidity", "wind", "pressure",
-                "rain", "snow", "storm", "climate", "meteorology", "conditions",
-                "sunny", "cloudy", "precipitation", "celsius", "fahrenheit"
-            ],
-            "model_info": {
-                "type": "weather_specialist",
-                "llm_model": "gpt-4o",
-                "data_source": "OpenWeatherMap API" if self.weather_api_key else "mock_data",
-                "real_api": bool(self.weather_api_key),
-                "auto_discovery": True
-            },
-            "default_capable": False,  # Specialized agent
-            "performance_metrics": {
-                "avg_response_time": 2.0,
-                "accuracy_score": 95.0,
-                "availability": 99.8,
-                "data_freshness": "real_time" if self.weather_api_key else "simulated"
-            }
-        }
+    # def get_agent_capabilities(self):
+    #     """Define weather-specific capabilities for agent discovery"""
+    #     return {
+    #         "agent_type": "specialized",
+    #         "specializations": ["weather", "meteorology", "climate", "forecasting"],
+    #         "capabilities": [
+    #             "current_weather", "weather_forecast", "weather_analysis",
+    #             "temperature_data", "humidity_readings", "wind_conditions",
+    #             "atmospheric_pressure", "weather_alerts", "climate_trends"
+    #         ],
+    #         "classification_tags": [
+    #             "weather", "temperature", "forecast", "humidity", "wind", "pressure",
+    #             "rain", "snow", "storm", "climate", "meteorology", "conditions",
+    #             "sunny", "cloudy", "precipitation", "celsius", "fahrenheit"
+    #         ],
+    #         "model_info": {
+    #             "type": "weather_specialist",
+    #             "llm_model": "gpt-4o",
+    #             "data_source": "OpenWeatherMap API" if self.weather_api_key else "mock_data",
+    #             "real_api": bool(self.weather_api_key),
+    #             "auto_discovery": True
+    #         },
+    #         "default_capable": False,  # Specialized agent
+    #         "performance_metrics": {
+    #             "avg_response_time": 2.0,
+    #             "accuracy_score": 95.0,
+    #             "availability": 99.8,
+    #             "data_freshness": "real_time" if self.weather_api_key else "simulated"
+    #         }
+    #     }
 
     # =============================================================================
     # @genesis_tool AUTO-DISCOVERED METHODS
