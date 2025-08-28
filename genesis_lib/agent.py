@@ -48,7 +48,8 @@ class GenesisAgent(ABC):
 
     def __init__(self, agent_name: str, base_service_name: str, 
                  service_instance_tag: Optional[str] = None, agent_id: str = None,
-                 enable_agent_communication: bool = False, memory_adapter=None):
+                 enable_agent_communication: bool = False, memory_adapter=None,
+                 auto_run: bool = True):
         """
         Initialize the agent.
         
@@ -87,6 +88,12 @@ class GenesisAgent(ABC):
         # Create event loop for async operations
         self.loop = asyncio.get_event_loop()
         logger.info(f"GenesisAgent {self.agent_name} initialized with loop {self.loop}")
+
+        # --- Auto-run state ---
+        # Task handle for the background run loop and flags for idempotency
+        self._run_task: Optional[asyncio.Task] = None
+        self._run_started: bool = False
+        self._auto_run_requested: bool = auto_run
 
 
         # Create registration writer with QoS
@@ -206,6 +213,18 @@ class GenesisAgent(ABC):
             )
         else:
             print(f"⏭️ PRINT: Agent communication disabled for {self.agent_name}")
+
+        # Optionally auto-start the agent service loop if an event loop is running.
+        # This makes the agent discoverable without requiring users to call run().
+        if self._auto_run_requested:
+            try:
+                running_loop = asyncio.get_running_loop()
+                # Schedule background run; run() is idempotent and will no-op if already started.
+                self._run_task = running_loop.create_task(self.run())
+                logger.info(f"Auto-started run() for {self.agent_name} in background task")
+            except RuntimeError:
+                # No running loop yet (common in sync contexts). User can still call `await run()` later.
+                logger.debug("No running event loop at construction; deferring auto-start of run().")
 
     def enable_mcp(self, 
                    port=8000, 
@@ -630,6 +649,25 @@ class GenesisAgent(ABC):
     async def run(self):
         """Main agent loop"""
         try:
+            # Idempotency: if already started, return immediately so duplicate calls don't stack
+            if getattr(self, "_run_started", False):
+                logger.info(f"run() already started for {self.agent_name}; joining existing loop")
+                # Preserve historical behavior: if the caller explicitly awaits run(),
+                # and a background run task exists, await it so this call blocks.
+                try:
+                    if getattr(self, "_run_task", None) is not None:
+                        await self._run_task
+                except Exception:
+                    # If awaiting fails or no task, just return
+                    pass
+                return
+            self._run_started = True
+            # Track the current running task so other callers can await it
+            try:
+                self._run_task = asyncio.current_task()
+            except Exception:
+                self._run_task = None
+
             print(f"🚀 PRINT: GenesisAgent.run() starting for {self.agent_name}")
             # Announce presence
             print("📢 PRINT: About to announce agent presence...")
@@ -664,6 +702,10 @@ class GenesisAgent(ABC):
             logger.info(f"\nShutting down {self.agent_name}...")
             await self.close()
             sys.exit(0)
+        finally:
+            # Allow future restarts if the loop exits
+            self._run_started = False
+            self._run_task = None
 
     async def close(self):
         """Clean up resources"""

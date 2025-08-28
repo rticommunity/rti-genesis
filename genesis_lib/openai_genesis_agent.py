@@ -47,7 +47,8 @@ class OpenAIGenesisAgent(MonitoredAgent):
                  domain_id: int = 0, agent_name: str = "OpenAIAgent", 
                  base_service_name: str = "OpenAIChat", service_instance_tag: Optional[str] = None, 
                  description: str = None, enable_tracing: bool = False, 
-                 enable_agent_communication: bool = True, memory_adapter=None):
+                 enable_agent_communication: bool = True, memory_adapter=None,
+                 auto_run: bool = True):
         print(f"OpenAIGenesisAgent __init__ called for {agent_name}")
         """Initialize the agent with the specified models
         
@@ -83,7 +84,8 @@ class OpenAIGenesisAgent(MonitoredAgent):
             description=description or f"An OpenAI-powered agent using {model_name} model, providing {base_service_name} service",
             domain_id=domain_id,
             enable_agent_communication=enable_agent_communication,
-            memory_adapter=memory_adapter
+            memory_adapter=memory_adapter,
+            auto_run=auto_run
         )
         
         # Get API key from environment
