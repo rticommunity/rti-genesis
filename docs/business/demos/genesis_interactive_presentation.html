@@ -1,0 +1,1416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="GENESIS - Revolutionary Multi-Agent AI with Agent-as-Tool Pattern">
+    <meta property="og:title" content="GENESIS Interactive Presentation">
+    <meta property="og:description" content="Experience the revolutionary agent-as-tool pattern that eliminates multi-agent complexity">
+    <meta property="og:type" content="website">
+    <title>GENESIS: Revolutionary Multi-Agent AI</title>
+    
+    <style>
+        /* CSS Reset and Base Styles */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root {
+            /* Color System */
+            --interface-primary: #1976D2;
+            --interface-secondary: #42A5F5;
+            --agent-primary: #7B1FA2;
+            --agent-secondary: #AB47BC;
+            --function-primary: #388E3C;
+            --function-secondary: #66BB6A;
+            --data-flow: #FF9800;
+            --discovery: #757575;
+            --active-chain: #FFD700;
+            --background: #0a0e1a;
+            --surface: #1a1f2e;
+            --surface-elevated: #242938;
+            --text-primary: #ffffff;
+            --text-secondary: #b0bec5;
+            --error: #f44336;
+            --success: #4caf50;
+            
+            /* Typography */
+            --font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            --font-size-xs: 0.75rem;
+            --font-size-sm: 0.875rem;
+            --font-size-base: 1rem;
+            --font-size-lg: 1.125rem;
+            --font-size-xl: 1.25rem;
+            --font-size-2xl: 1.5rem;
+            --font-size-3xl: 2rem;
+            
+            /* Spacing */
+            --space-1: 0.25rem;
+            --space-2: 0.5rem;
+            --space-3: 0.75rem;
+            --space-4: 1rem;
+            --space-6: 1.5rem;
+            --space-8: 2rem;
+            --space-12: 3rem;
+            
+            /* Animation */
+            --animation-fast: 0.15s;
+            --animation-normal: 0.3s;
+            --animation-slow: 0.5s;
+            --easing: cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        body {
+            font-family: var(--font-family);
+            background: var(--background);
+            color: var(--text-primary);
+            overflow-x: hidden;
+            line-height: 1.6;
+        }
+        
+        /* Layout Structure */
+        .presentation-container {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .header {
+            background: var(--surface);
+            padding: var(--space-4);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            position: relative;
+            z-index: 100;
+        }
+        
+        .header-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: var(--space-4);
+        }
+        
+        .title-section h1 {
+            font-size: var(--font-size-3xl);
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--interface-primary), var(--agent-primary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: var(--space-2);
+        }
+        
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: var(--font-size-lg);
+        }
+        
+        .controls {
+            display: flex;
+            gap: var(--space-3);
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            padding: var(--space-3) var(--space-6);
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: var(--font-size-sm);
+            font-weight: 600;
+            transition: all var(--animation-normal) var(--easing);
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, var(--interface-primary), var(--interface-secondary));
+            color: white;
+        }
+        
+        .btn-secondary {
+            background: var(--surface-elevated);
+            color: var(--text-primary);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+        }
+        
+        .speed-control {
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+        }
+        
+        .speed-slider {
+            width: 80px;
+            height: 4px;
+            background: var(--surface-elevated);
+            border-radius: 2px;
+            outline: none;
+            -webkit-appearance: none;
+        }
+        
+        .speed-slider::-webkit-slider-thumb {
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: var(--interface-primary);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        
+        /* Main Visualization Area */
+        .main-content {
+            flex: 1;
+            display: flex;
+            position: relative;
+        }
+        
+        .network-canvas {
+            flex: 1;
+            position: relative;
+            min-height: 500px;
+            height: calc(100vh - 220px); /* Account for header and timeline */
+            background: radial-gradient(ellipse at center, rgba(25, 118, 210, 0.05) 0%, var(--background) 70%);
+        }
+        
+        .sidebar {
+            width: 300px;
+            background: var(--surface);
+            border-left: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .sidebar-section {
+            padding: var(--space-4);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .sidebar-section h3 {
+            font-size: var(--font-size-lg);
+            margin-bottom: var(--space-3);
+            color: var(--text-primary);
+        }
+        
+        /* Component Styles */
+        .component {
+            position: absolute;
+            border-radius: 12px;
+            padding: var(--space-3);
+            color: white;
+            font-weight: 600;
+            font-size: var(--font-size-sm);
+            text-align: center;
+            cursor: pointer;
+            transition: all var(--animation-normal) var(--easing);
+            opacity: 0;
+            transform: scale(0.8);
+            width: 120px;
+            max-width: 120px;
+            min-height: 60px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            word-wrap: break-word;
+            overflow: hidden;
+        }
+        
+        .component.visible {
+            opacity: 1;
+            transform: scale(1);
+        }
+        
+        .component:hover {
+            transform: scale(1.05);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4);
+        }
+        
+        .interface {
+            background: linear-gradient(135deg, var(--interface-primary), var(--interface-secondary));
+        }
+        
+        .agent {
+            background: linear-gradient(135deg, var(--agent-primary), var(--agent-secondary));
+        }
+        
+        .function {
+            background: linear-gradient(135deg, var(--function-primary), var(--function-secondary));
+        }
+        
+        .component-label {
+            font-size: var(--font-size-xs);
+            opacity: 0.9;
+            margin-top: var(--space-1);
+        }
+        
+        .status-indicator {
+            position: absolute;
+            top: -4px;
+            right: -4px;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--discovery);
+            transition: all var(--animation-normal) var(--easing);
+        }
+        
+        .status-indicator.online {
+            background: var(--success);
+            box-shadow: 0 0 8px var(--success);
+        }
+        
+        /* Connection Lines */
+        .connections-svg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+        
+        .connection-line {
+            stroke: var(--discovery);
+            stroke-width: 2;
+            fill: none;
+            stroke-dasharray: 5,5;
+            opacity: 0;
+            transition: all var(--animation-normal) var(--easing);
+        }
+        
+        .connection-line.active {
+            opacity: 0.8;
+            stroke: var(--data-flow);
+            stroke-width: 4;
+            stroke-dasharray: 8,4;
+            animation: flowData 1.5s infinite linear;
+        }
+        
+        .connection-line.response {
+            opacity: 0.8;
+            stroke: var(--success);
+            stroke-width: 4;
+            stroke-dasharray: 8,4;
+            animation: flowDataReverse 1.5s infinite linear;
+        }
+        
+        .connection-line.discovery {
+            opacity: 0.4;
+            stroke: var(--interface-secondary);
+            animation: pulse 2s infinite;
+        }
+        
+        /* Timeline */
+        .timeline {
+            background: var(--surface);
+            padding: var(--space-4);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            height: 120px;
+            overflow-y: auto;
+        }
+        
+        .timeline-content {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .phase-indicator {
+            font-size: var(--font-size-lg);
+            font-weight: 600;
+            margin-bottom: var(--space-2);
+            color: var(--interface-primary);
+        }
+        
+        .message-log {
+            font-size: var(--font-size-sm);
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+        
+        /* Animations */
+        @keyframes pulse {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 0.8; }
+        }
+        
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes scaleIn {
+            from {
+                opacity: 0;
+                transform: scale(0.8);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+        
+        @keyframes flowData {
+            0% { stroke-dashoffset: 0; }
+            100% { stroke-dashoffset: -24; }
+        }
+        
+        @keyframes flowDataReverse {
+            0% { stroke-dashoffset: -24; }
+            100% { stroke-dashoffset: 0; }
+        }
+        
+        @keyframes scaleIn {
+            0% {
+                opacity: 0;
+                transform: scale(0.5);
+            }
+            50% {
+                opacity: 0.8;
+                transform: scale(1.1);
+            }
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+        
+        /* Responsive Design */
+        @media (max-width: 1024px) {
+            .sidebar {
+                width: 250px;
+            }
+            
+            .header-content {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            
+            .controls {
+                width: 100%;
+                justify-content: flex-start;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .main-content {
+                flex-direction: column;
+            }
+            
+            .sidebar {
+                width: 100%;
+                height: 200px;
+                border-left: none;
+                border-top: 1px solid rgba(255, 255, 255, 0.1);
+            }
+            
+            .network-canvas {
+                min-height: 400px;
+            }
+            
+            .component {
+                min-width: 80px;
+                padding: var(--space-2);
+                font-size: var(--font-size-xs);
+            }
+        }
+        
+        /* Accessibility */
+        @media (prefers-reduced-motion: reduce) {
+            * {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+        
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+        
+        /* Tool Registry Visualization */
+        .tool-registry {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: var(--surface-elevated);
+            border: 2px solid var(--interface-primary);
+            border-radius: 12px;
+            padding: var(--space-4);
+            min-width: 300px;
+            opacity: 0;
+            transform: translate(-50%, -50%) scale(0.8);
+            transition: all var(--animation-slow) var(--easing);
+            z-index: 50;
+        }
+        
+        .tool-registry.visible {
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1);
+        }
+        
+        .tool-category {
+            margin-bottom: var(--space-3);
+        }
+        
+        .tool-category h4 {
+            font-size: var(--font-size-sm);
+            font-weight: 600;
+            margin-bottom: var(--space-2);
+            color: var(--interface-primary);
+        }
+        
+        .tool-item {
+            background: rgba(255, 255, 255, 0.1);
+            padding: var(--space-2);
+            margin-bottom: var(--space-1);
+            border-radius: 4px;
+            font-size: var(--font-size-xs);
+            transform: translateX(-20px);
+            opacity: 0;
+            animation: fadeInUp var(--animation-normal) var(--easing) forwards;
+        }
+        
+        .tool-item:nth-child(2) { animation-delay: 0.1s; }
+        .tool-item:nth-child(3) { animation-delay: 0.2s; }
+        .tool-item:nth-child(4) { animation-delay: 0.3s; }
+        .tool-item:nth-child(5) { animation-delay: 0.4s; }
+        .tool-item:nth-child(6) { animation-delay: 0.5s; }
+        .tool-item:nth-child(7) { animation-delay: 0.6s; }
+        
+        .registry-subtitle {
+            font-size: var(--font-size-sm);
+            color: var(--text-secondary);
+            text-align: center;
+            margin-bottom: var(--space-4);
+            font-style: italic;
+        }
+        
+        .tool-item .tool-desc {
+            float: right;
+            font-size: var(--font-size-xs);
+            opacity: 0.7;
+            color: var(--text-secondary);
+        }
+        
+        .tool-item[data-type="agent"] {
+            border-left: 3px solid var(--agent-primary);
+            background: rgba(123, 31, 162, 0.1);
+        }
+        
+        .tool-item[data-type="function"] {
+            border-left: 3px solid var(--function-primary);
+            background: rgba(56, 142, 60, 0.1);
+        }
+        
+        .tool-item[data-type="internal"] {
+            border-left: 3px solid var(--interface-primary);
+            background: rgba(25, 118, 210, 0.1);
+        }
+        
+        .registry-footer {
+            text-align: center;
+            margin-top: var(--space-4);
+            padding-top: var(--space-3);
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+            font-size: var(--font-size-sm);
+            color: var(--interface-primary);
+        }
+    </style>
+</head>
+<body>
+    <div class="presentation-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="title-section">
+                    <h1>GENESIS</h1>
+                    <p class="subtitle">Self-Organizing Adaptive AI: Autonomous Discovery, Chaining & Tool Evolution</p>
+                </div>
+                <div class="controls">
+                    <button class="btn btn-primary" id="playBtn" aria-label="Play presentation">
+                        ▶️ Play
+                    </button>
+                    <button class="btn btn-secondary" id="pauseBtn" aria-label="Pause presentation">
+                        ⏸️ Pause
+                    </button>
+                    <button class="btn btn-secondary" id="resetBtn" aria-label="Reset presentation">
+                        🔄 Reset
+                    </button>
+                    <div class="speed-control">
+                        <span>Speed:</span>
+                        <input type="range" class="speed-slider" id="speedSlider" 
+                               min="0.5" max="3" step="0.5" value="1" aria-label="Animation speed">
+                        <span id="speedValue">1x</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <div class="network-canvas" id="networkCanvas" role="img" aria-label="GENESIS network topology visualization">
+                <!-- SVG for connection lines -->
+                <svg class="connections-svg" id="connectionsSvg">
+                    <!-- Connection lines will be dynamically generated -->
+                </svg>
+                
+                <!-- Components will be dynamically positioned -->
+                
+                <!-- Tool Registry Overlay -->
+                <div class="tool-registry" id="toolRegistry">
+                    <h3>🧬 Self-Organizing Tool Ecosystem</h3>
+                    <div class="registry-subtitle">Autonomous discovery, adaptation & evolution</div>
+                    <div class="tool-category">
+                        <h4>🧠 Adaptive Agent Intelligence</h4>
+                        <div class="tool-item" data-type="agent">weather_intelligence<span class="tool-desc">Self-adapting weather analysis</span></div>
+                        <div class="tool-item" data-type="agent">financial_intelligence<span class="tool-desc">Autonomous market analysis</span></div>
+                        <div class="tool-item" data-type="agent">health_intelligence<span class="tool-desc">Adaptive health assessment</span></div>
+                        <div class="tool-item" data-type="agent">travel_intelligence<span class="tool-desc">Smart logistics planning</span></div>
+                        <div class="tool-item" data-type="agent">research_intelligence<span class="tool-desc">Autonomous knowledge synthesis</span></div>
+                        <div class="tool-item" data-type="agent">support_intelligence<span class="tool-desc">Adaptive assistance</span></div>
+                    </div>
+                    <div class="tool-category">
+                        <h4>⚡ Self-Discovered Services</h4>
+                        <div class="tool-item" data-type="function">adaptive_weather<span class="tool-desc">Auto-discovered APIs</span></div>
+                        <div class="tool-item" data-type="function">dynamic_markets<span class="tool-desc">Real-time data streams</span></div>
+                        <div class="tool-item" data-type="function">intelligent_calc<span class="tool-desc">Context-aware computing</span></div>
+                        <div class="tool-item" data-type="function">smart_translation<span class="tool-desc">Adaptive language processing</span></div>
+                        <div class="tool-item" data-type="function">contextual_comm<span class="tool-desc">Intelligent communications</span></div>
+                    </div>
+                    <div class="tool-category">
+                        <h4>🔬 Evolutionary Capabilities</h4>
+                        <div class="tool-item" data-type="internal">self_optimizing_chains<span class="tool-desc">Autonomous improvement</span></div>
+                        <div class="tool-item" data-type="internal">adaptive_context_preservation<span class="tool-desc">Smart state management</span></div>
+                        <div class="tool-item" data-type="internal">intelligent_load_balancing<span class="tool-desc">Self-organizing performance</span></div>
+                    </div>
+                    <div class="registry-footer">
+                        <strong>🌟 GENESIS BREAKTHROUGH!</strong><br>
+                        Zero-configuration autonomous intelligence ecosystem
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <div class="sidebar-section">
+                    <h3>Legend</h3>
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <div style="width: 20px; height: 20px; background: linear-gradient(135deg, var(--interface-primary), var(--interface-secondary)); border-radius: 4px;"></div>
+                            <span>Interfaces</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <div style="width: 20px; height: 20px; background: linear-gradient(135deg, var(--agent-primary), var(--agent-secondary)); border-radius: 4px;"></div>
+                            <span>Agents</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <div style="width: 20px; height: 20px; background: linear-gradient(135deg, var(--function-primary), var(--function-secondary)); border-radius: 4px;"></div>
+                            <span>Functions</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="sidebar-section">
+                    <h3>Network Stats</h3>
+                    <div id="networkStats">
+                        <div>Components: <span id="componentCount">0</span></div>
+                        <div>Connections: <span id="connectionCount">0</span></div>
+                        <div>Active Chains: <span id="chainCount">0</span></div>
+                    </div>
+                </div>
+                
+                <div class="sidebar-section">
+                    <h3>Current Phase</h3>
+                    <div id="currentPhase">Initializing...</div>
+                </div>
+            </aside>
+        </main>
+
+        <!-- Timeline -->
+        <div class="timeline">
+            <div class="timeline-content">
+                <div class="phase-indicator" id="phaseIndicator">Phase 0: Preparation</div>
+                <div class="message-log" id="messageLog">
+                    Ready to demonstrate GENESIS's revolutionary agent-as-tool pattern...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // GENESIS Interactive Presentation JavaScript
+        class GenesisPresentation {
+            constructor() {
+                this.canvas = document.getElementById('networkCanvas');
+                this.svg = document.getElementById('connectionsSvg');
+                this.isPlaying = false;
+                this.currentPhase = 0;
+                this.animationSpeed = 1;
+                this.components = new Map();
+                this.connections = [];
+                this.phaseTimers = [];
+                
+                this.phases = [
+                    { name: "Self-Discovery & Network Formation", duration: 8000, handler: this.phaseSelfDiscovery.bind(this) },
+                    { name: "Adaptive Tool Evolution", duration: 6000, handler: this.phaseAdaptiveEvolution.bind(this) },
+                    { name: "Autonomous Intelligent Chaining", duration: 12000, handler: this.phaseIntelligentChaining.bind(this) }
+                ];
+                
+                this.setupEventListeners();
+                this.initializeComponents();
+                this.resizeCanvas();
+            }
+            
+            setupEventListeners() {
+                document.getElementById('playBtn').addEventListener('click', () => this.play());
+                document.getElementById('pauseBtn').addEventListener('click', () => this.pause());
+                document.getElementById('resetBtn').addEventListener('click', () => this.reset());
+                
+                const speedSlider = document.getElementById('speedSlider');
+                speedSlider.addEventListener('input', (e) => {
+                    this.animationSpeed = parseFloat(e.target.value);
+                    document.getElementById('speedValue').textContent = `${this.animationSpeed}x`;
+                });
+                
+                window.addEventListener('resize', () => this.resizeCanvas());
+            }
+            
+            initializeComponents() {
+                // Component definitions based on our plan
+                const componentDefs = [
+                    // Interfaces
+                    { id: 'web-interface', type: 'interface', name: 'Web Interface', x: 10, y: 8 },
+                    { id: 'admin-interface', type: 'interface', name: 'Admin Interface', x: 85, y: 8 },
+                    
+                    // Agents  
+                    { id: 'primary-agent', type: 'agent', name: 'Primary Agent', x: 47.5, y: 25, specializations: ['coordination', 'routing'] },
+                    { id: 'weather-agent', type: 'agent', name: 'Weather Agent', x: 20, y: 40, specializations: ['weather', 'meteorology'] },
+                    { id: 'finance-agent', type: 'agent', name: 'Finance Agent', x: 35, y: 40, specializations: ['finance', 'market'] },
+                    { id: 'health-agent', type: 'agent', name: 'Health Agent', x: 60, y: 40, specializations: ['health', 'medical'] },
+                    { id: 'travel-agent', type: 'agent', name: 'Travel Agent', x: 75, y: 40, specializations: ['travel', 'logistics'] },
+                    { id: 'research-agent', type: 'agent', name: 'Research Agent', x: 27.5, y: 55, specializations: ['research', 'analysis'] },
+                    { id: 'customer-agent', type: 'agent', name: 'Customer Service', x: 67.5, y: 55, specializations: ['support', 'assistance'] },
+                    
+                    // Functions - Row 1 (Weather & Environment)
+                    { id: 'weather-service', type: 'function', name: 'Weather API', x: 8, y: 68 },
+                    { id: 'forecast-service', type: 'function', name: 'Forecast API', x: 20, y: 68 },
+                    { id: 'air-quality', type: 'function', name: 'Air Quality', x: 32, y: 68 },
+                    { id: 'climate-analysis', type: 'function', name: 'Climate Data', x: 44, y: 68 },
+                    
+                    // Functions - Row 1 (Financial)
+                    { id: 'stock-service', type: 'function', name: 'Stock API', x: 56, y: 68 },
+                    { id: 'currency-service', type: 'function', name: 'Currency API', x: 68, y: 68 },
+                    { id: 'economic-data', type: 'function', name: 'Economic Data', x: 80, y: 68 },
+                    { id: 'crypto-service', type: 'function', name: 'Crypto API', x: 92, y: 68 },
+                    
+                    // Functions - Row 2 (Health & Travel)
+                    { id: 'symptom-checker', type: 'function', name: 'Symptoms', x: 8, y: 80 },
+                    { id: 'nutrition-service', type: 'function', name: 'Nutrition', x: 20, y: 80 },
+                    { id: 'fitness-service', type: 'function', name: 'Fitness', x: 32, y: 80 },
+                    { id: 'flight-search', type: 'function', name: 'Flights', x: 44, y: 80 },
+                    { id: 'hotel-search', type: 'function', name: 'Hotels', x: 56, y: 80 },
+                    { id: 'route-optimizer', type: 'function', name: 'Routes', x: 68, y: 80 },
+                    
+                    // Functions - Row 2 (Utilities)
+                    { id: 'calculator', type: 'function', name: 'Calculator', x: 80, y: 80 },
+                    { id: 'translator', type: 'function', name: 'Translator', x: 92, y: 80 },
+                    
+                    // Functions - Row 3 (Research & Data) 
+                    { id: 'database-query', type: 'function', name: 'Database', x: 20, y: 92 },
+                    { id: 'web-search', type: 'function', name: 'Web Search', x: 35, y: 92 },
+                    { id: 'document-analysis', type: 'function', name: 'Documents', x: 50, y: 92 },
+                    { id: 'email-service', type: 'function', name: 'Email', x: 65, y: 92 }
+                ];
+                
+                // Create component elements
+                componentDefs.forEach(def => {
+                    const element = this.createComponent(def);
+                    this.components.set(def.id, { ...def, element });
+                });
+                
+                this.updateStats();
+            }
+            
+            createComponent(def) {
+                const element = document.createElement('div');
+                element.className = `component ${def.type}`;
+                element.innerHTML = `
+                    <div>${def.name}</div>
+                    <div class="component-label">${def.type.toUpperCase()}</div>
+                    <div class="status-indicator"></div>
+                `;
+                
+                // Position based on percentage of canvas size
+                this.positionComponent(element, def.x, def.y);
+                
+                element.addEventListener('click', () => this.focusComponent(def.id));
+                this.canvas.appendChild(element);
+                
+                return element;
+            }
+            
+            positionComponent(element, x, y) {
+                // Convert percentage to actual pixels based on canvas size
+                const rect = this.canvas.getBoundingClientRect();
+                const componentWidth = 120; // Min width from CSS
+                const componentHeight = 60; // Estimated height with padding
+                
+                // Calculate position with proper bounds checking
+                const actualX = Math.max(0, Math.min(
+                    (x / 100) * rect.width - componentWidth/2,
+                    rect.width - componentWidth
+                ));
+                const actualY = Math.max(0, Math.min(
+                    (y / 100) * rect.height - componentHeight/2,
+                    rect.height - componentHeight - 10 // Leave small margin
+                ));
+                
+                element.style.left = `${actualX}px`;
+                element.style.top = `${actualY}px`;
+            }
+            
+            resizeCanvas() {
+                // Reposition all components on resize
+                this.components.forEach((comp) => {
+                    this.positionComponent(comp.element, comp.x, comp.y);
+                });
+                
+                // Update SVG size
+                const rect = this.canvas.getBoundingClientRect();
+                this.svg.setAttribute('width', rect.width);
+                this.svg.setAttribute('height', rect.height);
+            }
+            
+            focusComponent(id) {
+                // Highlight selected component
+                this.components.forEach((comp, compId) => {
+                    if (compId === id) {
+                        comp.element.style.transform = 'scale(1.2)';
+                        comp.element.style.zIndex = '10';
+                    } else {
+                        comp.element.style.transform = 'scale(1)';
+                        comp.element.style.zIndex = '2';
+                    }
+                });
+            }
+            
+            updateStats() {
+                document.getElementById('componentCount').textContent = this.components.size;
+                document.getElementById('connectionCount').textContent = this.connections.length;
+                document.getElementById('chainCount').textContent = '0'; // Will be updated during animations
+            }
+            
+            updatePhase(phaseIndex, message) {
+                document.getElementById('phaseIndicator').textContent = 
+                    `Phase ${phaseIndex + 1}: ${this.phases[phaseIndex].name}`;
+                document.getElementById('currentPhase').textContent = this.phases[phaseIndex].name;
+                document.getElementById('messageLog').textContent = message;
+            }
+            
+            // Phase 1: Self-Discovery & Network Formation (0-8s)
+            async phaseSelfDiscovery() {
+                this.updatePhase(0, "🧠 GENESIS: Autonomous agents self-discovering and forming networks...");
+                
+                // Clear any previous state
+                this.clearAllHighlights();
+                
+                // Organic component emergence (0-3s)
+                this.updatePhase(0, "🌱 Zero-configuration: Agents autonomously joining network...");
+                const components = Array.from(this.components.values());
+                for (let i = 0; i < components.length; i++) {
+                    setTimeout(() => {
+                        components[i].element.classList.add('visible');
+                        components[i].element.style.animation = 'scaleIn 0.5s ease-out';
+                    }, (i * 100) / this.animationSpeed);
+                }
+                
+                // Self-organizing discovery (3-5s)
+                setTimeout(() => {
+                    this.updatePhase(0, "🔗 Self-organizing: Agents discovering capabilities without central control...");
+                    this.animateDiscoveryConnections();
+                }, 3000 / this.animationSpeed);
+                
+                // Dynamic capability mapping (5-6s)
+                setTimeout(() => {
+                    this.updatePhase(0, "📊 Dynamic mapping: Real-time capability assessment and specialization...");
+                    this.animateCapabilityAnnouncements();
+                }, 5000 / this.animationSpeed);
+                
+                // Adaptive function integration (6-8s)
+                setTimeout(() => {
+                    this.updatePhase(0, "⚡ Adaptive integration: Functions self-registering based on network needs...");
+                    this.animateFunctionRegistrations();
+                }, 6000 / this.animationSpeed);
+            }
+            
+            // Phase 2: Function Registry Building (8-14s)  
+            async phaseAdaptiveEvolution() {
+                this.updatePhase(1, "📋 REGISTRY BUILDING: Agents publishing capabilities to function registry...");
+                
+                // Clear discovery connections first
+                setTimeout(() => {
+                    this.clearDiscoveryConnections();
+                }, 0);
+                
+                // Capability publishing (0-2s)
+                setTimeout(() => {
+                    this.updatePhase(1, "📢 Capability Publishing: Agents announcing their specializations...");
+                    this.animateAgentScanning();
+                }, 500 / this.animationSpeed);
+                
+                // Registry cataloging (2-4s)
+                setTimeout(() => {
+                    this.updatePhase(1, "📚 Registry Update: Building catalog of available agents and functions...");
+                    this.animateToolSchemaGeneration();
+                }, 2000 / this.animationSpeed);
+                
+                // Registry complete (4.5-6s) - THE GRAND FINALE
+                setTimeout(() => {
+                    this.updatePhase(1, "✅ REGISTRY COMPLETE: All agents and functions cataloged and ready!");
+                    // TODO: Uncomment when we decide on popup placement
+                    // this.showToolRegistry();
+                }, 4500 / this.animationSpeed);
+            }
+            
+            // Phase 3: Autonomous Intelligent Chaining (14-26s)
+            async phaseIntelligentChaining() {
+                this.updatePhase(2, "🎯 AUTONOMOUS INTELLIGENCE: System self-coordinating to solve complex queries...");
+                
+                // Complex query submission (0-2s)
+                setTimeout(() => {
+                    this.animateUserQuery();
+                }, 0);
+                
+                // Intelligent analysis and planning (2-5s)
+                setTimeout(() => {
+                    this.updatePhase(2, "🧠 Autonomous planning: System intelligently decomposing and routing query...");
+                    this.animateLLMAnalysis();
+                }, 2000 / this.animationSpeed);
+                
+                // Adaptive chain execution (5-10s)
+                setTimeout(() => {
+                    this.updatePhase(2, "⚡ Adaptive chaining: Self-organizing multi-hop execution with context preservation...");
+                    this.animateChainExecution();
+                }, 5000 / this.animationSpeed);
+                
+                // Intelligent synthesis (10-12s)
+                setTimeout(() => {
+                    this.updatePhase(2, "🎯 Intelligent synthesis: Autonomous aggregation and response optimization...");
+                    this.animateResponseAssembly();
+                }, 10000 / this.animationSpeed);
+            }
+            
+            animateDiscoveryConnections() {
+                // Create discovery connections between components
+                const connections = [
+                    // Agents discovering each other
+                    ['primary-agent', 'weather-agent'],
+                    ['primary-agent', 'finance-agent'],
+                    ['primary-agent', 'health-agent'],
+                    ['primary-agent', 'travel-agent'],
+                    ['primary-agent', 'research-agent'],
+                    ['primary-agent', 'customer-agent'],
+                    
+                    // Functions connecting to relevant agents
+                    ['weather-agent', 'weather-service'],
+                    ['weather-agent', 'forecast-service'],
+                    ['finance-agent', 'stock-service'],
+                    ['finance-agent', 'currency-service'],
+                    ['health-agent', 'symptom-checker'],
+                    ['travel-agent', 'flight-search'],
+                    ['travel-agent', 'hotel-search'],
+                ];
+                
+                connections.forEach((connection, index) => {
+                    setTimeout(() => {
+                        this.createConnection(connection[0], connection[1], 'discovery');
+                    }, index * 300);
+                });
+            }
+            
+            animateCapabilityAnnouncements() {
+                // Pulse effects for agents showing their specializations
+                this.components.forEach((comp) => {
+                    if (comp.type === 'agent') {
+                        comp.element.style.animation = 'pulse 2s infinite';
+                    }
+                });
+            }
+            
+            animateFunctionRegistrations() {
+                // Turn function status indicators green
+                this.components.forEach((comp) => {
+                    if (comp.type === 'function') {
+                        const indicator = comp.element.querySelector('.status-indicator');
+                        indicator.classList.add('online');
+                    }
+                });
+            }
+            
+            animateAgentScanning() {
+                // Agents publish their capabilities to the registry - NO active connections yet
+                const primaryAgent = this.components.get('primary-agent');
+                primaryAgent.element.style.boxShadow = '0 0 30px var(--interface-primary)';
+                primaryAgent.element.style.animation = 'pulse 2s infinite';
+                
+                // Show agents publishing capabilities to registry (not connecting to each other)
+                const agentIds = ['weather-agent', 'finance-agent', 'health-agent', 'travel-agent', 'research-agent', 'customer-agent'];
+                agentIds.forEach((agentId, index) => {
+                    setTimeout(() => {
+                        // Just highlight the agent publishing capabilities - NO connection lines
+                        const agent = this.components.get(agentId);
+                        if (agent) {
+                            agent.element.style.boxShadow = '0 0 20px var(--agent-primary)';
+                            agent.element.style.animation = 'pulse 1s ease-in-out 3';
+                            
+                            // Show capability publishing text
+                            this.showCapabilityPublishing(agent.element, agentId);
+                        }
+                    }, index * 400);
+                });
+            }
+            
+            animateToolSchemaGeneration() {
+                // Show morphing animation from capabilities to tools
+                const agents = ['weather-agent', 'finance-agent', 'health-agent', 'travel-agent', 'research-agent', 'customer-agent'];
+                
+                agents.forEach((agentId, index) => {
+                    setTimeout(() => {
+                        const agent = this.components.get(agentId);
+                        if (agent) {
+                            // Create visual effect showing tool generation
+                            agent.element.style.transform = 'scale(1.1)';
+                            agent.element.style.boxShadow = '0 0 25px var(--agent-primary)';
+                            
+                            // Show tool name generation
+                            const toolName = this.generateToolName(agentId);
+                            this.showToolNameGeneration(agent.element, toolName);
+                            
+                            setTimeout(() => {
+                                agent.element.style.transform = 'scale(1)';
+                                agent.element.style.boxShadow = '';
+                            }, 1000);
+                        }
+                    }, index * 500);
+                });
+            }
+            
+            showToolRegistry() {
+                document.getElementById('toolRegistry').classList.add('visible');
+                
+                // Keep it visible much longer so people can read it
+                setTimeout(() => {
+                    document.getElementById('toolRegistry').classList.remove('visible');
+                }, 8000 / this.animationSpeed);
+            }
+            
+            animateUserQuery() {
+                this.updatePhase(2, '🌍 User Query: "Tokyo travel advice - weather, markets, health?"');
+            }
+            
+            animateLLMAnalysis() {
+                // Show classifier getting full registry list and filtering it down
+                this.updatePhase(2, '🧠 Classifier: Receiving full registry → Filtering to relevant agents only');
+                const primaryAgent = this.components.get('primary-agent');
+                primaryAgent.element.style.animation = 'pulse 1s infinite';
+                primaryAgent.element.style.boxShadow = '0 0 25px var(--interface-primary)';
+            }
+            
+            animateChainExecution() {
+                // Lightning bolt pattern: Complete request/response cycles
+                this.components.forEach(comp => {
+                    comp.element.style.boxShadow = '';
+                    comp.element.style.animation = '';
+                });
+                
+                // Lightning Bolt 1: Weather Query (complete round trip)
+                this.animateLightningBolt(0, 
+                    ['web-interface', 'primary-agent', 'weather-agent', 'weather-service'],
+                    ['1️⃣ Query → Primary Agent', '2️⃣ Primary → Weather Agent', '3️⃣ Weather → API', '4️⃣ Response ← Weather Chain']
+                );
+                
+                // Lightning Bolt 2: Finance Query (complete round trip) 
+                this.animateLightningBolt(4000,
+                    ['web-interface', 'primary-agent', 'finance-agent', 'stock-service'],
+                    ['5️⃣ Query → Primary Agent', '6️⃣ Primary → Finance Agent', '7️⃣ Finance → API', '8️⃣ Response ← Finance Chain']
+                );
+                
+                // Lightning Bolt 3: Health Query (complete round trip)
+                this.animateLightningBolt(8000,
+                    ['web-interface', 'primary-agent', 'health-agent', 'symptom-checker'],
+                    ['9️⃣ Query → Primary Agent', '🔟 Primary → Health Agent', '1️⃣1️⃣ Health → API', '1️⃣2️⃣ Response ← Health Chain']
+                );
+            }
+            
+            animateLightningBolt(startDelay, components, messages) {
+                // Go DOWN the chain (query direction)
+                for (let i = 0; i < components.length - 1; i++) {
+                    setTimeout(() => {
+                        this.updatePhase(2, messages[i]);
+                        const connection = this.createConnection(components[i], components[i + 1], 'active');
+                        connection.setAttribute('data-bolt', 'down');
+                        
+                        // Highlight current components
+                        this.components.get(components[i]).element.style.boxShadow = '0 0 20px var(--data-flow)';
+                        this.components.get(components[i + 1]).element.style.boxShadow = '0 0 20px var(--active-chain)';
+                    }, startDelay + (i * 800));
+                }
+                
+                // Process at the end point (function executes)
+                setTimeout(() => {
+                    this.updatePhase(2, `Processing at ${components[components.length - 1]}...`);
+                    this.components.get(components[components.length - 1]).element.style.boxShadow = '0 0 30px var(--success)';
+                }, startDelay + ((components.length - 1) * 800) + 400);
+                
+                // Come BACK UP the chain (response direction)
+                setTimeout(() => {
+                    this.updatePhase(2, messages[3]); // Response message
+                    
+                    // Reverse all connections in this bolt
+                    const boltConnections = this.svg.querySelectorAll(`.connection-line[data-bolt="down"]`);
+                    boltConnections.forEach(line => {
+                        line.classList.remove('active');
+                        line.classList.add('response');
+                        line.setAttribute('data-bolt', 'up');
+                    });
+                    
+                    // Clear highlights gradually as response flows back
+                    for (let i = components.length - 1; i >= 0; i--) {
+                        setTimeout(() => {
+                            this.components.get(components[i]).element.style.boxShadow = '0 0 15px var(--success)';
+                        }, i * 200);
+                    }
+                }, startDelay + ((components.length - 1) * 800) + 1200);
+                
+                // Clear this bolt after complete cycle
+                setTimeout(() => {
+                    const boltConnections = this.svg.querySelectorAll(`.connection-line[data-bolt="up"]`);
+                    boltConnections.forEach(line => {
+                        line.style.opacity = '0.3';
+                        line.classList.remove('response');
+                    });
+                    
+                    // Clear component highlights
+                    components.forEach(compId => {
+                        this.components.get(compId).element.style.boxShadow = '';
+                    });
+                }, startDelay + ((components.length - 1) * 800) + 2000);
+            }
+            
+            animateResponseAssembly() {
+                // Final aggregation after all lightning bolts complete
+                setTimeout(() => {
+                    this.updatePhase(2, "🔥 All lightning bolts complete - Primary Agent aggregating results");
+                    
+                    // Show primary agent doing final processing
+                    const primaryAgent = this.components.get('primary-agent');
+                    primaryAgent.element.style.boxShadow = '0 0 30px var(--success)';
+                    primaryAgent.element.style.animation = 'pulse 1s ease-in-out 3';
+                }, 500);
+                
+                // Final completion message
+                setTimeout(() => {
+                    this.updatePhase(2, "✅ COMPLETE: All queries processed - weather, market, and health data delivered!");
+                    
+                    // Clear final highlights
+                    this.components.forEach(comp => {
+                        comp.element.style.boxShadow = '';
+                        comp.element.style.animation = '';
+                    });
+                }, 2500);
+            }
+            
+            // Helper Functions
+            createConnection(fromId, toId, type = 'discovery') {
+                const fromComponent = this.components.get(fromId);
+                const toComponent = this.components.get(toId);
+                
+                if (!fromComponent || !toComponent) return;
+                
+                const fromRect = fromComponent.element.getBoundingClientRect();
+                const toRect = toComponent.element.getBoundingClientRect();
+                const canvasRect = this.canvas.getBoundingClientRect();
+                
+                // Calculate positions relative to canvas
+                const fromX = fromRect.left + fromRect.width / 2 - canvasRect.left;
+                const fromY = fromRect.top + fromRect.height / 2 - canvasRect.top;
+                const toX = toRect.left + toRect.width / 2 - canvasRect.left;
+                const toY = toRect.top + toRect.height / 2 - canvasRect.top;
+                
+                // Create SVG line
+                const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                line.setAttribute('x1', fromX);
+                line.setAttribute('y1', fromY);
+                line.setAttribute('x2', toX);
+                line.setAttribute('y2', toY);
+                line.setAttribute('class', `connection-line ${type}`);
+                line.setAttribute('data-from', fromId);
+                line.setAttribute('data-to', toId);
+                
+                this.svg.appendChild(line);
+                
+                // Animate line appearance
+                setTimeout(() => {
+                    if (type === 'discovery') {
+                        line.classList.add('discovery');
+                    } else if (type === 'active') {
+                        line.classList.add('active');
+                    } else if (type === 'response') {
+                        line.classList.add('response');
+                    }
+                }, 100);
+                
+                return line;
+            }
+            
+            generateToolName(agentId) {
+                const toolNames = {
+                    'weather-agent': 'get_weather_info',
+                    'finance-agent': 'get_financial_data',
+                    'health-agent': 'get_health_info',
+                    'travel-agent': 'get_travel_info',
+                    'research-agent': 'get_research_data',
+                    'customer-agent': 'get_support_help'
+                };
+                return toolNames[agentId] || 'get_agent_data';
+            }
+            
+            showCapabilityPublishing(element, agentId) {
+                // Show capability publishing to registry (not tool generation yet)
+                const capabilities = {
+                    'weather-agent': 'Publishing: weather, meteorology',
+                    'finance-agent': 'Publishing: finance, markets',
+                    'health-agent': 'Publishing: health, medical',
+                    'travel-agent': 'Publishing: travel, logistics',
+                    'research-agent': 'Publishing: research, analysis',
+                    'customer-agent': 'Publishing: support, assistance'
+                };
+                
+                const capabilityText = capabilities[agentId] || 'Publishing capabilities';
+                
+                const capDisplay = document.createElement('div');
+                capDisplay.style.position = 'absolute';
+                capDisplay.style.background = 'var(--agent-primary)';
+                capDisplay.style.color = 'white';
+                capDisplay.style.padding = '4px 8px';
+                capDisplay.style.borderRadius = '4px';
+                capDisplay.style.fontSize = '0.7rem';
+                capDisplay.style.fontWeight = '500';
+                capDisplay.style.opacity = '0';
+                capDisplay.style.transition = 'all 0.3s ease';
+                capDisplay.style.zIndex = '20';
+                capDisplay.style.whiteSpace = 'nowrap';
+                capDisplay.textContent = capabilityText;
+                
+                // Position relative to the element's current position
+                const rect = element.getBoundingClientRect();
+                const canvasRect = this.canvas.getBoundingClientRect();
+                const left = rect.left - canvasRect.left + rect.width / 2;
+                const top = rect.top - canvasRect.top - 30;
+                
+                capDisplay.style.left = `${left}px`;
+                capDisplay.style.top = `${top}px`;
+                capDisplay.style.transform = 'translateX(-50%)';
+                
+                // Add to canvas
+                this.canvas.appendChild(capDisplay);
+                
+                // Animate appearance
+                setTimeout(() => {
+                    capDisplay.style.opacity = '1';
+                    capDisplay.style.top = `${top - 5}px`;
+                }, 100);
+                
+                // Remove after delay
+                setTimeout(() => {
+                    if (capDisplay.parentNode) {
+                        capDisplay.parentNode.removeChild(capDisplay);
+                    }
+                }, 2500);
+            }
+
+            showToolNameGeneration(element, toolName) {
+                // Create floating tool name element positioned relative to canvas
+                const toolDisplay = document.createElement('div');
+                toolDisplay.style.position = 'absolute';
+                toolDisplay.style.background = 'var(--interface-primary)';
+                toolDisplay.style.color = 'white';
+                toolDisplay.style.padding = '4px 8px';
+                toolDisplay.style.borderRadius = '4px';
+                toolDisplay.style.fontSize = '0.75rem';
+                toolDisplay.style.fontWeight = '600';
+                toolDisplay.style.opacity = '0';
+                toolDisplay.style.transition = 'all 0.3s ease';
+                toolDisplay.style.zIndex = '20';
+                toolDisplay.style.whiteSpace = 'nowrap';
+                toolDisplay.textContent = toolName;
+                
+                // Position relative to the element's current position
+                const rect = element.getBoundingClientRect();
+                const canvasRect = this.canvas.getBoundingClientRect();
+                const left = rect.left - canvasRect.left + rect.width / 2;
+                const top = rect.top - canvasRect.top - 30;
+                
+                toolDisplay.style.left = `${left}px`;
+                toolDisplay.style.top = `${top}px`;
+                toolDisplay.style.transform = 'translateX(-50%)';
+                
+                // Add to canvas instead of element to avoid position conflicts
+                this.canvas.appendChild(toolDisplay);
+                
+                // Animate appearance
+                setTimeout(() => {
+                    toolDisplay.style.opacity = '1';
+                    toolDisplay.style.top = `${top - 5}px`;
+                }, 100);
+                
+                // Remove after delay
+                setTimeout(() => {
+                    if (toolDisplay.parentNode) {
+                        toolDisplay.parentNode.removeChild(toolDisplay);
+                    }
+                }, 2000);
+            }
+            
+            clearActiveConnections() {
+                // Clear only ACTIVE and RESPONSE query-time connections, keep discovery connections as background
+                const activeLines = this.svg.querySelectorAll('.connection-line.active, .connection-line.response');
+                activeLines.forEach(line => {
+                    line.classList.remove('active', 'response');
+                    setTimeout(() => {
+                        if (line.parentNode) {
+                            line.parentNode.removeChild(line);
+                        }
+                    }, 100);
+                });
+                
+                // Clear component highlights but keep discovery infrastructure
+                this.components.forEach(comp => {
+                    comp.element.style.boxShadow = '';
+                    comp.element.style.animation = '';
+                });
+            }
+            
+            clearAllHighlights() {
+                // Clear all component highlights
+                this.components.forEach(comp => {
+                    comp.element.style.boxShadow = '';
+                    comp.element.style.animation = '';
+                });
+                
+                // Clear all active connection lines
+                const activeLines = this.svg.querySelectorAll('.connection-line.active');
+                activeLines.forEach(line => {
+                    line.classList.remove('active');
+                    setTimeout(() => {
+                        if (line.parentNode) {
+                            line.parentNode.removeChild(line);
+                        }
+                    }, 500);
+                });
+            }
+            
+            clearDiscoveryConnections() {
+                // Make discovery connections more subtle - they become background infrastructure
+                const discoveryLines = this.svg.querySelectorAll('.connection-line.discovery');
+                discoveryLines.forEach(line => {
+                    line.style.opacity = '0.15';
+                    line.style.strokeWidth = '1';
+                });
+            }
+            
+            play() {
+                if (this.isPlaying) return;
+                
+                this.isPlaying = true;
+                document.getElementById('playBtn').disabled = true;
+                document.getElementById('pauseBtn').disabled = false;
+                
+                this.startPresentation();
+            }
+            
+            pause() {
+                this.isPlaying = false;
+                document.getElementById('playBtn').disabled = false;
+                document.getElementById('pauseBtn').disabled = true;
+                
+                // Clear all timers
+                this.phaseTimers.forEach(timer => clearTimeout(timer));
+                this.phaseTimers = [];
+            }
+            
+            reset() {
+                this.pause();
+                this.currentPhase = 0;
+                
+                // Reset all components
+                this.components.forEach((comp) => {
+                    comp.element.classList.remove('visible');
+                    comp.element.style.animation = '';
+                    comp.element.style.boxShadow = '';
+                    comp.element.style.transform = 'scale(1)';
+                    
+                    const indicator = comp.element.querySelector('.status-indicator');
+                    indicator.classList.remove('online');
+                });
+                
+                document.getElementById('toolRegistry').classList.remove('visible');
+                this.updatePhase(0, "Ready to demonstrate GENESIS's breakthrough autonomous intelligence systems...");
+                
+                document.getElementById('playBtn').disabled = false;
+                document.getElementById('pauseBtn').disabled = true;
+            }
+            
+            startPresentation() {
+                this.currentPhase = 0;
+                this.runPhase(0);
+            }
+            
+            runPhase(phaseIndex) {
+                if (!this.isPlaying || phaseIndex >= this.phases.length) return;
+                
+                const phase = this.phases[phaseIndex];
+                phase.handler();
+                
+                const timer = setTimeout(() => {
+                    this.runPhase(phaseIndex + 1);
+                }, phase.duration / this.animationSpeed);
+                
+                this.phaseTimers.push(timer);
+            }
+        }
+        
+        // Initialize presentation when DOM is loaded
+        document.addEventListener('DOMContentLoaded', () => {
+            window.genesisPresentation = new GenesisPresentation();
+        });
+    </script>
+</body>
+</html> 
