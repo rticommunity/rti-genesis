@@ -1,0 +1,31 @@
+name: Notify On Failure (Template)
+
+on:
+  workflow_run:
+    workflows: ["Triage On Push (Template)"]
+    types:
+      - completed
+
+jobs:
+  notify:
+    if: ${{ github.event.workflow_run.conclusion != 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send email (optional)
+        if: ${{ secrets.SMTP_HOST != '' }}
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_HOST }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USER }}
+          password: ${{ secrets.SMTP_PASS }}
+          subject: "Genesis DDS triage failed for ${{ github.repository }}@${{ github.sha }}"
+          to: ${{ secrets.ALERT_EMAIL_TO }}
+          from: ${{ secrets.ALERT_EMAIL_FROM }}
+          content_type: text/plain
+          body: |
+            The triage workflow failed.
+            Repo: ${{ github.repository }}
+            SHA: ${{ github.sha }}
+            Run: ${{ github.event.workflow_run.html_url }}
+
