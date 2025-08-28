@@ -50,13 +50,20 @@ async def main():
     logger.info("Starting PersonalAssistant test service...")
     
     agent = PersonalAssistant()
-    
-    # Check discovery status using built-in tracing
+
+    # Give auto-start a moment to announce and match
     await asyncio.sleep(2)
     if agent.enable_tracing:
-        agent._trace_discovery_status("STARTUP CHECK")
-    
-    await agent.run()
+        agent._trace_discovery_status("STARTUP CHECK (auto-run)")
+
+    # Do NOT call run(); rely on auto-run started in constructor.
+    # Block the process so the background service stays alive for tests.
+    print("🟢 TRACE: PersonalAssistant running via auto-start. Blocking without explicit run()...")
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    except asyncio.CancelledError:
+        print("🛑 TRACE: Cancellation received; shutting down PersonalAssistant...")
 
 if __name__ == "__main__":
     asyncio.run(main()) 
