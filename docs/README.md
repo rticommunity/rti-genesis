@@ -14,9 +14,13 @@ This folder is organized to make technical docs easy to find and keep business m
   - planning/testing_strategy.md: Preserving run_scripts and phased testing plan
   - planning/pyproject.example.toml: PEP 621 example (not active)
   - planning/workflows/: CI templates (not active)
+  - planning/workflows/triage-on-push.yml.txt: Push/PR triage with remote DDS (template)
+  - planning/workflows/notify-on-failure.yml.txt: Email notify on failures (template)
   - planning/schemas/viewer_topology.schema.json: Viewer data contract (draft)
   - planning/schemas/repo_metrics.schema.json: Metrics JSON schema (draft)
+  - planning/schemas/mcp_test_result.schema.json: MCP runner result contract (draft)
   - planning/templates/: README templates for future repos
+  - planning/mcp_test_runner_plan.md: MCP-based remote test runner plan
  - setup/: User setup guides
   - setup/dds_setup.md: RTI Connext DDS installation and environment setup
 - architecture/: System design and analysis (memory, monitoring, modularity)

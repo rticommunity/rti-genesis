@@ -1,55 +1,95 @@
-# MCP Test Runner Service (Draft)
+# MCP Test Runner Service (Draft Plan)
 
-Goal: Allow agents that cannot run DDS (e.g., sandboxed tools) to request
-Genesis tests to run in a preconfigured environment and get structured results.
+Goal: Allow agents that cannot run DDS (e.g., sandboxed tools) to request Genesis tests to run in a DDS‑ready environment and receive structured pass/fail results and logs.
 
-## Approach
+## Scope
 
-- Provide a small MCP server that exposes tools to run tests from this repo:
-  - `run_triage_suite`: Runs `run_scripts/run_triage_suite.sh` and returns pass/fail plus summaries.
-  - `run_all_tests`: Runs `run_scripts/run_all_tests.sh` (long), returns aggregated result.
-  - `run_named_test`: Runs a specific script (whitelisted) and returns output + exit code.
-  - `list_logs` / `read_log`: Enumerate and tail logs under `logs/`.
-  - `env_info`: Report DDS config (`NDDSHOME`, resolved `rtiddsspy` path), Python version, etc.
+- In‑scope: Triggering existing repo tests remotely; structured results; basic log retrieval; minimal auth and safety.
+- Out‑of‑scope (initially): Browser/UI testing; multi‑tenant auth; per‑run environment provisioning.
 
-## Transport
+## Architecture Overview
 
-- Primary: MCP (Model Context Protocol) over stdio using the Python SDK.
-- Optional bridge: Systemd/PM2 keeps the server running; agent connects via `command` transport.
-- Fallback: Simple HTTP wrapper that calls the same runner functions (for environments without MCP clients).
+- MCP Server: Long‑running Python process exposing tools over MCP stdio.
+- Test Runners: Shell/Python scripts already in `run_scripts/` executed by the server.
+- Artifacts: Logs under `logs/` collected and returned as names and optional tails.
+- Clients: Codex CLI or other MCP‑capable agents invoke tools instead of running DDS locally.
+
+## Tools (MVP)
+
+- `env_info`: Report DDS config (`NDDSHOME`, rtiddsspy path), Python version, redacted env keys.
+- `run_triage_suite`: Run `run_scripts/run_triage_suite.sh`; return status, exit code, log artifacts.
+- `run_all_tests`: Run `run_scripts/run_all_tests.sh` (long); return aggregated result.
+- `run_named_test(name)`: Whitelisted scripts only (e.g., `viewer_contract`, `monitoring_graph`, `monitoring_interface_pipeline`, `math`).
+- `list_logs`, `read_log(name, max_lines)`: Enumerate and tail logs.
+
+Response contract: See `docs/planning/schemas/mcp_test_result.schema.json`.
+
+## Transport & Deployment Options
+
+- Primary: MCP over stdio (process runs under systemd/tmux/screen on DDS host).
+- CI Bridge: GitHub Actions job SSHs into DDS host and runs triage; uploads logs (template added).
+- Alternative: Self‑hosted Actions runner on DDS host to avoid SSH.
+- Optional (later): Lightweight HTTP wrapper forwarding to the same runner functions.
 
 ## Execution Environment
 
 - Host/VM/container with:
-  - DDS installed and `NDDSHOME` configured; `rtiddsspy` available.
-  - Python 3.10 and this repo checked out.
-  - Optional API keys set for LLM-related tests.
-- Service user with least privileges; logs isolated to `logs/`.
+  - DDS installed (`NDDSHOME`), `rtiddsspy` present.
+  - Python 3.10; repo checked out; deps installed.
+  - Optional API keys for LLM‑dependent tests.
+- Service user with least privileges; `logs/` writable.
 
-## Outputs
+## Security & Safety
 
-- JSON-serializable result with fields:
-  - `status`: `pass` | `fail` | `error`
-  - `exit_code`: integer
-  - `summary`: short string
-  - `artifacts`: list of log filenames produced (relative to `logs/`)
-  - `tails`: map of filename → last N lines (optional size-limited)
+- Whitelist commands; no arbitrary shell.
+- Per‑call timeouts; output size limits; redaction of secrets.
+- Do not expose full environment; only redacted keys.
 
-## Security
+## Observability
 
-- Whitelist runnable scripts to avoid arbitrary command execution.
-- Enforce per-call timeouts and max output sizes.
-- Do not echo env secrets; redact known keys from output.
+- Always return `artifacts` list and allow `read_log` tails.
+- Consider rotating logs (size/time‑based) to cap storage.
+- Optional: emit a compact JSON summary file per run into `logs/`.
 
-## Deployment
+## Phased Implementation
 
-- Standalone process (systemd or tmux) in the repo root:
-  - `python tools/mcp_test_runner/server.py`
-- Optionally bake into a VM image with DDS preinstalled.
+Phase 0 — Prepare
+- [ ] Choose DDS host (VM or self‑hosted runner) and access method (SSH vs self‑hosted).
+- [ ] Create service user; install DDS; set `NDDSHOME`; verify `rtiddsspy`.
 
-## Next Steps
+Phase 1 — MVP Server
+- [ ] Implement MCP server with `env_info`, `run_triage_suite`, `run_named_test`, `list_logs`, `read_log`.
+- [ ] Enforce whitelist + timeouts; redact env.
+- [ ] Manual validation from Codex CLI or a simple MCP client.
 
-- Implement `tools/mcp_test_runner/server.py` with MCP tools above.
-- Add `tools/mcp_test_runner/README.md` with usage and test commands.
-- (Optional) Add HTTP bridge if needed later.
+Phase 2 — CI Integration
+- [ ] Add GitHub Actions job that triggers triage remotely (SSH or self‑hosted).
+- [ ] Upload logs as artifacts; comment on PRs on failure; optional email alert (templates included).
+
+Phase 3 — Hardening
+- [ ] Cap log sizes; rotate old logs; add per‑tool runtime limits.
+- [ ] Add `run_all_tests` tool guarded behind a label or manual dispatch.
+- [ ] Add metrics summary JSON per run (status, durations).
+
+Phase 4 — Extensibility
+- [ ] Parameterize `run_named_test` to pass flags (e.g., include/exclude monitoring stages).
+- [ ] Add “test packs” (e.g., `core`, `monitoring`, `viewer_contracts`).
+- [ ] Optional HTTP bridge or gRPC for non‑MCP clients.
+
+## Success Criteria
+
+- Agents in restricted environments can request triage and receive structured results within minutes.
+- Failures produce actionable PR comments and downloadable logs.
+- No arbitrary code execution; secrets remain redacted.
+
+## Open Questions
+
+- Preferred host approach: SSH into a general DDS box or use a self‑hosted runner?
+- Notification channels: PR comments only, or also email/Slack?
+- Retention policy for logs/artifacts?
+
+## Rollback / Failure Modes
+
+- If MCP server unavailable, CI still runs lightweight contract tests.
+- SSH triage job failure falls back to artifact logs from last successful run.
 

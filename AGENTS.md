@@ -41,6 +41,11 @@ This guide provides tips and instructions for contributors and automated agents 
     - `run_scripts/`: Contains scripts for running tests and examples.
     - `docs/`: Project documentation.
 
+## Agent Auto-Start Behavior
+- Agents now auto-start their Genesis RPC service upon instantiation when an asyncio event loop is running. This makes the agent discoverable without explicitly calling `run()`.
+- Backward compatible: `await agent.run()` is still supported and now idempotent. If the service is already running, additional calls to `run()` return immediately without side effects.
+- Opt-out: Pass `auto_run=False` when constructing an agent if you need to defer startup manually (e.g., in certain tests or tooling).
+
 ## Testing Instructions
 - **Comprehensive Test Suite**: The primary method for running all tests is the `run_all_tests.sh` script located in the `run_scripts/` directory. This script executes a sequence of individual test scripts and checks for overall success.
   ```bash
