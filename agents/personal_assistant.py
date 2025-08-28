@@ -6,11 +6,11 @@ A simple demonstration of OpenAIGenesisAgent that automatically discovers
 and calls available services (like calculator) while handling conversational
 queries through OpenAI.
 
-This shows the correct pattern:
+This shows the recommended pattern:
 - Inherit from OpenAIGenesisAgent
-- Enable agent communication for agent-as-tool pattern  
-- Use await self.run() to start the RPC service
-- Let Genesis handle all discovery and communication
+- Enable agent communication for agent-as-tool pattern
+- Let Genesis auto-start the RPC service on instantiation (run() optional)
+- Genesis handles discovery and communication automatically
 """
 
 import asyncio
@@ -50,10 +50,17 @@ async def main():
     
     assistant = PersonalAssistant()
     
-    logger.info("✅ PersonalAssistant created, starting RPC service...")
-    
-    # CRITICAL: This starts the Genesis RPC service and makes the agent discoverable
-    await assistant.run()
+    logger.info("✅ PersonalAssistant created; running via auto-start (no explicit run())...")
+
+    # Keep process alive while background service runs
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    finally:
+        try:
+            await assistant.close()
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     try:

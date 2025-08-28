@@ -544,13 +544,15 @@ async def main():
         logger.warning("⚠️ No OPENWEATHERMAP_API_KEY - using mock data")
         logger.info("💡 Get a free API key at: https://openweathermap.org/api")
     
-    # Create and run agent
+    # Create and run agent via auto-start (no explicit run())
     agent = WeatherAgent()
-    
+
     try:
-        logger.info("📡 WeatherAgent starting - will be discoverable as 'WeatherExpert'")
-        logger.info("🛠️ @genesis_tool methods will be auto-discovered and injected into OpenAI")
-        await agent.run()
+        logger.info("📡 WeatherAgent running via auto-start; discoverable as 'WeatherExpert'")
+        logger.info("🛠️ @genesis_tool methods auto-discovered and injected into OpenAI")
+        # Keep process alive while background service runs
+        while True:
+            await asyncio.sleep(3600)
     except KeyboardInterrupt:
         logger.info("⏹️ WeatherAgent stopped by user")
     except Exception as e:
