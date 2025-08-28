@@ -6,6 +6,19 @@ This folder is organized to make technical docs easy to find and keep business m
 - reference/: Canonical references and specs (DDS RPC cheat sheets, identifiers)
 - agents/: Agent‑facing docs and checklists
 - planning/: Roadmaps, plans, implementation checklists
+  - planning/repository_separation_plan.md: Target repo split and rollout
+  - planning/cross_repo_reporting_plan.md: Cross-repo metrics and agent access
+  - planning/dds_setup_doc_outline.md: Draft for DDS setup doc
+  - planning/RELEASING.md: Draft release steps (TestPyPI/PyPI)
+  - planning/MIGRATION_CHECKLIST.md: End-to-end migration checklist
+  - planning/testing_strategy.md: Preserving run_scripts and phased testing plan
+  - planning/pyproject.example.toml: PEP 621 example (not active)
+  - planning/workflows/: CI templates (not active)
+  - planning/schemas/viewer_topology.schema.json: Viewer data contract (draft)
+  - planning/schemas/repo_metrics.schema.json: Metrics JSON schema (draft)
+  - planning/templates/: README templates for future repos
+ - setup/: User setup guides
+  - setup/dds_setup.md: RTI Connext DDS installation and environment setup
 - architecture/: System design and analysis (memory, monitoring, modularity)
   - architecture.md: High-level architecture overview
   - architecture_detailed.md: Detailed architecture (APIs, files, flows)
