@@ -5605,7 +5605,7 @@ if __name__ == "__main__":
     repo_name = "Genesis_LIB"  # Replace with actual repo name
     
     comments = get_github_comments(repo_owner, repo_name, token)
-    generate_comment_history(comments, "docs/comment_history.md") 
+    generate_comment_history(comments, "docs/notes/comment_history.md") 
 ```
 
 ## examples/HelloWorld/hello_world_agent.py
@@ -15435,4 +15435,3 @@ def filter_functions_by_relevance(
         # In case of error, return all functions
         return available_functions 
 ```
-

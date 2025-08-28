@@ -1186,7 +1186,8 @@ sequenceDiagram
 - **Routing:** Calls are automatically routed to the correct agent, service, or internal method, with full context and monitoring.
 - **Monitoring:** All steps are tracked via DDS monitoring topics for real-time observability.
 
-For a detailed breakdown, see [`docs/function_call_flow.md`](docs/function_call_flow.md).
+Documentation index: [`docs/README.md`](docs/README.md)
+For a detailed breakdown, see [`docs/guides/function_call_flow.md`](docs/guides/function_call_flow.md).
 
 ## Monitoring & Observability
 
@@ -1274,4 +1275,3 @@ Bridge environment variables:
 - GENESIS_GRAPH_BRIDGE_UPDATE_SUPPRESS_MS (default 500)
 - GENESIS_GRAPH_BRIDGE_REMOVE_SUPPRESS_MS (default 2000)
 - GENESIS_GRAPH_BRIDGE_BATCH_MS (default 0; when > 0, emits consolidated `graph_batch` events which the reference client logs)
-

@@ -220,9 +220,9 @@ python interfaces/interactive_cli.py
 
 ## 🔗 Related Documentation
 
-- [Complexity Reduction Plan](../../docs/complexity.md) - The vision behind @genesis_tool
-- [Agent Communication Guide](../../docs/agent_communication.md) - How agents work together
-- [Function Services](../../docs/function_services.md) - External function integration
+- [Complexity Reduction Plan](../../docs/architecture/complexity.md) - The vision behind @genesis_tool
+- [Agent Communication Guide](../../docs/agents/agent_to_agent_communication.md) - How agents work together
+- [Function Services](../../docs/guides/function_service_guide.md) - External function integration
 
 ---
 
