@@ -213,3 +213,18 @@ Viewer Contract
   - Converts an in-memory graph (GenesisNetworkGraph) to viewer JSON via `genesis_lib.viewer_export`.
   - Validates against `docs/planning/schemas/viewer_topology.schema.json`.
   - Enforces a small back-compat gate on counts and required fields.
+- `mcp/`: Optional MCP server to run tests from Cursor/assistants.
+  - `mcp/test_runner_server.py` provides tools: `preflight`, `run_triage`, `run_all_tests`, `run_active_test`, `tail_log`, `sweep_dds`.
+  - `.cursor/mcp.json` registers the server to run via your project `venv`.
+
+### MCP Usage (optional)
+
+1) Ensure venv is created and activated; install the `mcp` package if missing:
+   - `pip install mcp`
+2) In Cursor, the server is auto-registered from `.cursor/mcp.json`.
+3) Call tools like:
+   - `preflight` → prints Python, NDDSHOME, `rtiddsspy` path, API keys presence.
+   - `run_triage` / `run_all_tests` → runs the suites, returns exit code and stdout/stderr.
+   - `run_active_test {name}` → runs a single script from `run_scripts/active/`.
+   - `tail_log {filename}` → returns the tail of a file under `logs/`.
+   - `sweep_dds` → runs an advisory `rtiddsspy -printSample` sweep.
