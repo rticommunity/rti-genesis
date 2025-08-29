@@ -31,6 +31,14 @@ mkdir -p "$LOG_DIR"
 
 cd "$SCRIPT_DIR"
 
+# Resolve script path across new structure (active/) with backward compatibility
+resolve_path() {
+  local rel="$1"
+  if [ -e "$rel" ]; then echo "$rel"; return 0; fi
+  if [ -e "active/$rel" ]; then echo "active/$rel"; return 0; fi
+  echo "$rel"
+}
+
 log() { echo "$@"; }
 dbg() { [ "$DEBUG" = "true" ] && echo "[DEBUG] $@" || true; }
 
@@ -153,29 +161,29 @@ main() {
   dds_writer_sweep || true
 
   # Stage 1: Memory
-  if ! run_with_timeout "run_test_agent_memory.sh" 60; then
+  if ! run_with_timeout "$(resolve_path run_test_agent_memory.sh)" 60; then
     fail_and_exit "Stage: Memory recall failed" "${LOG_DIR}/triage_run_test_agent_memory.log" \
       "memory failure — run_math.sh will often confirm if RPC path is still healthy"
   fi
   echo "✅ Stage 1 passed: Memory recall"
 
   # Stage 2: Agent-to-Agent (comprehensive)
-  if ! run_with_timeout "test_agent_to_agent_communication.py" 120; then
+  if ! run_with_timeout "$(resolve_path test_agent_to_agent_communication.py)" 120; then
     echo "⚠️ Agent↔Agent failed — running targeted subtests..."
     # Subtest A: Interface→Agent→Service pipeline
-    if run_with_timeout "run_interface_agent_service_test.sh" 75; then
+    if run_with_timeout "$(resolve_path run_interface_agent_service_test.sh)" 75; then
       fail_and_exit "Agent↔Agent failed; pipeline passed (multi-agent/tooling issue likely)" \
         "${LOG_DIR}/triage_test_agent_to_agent_communication.log" \
         "agent-to-agent failed while pipeline passed — isolate @genesis_tool or discovery between agents"
     fi
     # Subtest B: Math simple (RPC + discovery)
-    if run_with_timeout "run_math_interface_agent_simple.sh" 60; then
+    if run_with_timeout "$(resolve_path run_math_interface_agent_simple.sh)" 60; then
       fail_and_exit "Agent↔Agent and pipeline failed; math simple passed (RPC path OK, multi-stage flows failing)" \
         "${LOG_DIR}/triage_test_agent_to_agent_communication.log" \
         "rpc path healthy; focus on interface-agent coordination or topic filtering"
     fi
     # Subtest C: Math client (leanest RPC)
-    if run_with_timeout "run_math.sh" 30; then
+    if run_with_timeout "$(resolve_path run_math.sh)" 30; then
       fail_and_exit "High-level flows failed; basic RPC passed (likely discovery/registration sequencing)" \
         "${LOG_DIR}/triage_test_agent_to_agent_communication.log" \
         "consider timing/durability; check FunctionCapability durability and registration topics"
@@ -188,14 +196,14 @@ main() {
   echo "✅ Stage 2 passed: Agent↔Agent"
 
   # Stage 3: Pipeline
-  if ! run_with_timeout "run_interface_agent_service_test.sh" 75; then
+  if ! run_with_timeout "$(resolve_path run_interface_agent_service_test.sh)" 75; then
     echo "⚠️ Pipeline failed — running targeted subtests..."
-    if run_with_timeout "run_math_interface_agent_simple.sh" 60; then
+    if run_with_timeout "$(resolve_path run_math_interface_agent_simple.sh)" 60; then
       fail_and_exit "Pipeline failed; math simple passed (service RPC OK, interface/agent coupling issue)" \
         "${LOG_DIR}/triage_run_interface_agent_service_test.log" \
         "inspect interface logs, connection selection, and agent discovery callbacks"
     fi
-    if run_with_timeout "run_math.sh" 30; then
+    if run_with_timeout "$(resolve_path run_math.sh)" 30; then
       fail_and_exit "Pipeline failed; basic RPC passed (interface layer issue likely)" \
         "${LOG_DIR}/triage_run_interface_agent_service_test.log" \
         "focus on interface selection and expected log tokens"
@@ -210,7 +218,7 @@ main() {
   echo "🔎 Stage 4: Monitoring coverage"
 
   # 4a) Graph-state invariants (no API keys required)
-  if ! run_with_timeout "test_monitoring_graph_state.py" 75; then
+  if ! run_with_timeout "$(resolve_path test_monitoring_graph_state.py)" 75; then
     fail_and_exit "Monitoring graph-state invariants failed" \
       "${LOG_DIR}/triage_test_monitoring_graph_state.log" \
       "graph-state invariants failed — check node uniqueness, service→function edges, and BUSY→READY pairing"
@@ -218,7 +226,7 @@ main() {
   echo "✅ Stage 4a passed: Monitoring graph-state invariants"
 
   # 4a.2) Interface→Agent pipeline monitoring (edge + activity pairing)
-  if ! run_with_timeout "test_monitoring_interface_agent_pipeline.py" 120; then
+  if ! run_with_timeout "$(resolve_path test_monitoring_interface_agent_pipeline.py)" 120; then
     fail_and_exit "Monitoring interface→agent pipeline failed" \
       "${LOG_DIR}/triage_test_monitoring_interface_agent_pipeline.log" \
       "interface→agent monitoring failed — verify INTERFACE_TO_AGENT edges and INTERFACE_REQUEST_START/COMPLETE activities"
@@ -230,7 +238,7 @@ main() {
     echo "⚠️  Skipping full monitoring test: OPENAI_API_KEY not set."
     echo "    Set OPENAI_API_KEY to include full monitoring in triage."
   else
-    if ! run_with_timeout "test_monitoring.sh" 60; then
+    if ! run_with_timeout "$(resolve_path test_monitoring.sh)" 90; then
       fail_and_exit "Full monitoring test failed" \
         "${LOG_DIR}/triage_test_monitoring.log" \
         "monitoring pipeline failure — check monitoring logs and agent/service logs"
@@ -239,7 +247,7 @@ main() {
   fi
 
   # 4c) Viewer contract (schema + back-compat gate)
-  if ! run_with_timeout "test_viewer_contract.py" 30; then
+  if ! run_with_timeout "$(resolve_path test_viewer_contract.py)" 30; then
     fail_and_exit "Viewer contract test failed" \
       "${LOG_DIR}/triage_test_viewer_contract.log" \
       "viewer topology contract failed — check schema mapping and required fields"

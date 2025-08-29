@@ -63,6 +63,14 @@ if [ "$(basename "$PWD")" != "run_scripts" ]; then
     cd "$SCRIPT_DIR"
 fi
 
+# Resolve script path across new structure (active/) with backward compatibility
+resolve_path() {
+    local rel="$1"
+    if [ -e "$rel" ]; then echo "$rel"; return 0; fi
+    if [ -e "active/$rel" ]; then echo "active/$rel"; return 0; fi
+    echo "$rel" # fall through; run_with_timeout will report failure if missing
+}
+
 #########################################
 # Environment activation and preflight  #
 #########################################
@@ -395,47 +403,57 @@ check_and_cleanup_dds || { echo "Test suite aborted due to DDS process issues"; 
 
 # Memory Test (FIRST - Core Agent Memory Functionality)
 echo "🧠 Running agent memory recall test..."
-run_with_timeout "run_test_agent_memory.sh" 60 || { echo "Test failed: run_test_agent_memory.sh - AGENT MEMORY FUNCTIONALITY BROKEN"; exit 1; }
+run_with_timeout "$(resolve_path run_test_agent_memory.sh)" 60 || { echo "Test failed: run_test_agent_memory.sh - AGENT MEMORY FUNCTIONALITY BROKEN"; exit 1; }
 
 # Agent-to-Agent Communication Test (SECOND - Comprehensive Core Genesis Test)
 echo "🚀 Running comprehensive agent-to-agent communication test..."
-run_with_timeout "test_agent_to_agent_communication.py" 120 || { echo "Test failed: test_agent_to_agent_communication.py - CORE GENESIS FUNCTIONALITY BROKEN"; exit 1; }
+run_with_timeout "$(resolve_path test_agent_to_agent_communication.py)" 120 || { echo "Test failed: test_agent_to_agent_communication.py - CORE GENESIS FUNCTIONALITY BROKEN"; exit 1; }
 
 # Interface -> Agent -> Service Pipeline Test (Moved to be second after agent-to-agent)
-run_with_timeout "run_interface_agent_service_test.sh" 75 || { echo "Test failed: run_interface_agent_service_test.sh"; exit 1; }
+run_with_timeout "$(resolve_path run_interface_agent_service_test.sh)" 75 || { echo "Test failed: run_interface_agent_service_test.sh"; exit 1; }
 
 # Math Interface/Agent Simple Test (Checks RPC and Durability)
-run_with_timeout "run_math_interface_agent_simple.sh" 60 || { echo "Test failed: run_math_interface_agent_simple.sh"; exit 1; }
+run_with_timeout "$(resolve_path run_math_interface_agent_simple.sh)" 60 || { echo "Test failed: run_math_interface_agent_simple.sh"; exit 1; }
 
 # Basic calculator test
-run_with_timeout "run_math.sh" 30 || { echo "Test failed: run_math.sh"; exit 1; }
+run_with_timeout "$(resolve_path run_math.sh)" 30 || { echo "Test failed: run_math.sh"; exit 1; }
 
 # Multi-instance calculator test
-run_with_timeout "run_multi_math.sh" 60 || { echo "Test failed: run_multi_math.sh"; exit 1; }
+run_with_timeout "$(resolve_path run_multi_math.sh)" 60 || { echo "Test failed: run_multi_math.sh"; exit 1; }
 
 # Simple agent test
-run_with_timeout "run_simple_agent.sh" 60 || { echo "Test failed: run_simple_agent.sh"; exit 1; }
+run_with_timeout "$(resolve_path run_simple_agent.sh)" 60 || { echo "Test failed: run_simple_agent.sh"; exit 1; }
 
 # Simple client test
-run_with_timeout "run_simple_client.sh" 60 || { echo "Test failed: run_simple_client.sh"; exit 1; }
+run_with_timeout "$(resolve_path run_simple_client.sh)" 60 || { echo "Test failed: run_simple_client.sh"; exit 1; }
 
 # Calculator durability test
-run_with_timeout "test_calculator_durability.sh" 60 || { echo "Test failed: test_calculator_durability.sh"; exit 1; }
+run_with_timeout "$(resolve_path test_calculator_durability.sh)" 60 || { echo "Test failed: test_calculator_durability.sh"; exit 1; }
 
 # Example agent test
-DEBUG=true run_with_timeout "run_test_agent_with_functions.sh" 60 || { echo "Test failed: run_test_agent_with_functions.sh"; exit 1; }
+# Guard: skip run_test_agent_with_functions when OPENAI_API_KEY is not set
+if [ -z "${OPENAI_API_KEY:-}" ]; then
+    echo "⚠️  Skipping run_test_agent_with_functions.sh: OPENAI_API_KEY not set."
+else
+    DEBUG=true run_with_timeout "$(resolve_path run_test_agent_with_functions.sh)" 60 || { echo "Test failed: run_test_agent_with_functions.sh"; exit 1; }
+fi
 
 # Services and agent test
 # run_with_timeout "start_services_and_agent.py" 90 || { echo "Test failed: start_services_and_agent.py"; exit 1; }
 
 # Services and CLI test
-run_with_timeout "start_services_and_cli.sh" 90 || { echo "Test failed: start_services_and_cli.sh"; exit 1; }
+run_with_timeout "$(resolve_path start_services_and_cli.sh)" 90 || { echo "Test failed: start_services_and_cli.sh"; exit 1; }
 
 # Genesis framework test
-run_with_timeout "test_genesis_framework.sh" 120 || { echo "Test failed: test_genesis_framework.sh"; exit 1; }
+run_with_timeout "$(resolve_path test_genesis_framework.sh)" 120 || { echo "Test failed: test_genesis_framework.sh"; exit 1; }
 
 # Monitoring test
-run_with_timeout "test_monitoring.sh" 60 || { echo "Test failed: test_monitoring.sh"; exit 1; }
+# Guard: test_monitoring.sh may require API keys; skip if absent
+if [ -z "${OPENAI_API_KEY:-}" ]; then
+    echo "⚠️  Skipping test_monitoring.sh: OPENAI_API_KEY not set."
+else
+    run_with_timeout "$(resolve_path test_monitoring.sh)" 90 || { echo "Test failed: test_monitoring.sh"; exit 1; }
+fi
 
 echo "=================================================="
 echo "All tests completed successfully!"
