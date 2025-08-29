@@ -89,7 +89,12 @@ async def handle_one(req_path: str):
         logger.error(f"Failed to load request from {req_path}: {e}")
         return
     
-    req_id = os.path.splitext(os.path.basename(req_path))[0]
+    # Derive a clean request id: strip optional .working and then remove .json
+    base_name = os.path.basename(req_path)
+    if base_name.endswith(".working"):
+        base_name = base_name[: -len(".working")]
+    req_id = os.path.splitext(base_name)[0]
+    
     kind = req.get("kind")  # triage | all | active
     name = req.get("name")
     timeout = int(req.get("timeout_sec", 1800))
