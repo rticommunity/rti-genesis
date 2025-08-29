@@ -13,7 +13,8 @@ from typing import Dict, Any
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+    datefmt='%Y-%m-%d %H:%M:%S',
+    stream=sys.stderr
 )
 logger = logging.getLogger(__name__)
 
@@ -227,8 +228,9 @@ def _wait_for_result(req_id: str, max_wait: int = 3600) -> int:
                 with open(out_path, "r", encoding="utf-8") as f:
                     content = f.read()
                     sys.stdout.write(content)
+                    sys.stdout.write("\n")
                     sys.stdout.flush()
-                logger.info(f"Successfully read and output result file ({len(content)} bytes)")
+                logger.debug(f"Successfully read and output result file ({len(content)} bytes)")
             except Exception as e:
                 logger.error(f"Error reading result file {out_path}: {e}")
             return 0
