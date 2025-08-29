@@ -95,13 +95,16 @@ async def handle_one(req_path: str):
         base_name = base_name[: -len(".working")]
     req_id = os.path.splitext(base_name)[0]
     
-    kind = req.get("kind")  # triage | all | active
+    kind = req.get("kind")  # preflight | triage | all | active
     name = req.get("name")
     timeout = int(req.get("timeout_sec", 1800))
     
     logger.info(f"Request ID: {req_id}, Kind: {kind}, Name: {name}, Timeout: {timeout}s")
 
-    if kind == "triage":
+    if kind == "preflight":
+        cmd = "./mcp/preflight.sh"
+        logger.info(f"Executing preflight: {cmd}")
+    elif kind == "triage":
         cmd = "./run_scripts/run_triage_suite.sh"
         logger.info(f"Executing triage suite: {cmd}")
     elif kind == "all":
@@ -244,7 +247,7 @@ def _wait_for_result(req_id: str, max_wait: int = 3600) -> int:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--watch", action="store_true", help="Watch queue and process tasks")
-    ap.add_argument("--enqueue", choices=["triage", "all", "active"], help="Enqueue a task", nargs="?")
+    ap.add_argument("--enqueue", choices=["preflight", "triage", "all", "active"], help="Enqueue a task", nargs="?")
     ap.add_argument("--name", help="Active test filename when --enqueue active", default=None)
     ap.add_argument("--timeout", type=int, default=1800, help="Timeout seconds for the task")
     ap.add_argument("--wait", action="store_true", help="Block until result JSON is available and print it")
