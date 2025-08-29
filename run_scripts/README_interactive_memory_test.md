@@ -14,14 +14,13 @@ This interactive CLI allows users to manually test the memory functionality of G
 
 ### Option 1: Shell Script (Recommended)
 ```bash
-cd run_scripts
-./run_interactive_memory_test.sh
+./run_scripts/dev/run_interactive_memory_test.sh
 ```
 
 ### Option 2: Direct Python
 ```bash
 cd run_scripts
-python interactive_memory_test.py
+python helpers/interactive_memory_test.py
 ```
 
 The shell script wrapper provides cleaner output by suppressing some DDS initialization messages.
@@ -137,4 +136,4 @@ You: exit
 - Memory is cleared when the session ends
 - Some DDS initialization messages may appear during startup (this is normal)
 - DDS cleanup warnings at exit are expected and don't affect functionality
-- Use the shell script wrapper (`./run_interactive_memory_test.sh`) for the cleanest experience 
+- Use the shell script wrapper (`./run_scripts/dev/run_interactive_memory_test.sh`) for the cleanest experience 

@@ -6,6 +6,8 @@ This README documents what the top-level test runner executes today, the order a
 
 - Entry point: `run_scripts/run_all_tests.sh`
 - Optional fail-fast runner: `run_scripts/run_triage_suite.sh`
+- Helpers moved to `run_scripts/helpers/`
+- Active test entrypoints moved to `run_scripts/active/`
 - Goal: Validate Genesis end-to-end on DDS, covering memory, agent-to-agent, interface→agent→service pipelines, RPC math services, durability, framework sanity, and monitoring.
 - Philosophy: Run hardest/most comprehensive checks early to fail fast.
 
@@ -127,12 +129,57 @@ Implementation notes:
 Some scripts look like tests or utilities but are not invoked by the runner today. See the full inventory and suggested actions in `docs/planning/run_scripts_inventory.md`.
 
 - Baselines and variants: `baseline_test_agent.py`, `baseline_test_interface.py`, `run_baseline_*`, `run_math_interface_agent_test.sh`
-- Durability variants: `test_interface_durability.sh`, `test_personal_agent_durability.sh`
-- Example/demo: `run_example_agent1*.sh`, `interactive_memory_test.py`, `run_interactive_memory_test.sh`
-- Utilities: `interface_keepalive.py`, `run_math_service.sh`, `simpleGenesisInterfaceCLI.py`
+- Durability variants: `dev/test_interface_durability.sh`, `dev/test_personal_agent_durability.sh`
+- Example/demo: `helpers/interactive_memory_test.py`, `dev/run_interactive_memory_test.sh`, `dev/run_example_agent1*.sh`
+- Utilities: `helpers/interface_keepalive.py`, `dev/run_math_service.sh`, `helpers/simpleGenesisInterfaceCLI.py`
 - Older orchestrators: `run_tests.sh`, `test_genesis_complete.sh`
 
-These are candidates to either (a) fold into the fail-fast triage path, (b) remain as documented dev utilities, or (c) move to the examples repo during the split. No changes yet.
+These are candidates to either (a) fold into the fail-fast triage path, (b) remain as documented dev utilities, or (c) move to the examples repo during the split.
+
+## Structure
+
+- `run_scripts/`: top-level orchestrators only (and docs).
+- `run_scripts/active/`: scripts invoked by `run_all_tests.sh` and/or `run_triage_suite.sh`.
+- `run_scripts/helpers/`: Python helpers and drivers used by the runners. Includes:
+  - `baseline_test_agent.py`
+  - `baseline_test_interface.py`
+  - `interactive_memory_test.py`
+  - `interface_keepalive.py`
+  - `math_test_agent.py`
+  - `math_test_interface.py`
+  - `simpleGenesisAgent.py`
+  - `simpleGenesisInterfaceCLI.py`
+  - `simpleGenesisInterfaceStatic.py`
+  - `test_agent.py`
+  - `test_agent_memory.py`
+  - `comprehensive_multi_agent_test_interface.py`
+
+All referencing scripts have been updated to use `run_scripts/helpers/...` paths.
+
+## Critical Entry Points (Do Not Remove)
+
+- `run_all_tests.sh`: Full suite orchestrator invoked before merges.
+- `run_triage_suite.sh`: Fail-fast orchestrator used in debugging.
+- Core tests used by both suites (now under `active/`):
+  - `active/run_test_agent_memory.sh`
+  - `active/test_agent_to_agent_communication.py`
+  - `active/run_interface_agent_service_test.sh`
+  - `active/run_math_interface_agent_simple.sh`
+  - `active/run_math.sh`
+  - `active/run_multi_math.sh`
+  - `active/run_simple_agent.sh`
+  - `active/run_simple_client.sh`
+  - `active/test_calculator_durability.sh`
+  - `active/test_monitoring_graph_state.py`
+  - `active/test_monitoring_interface_agent_pipeline.py`
+  - `active/test_monitoring.sh` (optional when no `OPENAI_API_KEY`)
+  - `active/test_viewer_contract.py`
+
+Other groupings:
+- `run_scripts/dev/`: development or ad-hoc tests (e.g., `run_math_interface_agent_test.sh`, `run_example_agent1*.sh`, `run_baseline_*`, `limited_mesh_test.sh`, `test_interface_durability.sh`).
+- `run_scripts/legacy/`: older orchestrators retained for reference (`run_tests.sh`, `test_genesis_complete.sh`).
+
+If relocating any of these, update both orchestrators accordingly.
 
 ## Monitoring Consistency Test (New)
 
