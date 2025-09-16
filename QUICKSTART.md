@@ -5,36 +5,16 @@
 Before setting up Genesis LIB, ensure you have:
 
 1. **Python 3.10**
-   - We recommend using `pyenv` to manage Python versions
-   - Installation instructions for pyenv:
-     ```bash
-     # macOS
-     brew install pyenv
-     
-     # Linux
-     curl https://pyenv.run | bash
-     
-     # Add to your shell configuration
-     echo 'export PYENV_ROOT="$HOME/.pyenv"' >> ~/.bash_profile
-     echo 'command -v pyenv >/dev/null || export PATH="$PYENV_ROOT/bin:$PATH"' >> ~/.bash_profile
-     echo 'eval "$(pyenv init -)"' >> ~/.bash_profile
-     
-     # Install Python 3.10
-     pyenv install 3.10.0
-     pyenv global 3.10.0
-     ```
-
 2. **RTI Connext DDS 7.3.0 or greater**
-   - Download from [RTI's website](https://support.rti.com/downloads)
-   - Install in one of the following locations:
-     - macOS: `/path/to/rti_connext_dds-7.3.0`
-     - Linux: `/path/to/rti_connext_dds-7.3.0` or `$HOME/rti_connext_dds-7.3.0`
-     - Windows: `C:\path\to\rti_connext_dds-7.3.0`
-
+    - make sure to have the license file
+    - set this in your environment:
+    ```bash
+    export NDDSHOME=/path/to/rti_connext_dds-7.3.0/
+    ```
 3. **API Keys**
    - OpenAI API Key (for GPT models)
    - Anthropic API Key (for Claude models)
-   - Store these in your environment or `.env` file:
+   - Set (at least one of) these in your environment :
      ```bash
      export OPENAI_API_KEY="your_openai_api_key"
      export ANTHROPIC_API_KEY="your_anthropic_api_key"
@@ -132,6 +112,12 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
+
+Run it:
+
+```
+python interactive.py
+```
 
 You should get a prompt 
 
