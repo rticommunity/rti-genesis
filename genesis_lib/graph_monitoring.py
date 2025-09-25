@@ -88,7 +88,7 @@ class _DDSWriters:
         # Topics
         self.component_lifecycle_type = self.type_provider.type("genesis_lib", "ComponentLifecycleEvent")
         self.component_lifecycle_topic = dds.DynamicData.Topic(
-            self.participant, "ComponentLifecycleEvent", self.component_lifecycle_type
+            self.participant, "rti/connext/genesis/monitoring/ComponentLifecycleEvent", self.component_lifecycle_type
         )
         # Writers
         writer_qos = dds.QosProvider.default.datawriter_qos
@@ -102,8 +102,8 @@ class _DDSWriters:
         # Durable Graph topology writers (node/edge)
         self.graph_node_type = self.type_provider.type("genesis_lib", "GenesisGraphNode")
         self.graph_edge_type = self.type_provider.type("genesis_lib", "GenesisGraphEdge")
-        self.graph_node_topic = dds.DynamicData.Topic(self.participant, "GenesisGraphNode", self.graph_node_type)
-        self.graph_edge_topic = dds.DynamicData.Topic(self.participant, "GenesisGraphEdge", self.graph_edge_type)
+        self.graph_node_topic = dds.DynamicData.Topic(self.participant, "rti/connext/genesis/monitoring/GenesisGraphNode", self.graph_node_type)
+        self.graph_edge_topic = dds.DynamicData.Topic(self.participant, "rti/connext/genesis/monitoring/GenesisGraphEdge", self.graph_edge_type)
         durable_qos = dds.QosProvider.default.datawriter_qos
         durable_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
         durable_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
@@ -116,7 +116,7 @@ class _DDSWriters:
         if self.legacy_enabled:
             self.monitoring_type = self.type_provider.type("genesis_lib", "MonitoringEvent")
             self.monitoring_topic = dds.DynamicData.Topic(
-                self.participant, "MonitoringEvent", self.monitoring_type
+                self.participant, "rti/connext/genesis/monitoring/MonitoringEvent", self.monitoring_type
             )
             self.monitoring_writer = dds.DynamicData.DataWriter(
                 pub=self.publisher,

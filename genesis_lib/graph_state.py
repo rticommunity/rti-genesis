@@ -187,7 +187,7 @@ class GraphSubscriber:
             self._logger.info("Durable topology readers enabled (GenesisGraphNode/Edge)")
 
         lifecycle_type = provider.type("genesis_lib", "ComponentLifecycleEvent")
-        lifecycle_topic = dds.DynamicData.Topic(self._participant, "ComponentLifecycleEvent", lifecycle_type)
+        lifecycle_topic = dds.DynamicData.Topic(self._participant, "rti/connext/genesis/monitoring/ComponentLifecycleEvent", lifecycle_type)
 
         reader_qos = dds.QosProvider.default.datareader_qos
         reader_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
@@ -284,8 +284,8 @@ class GraphSubscriber:
 
         # Durable topology readers
         if graph_node_type is not None and graph_edge_type is not None:
-            node_topic = dds.DynamicData.Topic(self._participant, "GenesisGraphNode", graph_node_type)
-            edge_topic = dds.DynamicData.Topic(self._participant, "GenesisGraphEdge", graph_edge_type)
+            node_topic = dds.DynamicData.Topic(self._participant, "rti/connext/genesis/monitoring/GenesisGraphNode", graph_node_type)
+            edge_topic = dds.DynamicData.Topic(self._participant, "rti/connext/genesis/monitoring/GenesisGraphEdge", graph_edge_type)
             durable_qos = dds.QosProvider.default.datareader_qos
             durable_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
             durable_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
@@ -434,7 +434,7 @@ class GraphSubscriber:
         # Activity (ChainEvent) - volatile
         try:
             chain_type = provider.type("genesis_lib", "ChainEvent")
-            chain_topic = dds.DynamicData.Topic(self._participant, "ChainEvent", chain_type)
+            chain_topic = dds.DynamicData.Topic(self._participant, "rti/connext/genesis/ChainEvent", chain_type)
             chain_qos = dds.QosProvider.default.datareader_qos
             chain_qos.durability.kind = dds.DurabilityKind.VOLATILE
             chain_qos.reliability.kind = dds.ReliabilityKind.RELIABLE

@@ -458,7 +458,7 @@ class MonitoringSubscriber:
         # Create monitoring topic
         self.event_topic = dds.DynamicData.Topic(
             self.participant,
-            "MonitoringEvent",
+            "rti/connext/genesis/monitoring/MonitoringEvent",
             self.event_type
         )
         

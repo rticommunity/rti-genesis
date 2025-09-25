@@ -68,7 +68,7 @@ class EnhancedServiceBase(GenesisRPCService):
             from genesis_lib.utils import get_datamodel_path  # type: ignore
             provider = dds.QosProvider(get_datamodel_path())
             self._chain_event_type = provider.type("genesis_lib", "ChainEvent")
-            chain_topic = dds.DynamicData.Topic(self.participant, "ChainEvent", self._chain_event_type)
+            chain_topic = dds.DynamicData.Topic(self.participant, "rti/connext/genesis/ChainEvent", self._chain_event_type)
             writer_qos = dds.QosProvider.default.datawriter_qos
             writer_qos.durability.kind = dds.DurabilityKind.VOLATILE
             writer_qos.reliability.kind = dds.ReliabilityKind.RELIABLE

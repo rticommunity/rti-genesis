@@ -81,7 +81,7 @@ class GenesisApp:
         # Create topics
         self.registration_topic = dds.DynamicData.Topic(
             self.participant, 
-            "GenesisRegistration", 
+            "rti/connext/genesis/GenesisRegistration", 
             self.registration_type
         )
         

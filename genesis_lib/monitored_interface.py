@@ -85,7 +85,7 @@ class MonitoredInterface(GenesisInterface):
             from genesis_lib.utils import get_datamodel_path  # type: ignore
             provider = dds.QosProvider(get_datamodel_path())
             chain_type = provider.type("genesis_lib", "ChainEvent")
-            chain_topic = dds.DynamicData.Topic(self.app.participant, "ChainEvent", chain_type)
+            chain_topic = dds.DynamicData.Topic(self.app.participant, "rti/connext/genesis/ChainEvent", chain_type)
             writer_qos = dds.QosProvider.default.datawriter_qos
             writer_qos.durability.kind = dds.DurabilityKind.VOLATILE
             writer_qos.reliability.kind = dds.ReliabilityKind.RELIABLE

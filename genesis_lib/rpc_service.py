@@ -66,7 +66,7 @@ class GenesisRPCService:
             request_type=self.get_request_type(),
             reply_type=self.get_reply_type(),
             participant=self.participant,
-            service_name=service_name
+            service_name=f"rti/connext/genesis/{service_name}"
         )
         
         # Dictionary to store registered functions and their schemas

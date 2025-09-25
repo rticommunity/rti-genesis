@@ -183,13 +183,13 @@ class AgentCommunicationMixin:
             try:
                 # Try to find existing topic first
                 logger.debug("🔍 TRACE: Attempting to find existing AgentCapability topic...")
-                self.agent_capability_topic = self.app.participant.find_topic("AgentCapability", dds.Duration.from_seconds(1))
+                self.agent_capability_topic = self.app.participant.find_topic("rti/connext/genesis/AgentCapability", dds.Duration.from_seconds(1))
                 if self.agent_capability_topic is None:
                     logger.debug("🏗️ TRACE: Existing topic not found, creating new AgentCapability topic...")
                     # Create new topic if not found
                     self.agent_capability_topic = dds.DynamicData.Topic(
                         self.app.participant,
-                        "AgentCapability",
+                        "rti/connext/genesis/AgentCapability",
                         agent_capability_type
                     )
                     logger.debug("✅ TRACE: New AgentCapability topic created")
@@ -200,7 +200,7 @@ class AgentCommunicationMixin:
                 # If find_topic fails, create new topic
                 self.agent_capability_topic = dds.DynamicData.Topic(
                     self.app.participant,
-                    "AgentCapability",
+                    "rti/connext/genesis/AgentCapability",
                     agent_capability_type
                 )
                 logger.debug("✅ TRACE: New AgentCapability topic created after find_topic failure")
@@ -303,19 +303,19 @@ class AgentCommunicationMixin:
             if not self.agent_capability_topic:
                 try:
                     # Try to find existing topic first
-                    self.agent_capability_topic = self.app.participant.find_topic("AgentCapability", dds.Duration.from_seconds(1))
+                    self.agent_capability_topic = self.app.participant.find_topic("rti/connext/genesis/AgentCapability", dds.Duration.from_seconds(1))
                     if self.agent_capability_topic is None:
                         # Create new topic if not found
                         self.agent_capability_topic = dds.DynamicData.Topic(
                             self.app.participant,
-                            "AgentCapability",
+                            "rti/connext/genesis/AgentCapability",
                             agent_capability_type
                         )
                 except:
                     # If find_topic fails, create new topic
                     self.agent_capability_topic = dds.DynamicData.Topic(
                         self.app.participant,
-                        "AgentCapability",
+                        "rti/connext/genesis/AgentCapability",
                         agent_capability_type
                     )
             
@@ -827,7 +827,7 @@ class AgentCommunicationMixin:
                 request_type=self.agent_request_type,
                 reply_type=self.agent_reply_type,
                 participant=self.app.participant,
-                service_name=agent_service_name
+                service_name=f"rti/connext/genesis/{agent_service_name}"
             )
             print("✅ PRINT: RPC Replier created successfully")
             
@@ -1026,7 +1026,7 @@ class AgentCommunicationMixin:
                 request_type=self.agent_request_type,
                 reply_type=self.agent_reply_type,
                 participant=self.app.participant,
-                service_name=target_service_name
+                service_name=f"rti/connext/genesis/{target_service_name}"
             )
             
             # Wait for DDS match with timeout

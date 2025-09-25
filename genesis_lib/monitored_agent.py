@@ -156,7 +156,7 @@ class MonitoredAgent(GenesisAgent):
             # Create monitoring topic
             self.monitoring_topic = dds.DynamicData.Topic(
                 self.app.participant,
-                "MonitoringEvent",
+                "rti/connext/genesis/monitoring/MonitoringEvent",
                 self.monitoring_type
             )
             
@@ -182,7 +182,7 @@ class MonitoredAgent(GenesisAgent):
             self.chain_event_type = self.type_provider.type("genesis_lib", "ChainEvent")
             self.chain_event_topic = dds.DynamicData.Topic(
                 self.app.participant,
-                "ChainEvent",
+                "rti/connext/genesis/ChainEvent",
                 self.chain_event_type
             )
             self.chain_event_writer = dds.DynamicData.DataWriter(

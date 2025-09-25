@@ -187,7 +187,7 @@ class GenesisAgent(ABC):
             request_type=self.request_type,
             reply_type=self.reply_type,
             participant=self.app.participant,
-            service_name=self.rpc_service_name
+            service_name=f"rti/connext/genesis/{self.rpc_service_name}"
         )
         
         # Set listener on replier's DataReader with status mask for data available

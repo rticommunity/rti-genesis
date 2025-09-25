@@ -463,7 +463,7 @@ class FunctionRegistry:
             found_topic = None
             for topic in all_topics:
                 # Check if the topic name matches
-                if topic.name == "FunctionCapability":
+                if topic.name == "rti/connext/genesis/FunctionCapability":
                      # Optional: Check type name if necessary
                      # if topic.type_name == self.capability_type.name:
                     found_topic = topic
@@ -477,7 +477,7 @@ class FunctionRegistry:
                 logger.debug("===== DDS TRACE: FunctionCapability topic not found, creating new one... =====")
                 self.capability_topic = dds.DynamicData.Topic(
                     participant=self.participant,
-                    topic_name="FunctionCapability",
+                    topic_name="rti/connext/genesis/FunctionCapability",
                     topic_type=self.capability_type
                 )
                 logger.debug("===== DDS TRACE: Created new FunctionCapability topic. =====")
@@ -538,7 +538,7 @@ class FunctionRegistry:
                 request_type=self.execution_request_type,
                 reply_type=self.execution_reply_type,
                 participant=self.participant,
-                service_name="FunctionExecution"
+                service_name="rti/connext/genesis/FunctionExecution"
             )
         else:
             self.subscriber = None

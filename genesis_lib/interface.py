@@ -218,7 +218,7 @@ class GenesisInterface(ABC):
                 request_type=self.request_type,
                 reply_type=self.reply_type,
                 participant=self.app.participant,
-                service_name=service_name
+                service_name=f"rti/connext/genesis/{service_name}"
             )
             self.discovered_agent_service_name = service_name
 
