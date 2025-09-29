@@ -132,7 +132,7 @@ echo "=============================================="
 
 # Start the calculator service first
 echo "🚀 TRACE: Starting calculator service..."
-PYTHONUNBUFFERED=1 stdbuf -o0 -e0 python3 -u "$SERVICE_SCRIPT" > "$SERVICE_LOG" 2>&1 &
+PYTHONUNBUFFERED=1 python3 -u "$SERVICE_SCRIPT" > "$SERVICE_LOG" 2>&1 &
 SERVICE_PID=$!
 echo "✅ TRACE: Calculator service started with PID: $SERVICE_PID"
 
@@ -157,9 +157,9 @@ echo "🔍 TRACE: Running Test 1 checks..."
 check_log "$SERVICE_LOG" "CalculatorService initializing" "Service initialization" true
 check_log "$SERVICE_LOG" "CalculatorService initialized" "Service initialization complete" true
 
-# Check registration announcement
-check_log "$REGISTRATION_SPY_LOG" "New writer.*topic=\"FunctionCapability\"" "Function capability writer creation" true
-check_log "$REGISTRATION_SPY_LOG" "New data.*topic=\"FunctionCapability\"" "Function capability announcement" true
+# Check registration announcement (topic may or may not include rti/connext/genesis/ prefix)
+check_log "$REGISTRATION_SPY_LOG" 'New writer.*topic=.*FunctionCapability' "Function capability writer creation" true
+check_log "$REGISTRATION_SPY_LOG" 'New data.*topic=.*FunctionCapability' "Function capability announcement" true
 
 # Clean up Test 1
 echo "🧹 TRACE: Cleaning up Test 1..."
@@ -171,7 +171,7 @@ echo "=============================================="
 
 # Start the agent first
 echo "🚀 TRACE: Starting agent..."
-PYTHONUNBUFFERED=1 stdbuf -o0 -e0 python3 -u "$AGENT_SCRIPT" > "$AGENT_LOG" 2>&1 &
+PYTHONUNBUFFERED=1 python3 -u "$AGENT_SCRIPT" > "$AGENT_LOG" 2>&1 &
 AGENT_PID=$!
 echo "✅ TRACE: Agent started with PID: $AGENT_PID"
 
@@ -187,7 +187,7 @@ echo "✅ TRACE: RTI DDS Spy started with PID: $SERVICE_SPY_PID (Log: $SERVICE_S
 
 # Now start the calculator service AFTER the agent
 echo "🚀 TRACE: Starting calculator service..."
-PYTHONUNBUFFERED=1 stdbuf -o0 -e0 python3 -u "$SERVICE_SCRIPT" > "$SERVICE_LOG" 2>&1 &
+PYTHONUNBUFFERED=1 python3 -u "$SERVICE_SCRIPT" > "$SERVICE_LOG" 2>&1 &
 SERVICE_PID=$!
 echo "✅ TRACE: Calculator service started with PID: $SERVICE_PID"
 
@@ -202,9 +202,9 @@ echo "🔍 TRACE: Running Test 2 checks..."
 check_log "$AGENT_LOG" "✅ TRACE: Agent created, starting run..." "Agent initialization" true
 check_log "$AGENT_LOG" "MathTestAgent listening for requests" "Agent listening state" true
 
-# Check DDS Spy logs for function registration
-check_log "$SERVICE_SPY_LOG" 'New data.*topic="FunctionCapability"' "Spy received durable FunctionCapability data" true
-check_log "$SERVICE_SPY_LOG" "New writer.*topic=\"CalculatorServiceReply\".*type=\"FunctionReply\".*name=\"Replier\"" "Service reply writer" true
+# Check DDS Spy logs for function registration (topic may or may not include rti/connext/genesis/ prefix)
+check_log "$SERVICE_SPY_LOG" 'New data.*topic=.*FunctionCapability' "Spy received durable FunctionCapability data" true
+check_log "$SERVICE_SPY_LOG" 'New writer.*topic=.*CalculatorServiceReply.*type="FunctionReply".*name="Replier"' "Service reply writer" true
 check_log "$SERVICE_SPY_LOG" "reason: .*Function 'add' available.*" "Function discovery" true
 
 # Clean up Test 2
