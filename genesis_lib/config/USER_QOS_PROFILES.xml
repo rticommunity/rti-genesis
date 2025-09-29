@@ -71,6 +71,9 @@
                 <participant_name>
                     <name>RTI Content Filtered Topic STRINGMATCH</name>
                 </participant_name>
+                <resource_limits>
+                    <contentfilter_property_max_length>512</contentfilter_property_max_length>
+                </resource_limits>
             </participant_qos>
         </qos_profile>
 
