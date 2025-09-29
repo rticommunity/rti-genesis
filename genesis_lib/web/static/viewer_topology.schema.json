@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Genesis Viewer Topology",
+  "type": "object",
+  "properties": {
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": ["string", "number"] },
+          "label": { "type": "string" },
+          "type": { "type": "string" }
+        },
+        "required": ["id", "label", "type"],
+        "additionalProperties": true
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source": { "type": ["string", "number"] },
+          "target": { "type": ["string", "number"] }
+        },
+        "required": ["source", "target"],
+        "additionalProperties": true
+      }
+    }
+  },
+  "required": ["nodes", "edges"],
+  "additionalProperties": true
+}
+

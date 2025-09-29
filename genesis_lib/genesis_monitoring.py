@@ -613,64 +613,56 @@ def configure_dds_logging(logger_name=None, participant=None, domain_id=0,
 
 
 # Example usage of the monitoring system
-if __name__ == "__main__":
-    # This is a simple monitoring application that displays logs from all components
+def main() -> int:
+    """Console entry point for the monitoring subscriber."""
     import argparse
-    
-    # Parse command line arguments
+
     parser = argparse.ArgumentParser(description="GENESIS Monitoring Application")
     parser.add_argument("--domain", type=int, default=0, help="DDS domain ID")
-    parser.add_argument("--level", type=str, default="INFO", 
-                       choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-                       help="Minimum log level to display")
+    parser.add_argument(
+        "--level",
+        type=str,
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help="Minimum log level to display",
+    )
     args = parser.parse_args()
-    
-    # Map log level string to int
+
     level_map = {
         "DEBUG": logging.DEBUG,
         "INFO": logging.INFO,
         "WARNING": logging.WARNING,
         "ERROR": logging.ERROR,
-        "CRITICAL": logging.CRITICAL
+        "CRITICAL": logging.CRITICAL,
     }
     log_level = level_map[args.level]
-    
-    # Configure local logging
-    logging.basicConfig(
-        level=log_level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
+
+    logging.basicConfig(level=log_level, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     logger = logging.getLogger("MonitoringApp")
-    
-    # Create log subscriber
+
     def log_callback(log_dict):
-        # Format timestamp
         timestamp = datetime.fromtimestamp(log_dict["timestamp"] / 1000).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-        
-        # Format and print log message
         print(f"[{timestamp}] [{log_dict['level_name']}] [{log_dict['source_name']}] {log_dict['message']}")
-        
-        # Print additional details for higher log levels
         if log_dict["level"] >= logging.WARNING:
             print(f"  File: {log_dict['file_name']}:{log_dict['line_number']} in {log_dict['function_name']}")
             print(f"  Logger: {log_dict['logger_name']}")
             print(f"  Thread: {log_dict['thread_name']} ({log_dict['thread_id']})")
             print()
-    
-    subscriber = LogSubscriber(
-        domain_id=args.domain,
-        callback=log_callback
-    )
-    
+
+    subscriber = LogSubscriber(domain_id=args.domain, callback=log_callback)
+
     logger.info(f"Monitoring application started on domain {args.domain}")
     logger.info(f"Displaying logs with level {args.level} and above")
     logger.info("Press Ctrl+C to exit")
-    
+
     try:
-        # Main loop - just keep the application alive
         while True:
             time.sleep(1.0)
     except KeyboardInterrupt:
         logger.info("Shutting down monitoring application")
         subscriber.close()
-        sys.exit(0) 
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main()) 

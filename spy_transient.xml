@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<dds>
+  <qos_library name="SpyLib">
+    <qos_profile name="TransientReliable" base_name="BuiltinQosLibExp::Generic.StrictReliable">
+      <datareader_qos>
+        <durability>
+          <kind>TRANSIENT_LOCAL_DURABILITY_QOS</kind>
+        </durability>
+        <reliability>
+          <kind>RELIABLE_RELIABILITY_QOS</kind>
+        </reliability>
+        <history>
+          <kind>KEEP_LAST_HISTORY_QOS</kind>
+          <depth>1000</depth>
+        </history>
+        <resource_limits>
+          <max_samples>8192</max_samples>
+          <max_instances>1024</max_instances>
+          <max_samples_per_instance>8192</max_samples_per_instance>
+        </resource_limits>
+        <reader_data_lifecycle>
+          <autopurge_nowriter_samples_delay>
+            <sec>5</sec>
+            <nanosec>0</nanosec>
+          </autopurge_nowriter_samples_delay>
+        </reader_data_lifecycle>
+      </datareader_qos>
+    </qos_profile>
+  </qos_library>
+</dds>
