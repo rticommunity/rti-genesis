@@ -434,7 +434,7 @@ class GraphSubscriber:
         # Activity (ChainEvent) - volatile
         try:
             chain_type = provider.type("genesis_lib", "ChainEvent")
-            chain_topic = dds.DynamicData.Topic(self._participant, "rti/connext/genesis/ChainEvent", chain_type)
+            chain_topic = dds.DynamicData.Topic(self._participant, "rti/connext/genesis/monitoring/ChainEvent", chain_type)
             chain_qos = dds.QosProvider.default.datareader_qos
             chain_qos.durability.kind = dds.DurabilityKind.VOLATILE
             chain_qos.reliability.kind = dds.ReliabilityKind.RELIABLE

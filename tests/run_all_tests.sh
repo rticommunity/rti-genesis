@@ -339,7 +339,12 @@ run_with_timeout() {
         
         # Example Heuristic: For run_math_interface_agent_simple.sh
         if [[ "$script_basename" == "run_math_interface_agent_simple.sh" ]]; then
-            related_logs=($(ls "$LOG_DIR/math_test_agent.log" "$LOG_DIR/math_test_interface.log" "$LOG_DIR/rtiddsspy_math.log" 2>/dev/null))
+            related_logs=($(ls \
+                "$LOG_DIR/math_test_agent.log" \
+                "$LOG_DIR/math_test_interface.log" \
+                "$LOG_DIR/rtiddsspy_registration.log" \
+                "$LOG_DIR/rtiddsspy_interface.log" \
+                2>/dev/null))
             all_log_files+=("${related_logs[@]}")
         fi
         

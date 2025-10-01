@@ -27,21 +27,43 @@ kill_process() {
     local name=$2
     local is_spy=$3
 
-    if [ "$is_spy" = "true" ]; then
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
         echo "🔫 TRACE: Stopping $name process $pid..."
-        pkill -f "rtiddsspy.*spy_transient.xml.*SpyLib::TransientReliable" || true
+        # Use direct signals for precise control; avoid broad pkill patterns
+        kill -TERM "$pid" 2>/dev/null || true
         sleep 1
-    else
-        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-            echo "🔫 TRACE: Stopping $name process $pid..."
-            kill -TERM "$pid" 2>/dev/null || true
-            sleep 1
-            if kill -0 "$pid" 2>/dev/null; then
-                echo "⚠️ TRACE: Process $pid didn't respond to SIGTERM, using SIGKILL..."
-                kill -KILL "$pid" 2>/dev/null || true
-            fi
-            wait "$pid" 2>/dev/null || true
+        if kill -0 "$pid" 2>/dev/null; then
+            echo "⚠️ TRACE: Process $pid didn't respond to SIGTERM, using SIGKILL..."
+            kill -KILL "$pid" 2>/dev/null || true
         fi
+        wait "$pid" 2>/dev/null || true
+    fi
+}
+
+# Helper: wait until a pattern appears in a log (with timeout)
+wait_for_log() {
+    local log_file=$1
+    local pattern=$2
+    local description=$3
+    local required=${4:-true}
+    local timeout=${5:-15}
+
+    local elapsed=0
+    while [ $elapsed -lt $timeout ]; do
+        if grep -E -q "$pattern" "$log_file" 2>/dev/null; then
+            echo "✅ TRACE: $description - Found in logs"
+            return 0
+        fi
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+    if [ "$required" = "true" ]; then
+        echo "❌ TRACE: $description - NOT FOUND in logs"
+        TEST_FAILED=1
+        return 1
+    else
+        echo "⚠️ TRACE: $description - NOT FOUND in logs (not required)"
+        return 0
     fi
 }
 
@@ -52,7 +74,7 @@ check_log() {
     local description=$3
     local required=$4
 
-    if grep -q "$pattern" "$log_file"; then
+    if grep -E -q "$pattern" "$log_file"; then
         echo "✅ TRACE: $description - Found in logs"
         return 0
     else
@@ -101,9 +123,9 @@ echo "🔍 TRACE: Running Test 1 checks..."
 check_log "$AGENT_LOG" "✅ TRACE: Agent created, starting run..." "Agent initialization" true
 check_log "$AGENT_LOG" "MathTestAgent listening for requests" "Agent listening state" true
 
-# Check registration announcement
-check_log "$REGISTRATION_SPY_LOG" "New writer.*topic=\"GenesisRegistration\"" "Registration writer creation" true
-check_log "$REGISTRATION_SPY_LOG" "New data.*topic=\"GenesisRegistration\".*type=\"genesis_agent_registration_announce\"" "Registration announcement" true
+# Check registration announcement (wait for durable discovery and sample)
+wait_for_log "$REGISTRATION_SPY_LOG" "New writer.*topic=\"(rti/connext/genesis/)?GenesisRegistration\"" "Registration writer creation" true 20
+wait_for_log "$REGISTRATION_SPY_LOG" "New data.*topic=\"(rti/connext/genesis/)?GenesisRegistration\".*type=\"genesis_agent_registration_announce\"" "Registration announcement" true 20
 
 # Clean up Test 1
 echo "🧹 TRACE: Cleaning up Test 1..."
@@ -150,7 +172,7 @@ check_log "$AGENT_LOG" "Sent reply:" "Reply sent" true
 
 # Check interface logs
 check_log "$INTERFACE_LOG" "Monitored interface MathTestInterface initialized" "Interface initialization" true
-check_log "$INTERFACE_LOG" "<MonitoredInterface Handler> Agent Discovered: MathTestAgent (MathTestService)" "Agent discovery callback" true
+check_log "$INTERFACE_LOG" "<MonitoredInterface Handler> Agent Discovered: MathTestAgent \(MathTestService\)" "Agent discovery callback" true
 check_log "$INTERFACE_LOG" "🔎 TRACE: Available agents found: {.*'prefered_name': 'MathTestAgent'.*}" "Available agents logged" true
 check_log "$INTERFACE_LOG" "✅ TRACE: Agent discovered. Selecting first available: MathTestAgent" "Agent selection" true
 check_log "$INTERFACE_LOG" "🔗 TRACE: Attempting to connect to service: MathTestService" "Connection attempt" true
@@ -160,12 +182,13 @@ check_log "$INTERFACE_LOG" "📥 TRACE: Received reply:" "Reply received" true
 check_log "$INTERFACE_LOG" "✅ TRACE: Math test passed" "Math test verification" true
 check_log "$INTERFACE_LOG" "🏁 TRACE: MathTestInterface ending with exit code: 0" "Clean exit" true
 
-# Check DDS Spy logs
-check_log "$INTERFACE_SPY_LOG" "New data.*topic=\"GenesisRegistration\".*type=\"genesis_agent_registration_announce\"" "Agent registration" true
-check_log "$INTERFACE_LOG" "✨ TRACE: Agent DISCOVERED: MathTestAgent (MathTestService)" "Interface discovery" true
-# Note: Spy may wrap long lines, so match topic only (relaxed criterion)
-check_log "$INTERFACE_SPY_LOG" "topic=\"MathTestServiceRequest\"" "RPC request" true
-check_log "$INTERFACE_SPY_LOG" "topic=\"MathTestServiceReply\"" "RPC reply" true
+# Check DDS Spy logs (retry for a few seconds for flush/order variability)
+wait_for_log "$INTERFACE_SPY_LOG" "New data.*topic=\"(rti/connext/genesis/)?GenesisRegistration\".*type=\"genesis_agent_registration_announce\"" "Agent registration" true 15
+# Match without relying on emoji and with literal parentheses
+check_log "$INTERFACE_LOG" "Agent DISCOVERED: MathTestAgent \(MathTestService\)" "Interface discovery" true
+# Note: Spy may wrap long lines; match by topic name appearing in writer/reader/sample lines
+wait_for_log "$INTERFACE_SPY_LOG" "MathTestServiceRequest" "RPC request" true 10
+wait_for_log "$INTERFACE_SPY_LOG" "MathTestServiceReply" "RPC reply" true 10
 
 # Clean up Test 2
 echo "🧹 TRACE: Cleaning up Test 2..."
