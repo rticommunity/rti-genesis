@@ -92,7 +92,8 @@ class _DDSWriters:
         )
         # Writers
         writer_qos = dds.QosProvider.default.datawriter_qos
-        writer_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
+        # Lifecycle is an event stream: make it VOLATILE (no history backfill)
+        writer_qos.durability.kind = dds.DurabilityKind.VOLATILE
         writer_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
         self.component_lifecycle_writer = dds.DynamicData.DataWriter(
             pub=self.publisher,

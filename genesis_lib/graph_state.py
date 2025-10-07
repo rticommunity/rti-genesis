@@ -190,7 +190,8 @@ class GraphSubscriber:
         lifecycle_topic = dds.DynamicData.Topic(self._participant, "rti/connext/genesis/monitoring/ComponentLifecycleEvent", lifecycle_type)
 
         reader_qos = dds.QosProvider.default.datareader_qos
-        reader_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
+        # Lifecycle is transient activity; subscribe VOLATILE
+        reader_qos.durability.kind = dds.DurabilityKind.VOLATILE
         reader_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
         reader_qos.history.kind = dds.HistoryKind.KEEP_ALL
 

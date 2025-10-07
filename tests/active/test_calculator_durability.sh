@@ -107,7 +107,7 @@ check_log() {
     local description=$3
     local required=$4
 
-    if grep -q "$pattern" "$log_file"; then
+    if grep -Eq "$pattern" "$log_file"; then
         echo "✅ TRACE: $description - Found in logs"
         return 0
     else
@@ -205,7 +205,9 @@ check_log "$AGENT_LOG" "MathTestAgent listening for requests" "Agent listening s
 # Check DDS Spy logs for function registration (topic may or may not include rti/connext/genesis/ prefix)
 check_log "$SERVICE_SPY_LOG" 'New data.*topic=.*FunctionCapability' "Spy received durable FunctionCapability data" true
 check_log "$SERVICE_SPY_LOG" 'New writer.*topic=.*CalculatorServiceReply.*type="FunctionReply".*name="Replier"' "Service reply writer" true
-check_log "$SERVICE_SPY_LOG" "reason: .*Function 'add' available.*" "Function discovery" true
+# With lifecycle events now VOLATILE, the durable graph node metadata carries the reason
+# Accept either lifecycle 'reason:' line or durable GraphNode 'metadata:' containing the reason
+check_log "$SERVICE_SPY_LOG" "reason: .*Function 'add' available.*|metadata:.*Function 'add' available.*" "Function discovery" true
 
 # Clean up Test 2
 echo "🧹 TRACE: Cleaning up Test 2..."
