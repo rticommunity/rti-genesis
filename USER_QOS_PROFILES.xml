@@ -1,0 +1,156 @@
+<?xml version="1.0"?>
+<!--
+  Genesis DDS QoS Configuration
+  
+  This configuration addresses macOS participant index exhaustion by:
+  1. Using explicit UDP4 discovery peers
+  2. Expanding the participant index range
+  3. Optimizing for local domain communication
+-->
+<dds xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+     xsi:noNamespaceSchemaLocation="http://community.rti.com/schema/7.3.0/rti_dds_qos_profiles.xsd">
+
+    <!-- Default QoS Library -->
+    <qos_library name="GenesisQosLibrary">
+        
+        <!-- Base profile for all Genesis participants -->
+        <qos_profile name="GenesisDefaultProfile" base_name="BuiltinQosLib::Generic.BestEffort" is_default_qos="true">
+            
+            <domain_participant_qos>
+                <transport_builtin>
+                    <mask>UDPv4</mask>
+                </transport_builtin>
+                
+                <discovery>
+                    <!-- Use explicit UDP4 peers to avoid multicast issues on macOS -->
+                    <initial_peers>
+                        <element>builtin.udpv4://localhost</element>
+                        <element>builtin.udpv4://127.0.0.1</element>
+                        <!-- Allow for expanded participant index range -->
+                        <element>builtin.udpv4://127.0.0.1:7400-7499</element>
+                    </initial_peers>
+                    
+                    <!-- Expand multicast receive addresses to support more participants -->
+                    <multicast_receive_addresses>
+                        <element>239.255.0.1</element>
+                    </multicast_receive_addresses>
+                    
+                    <!-- Accept unknown peers (important for dynamic discovery) -->
+                    <accept_unknown_peers>true</accept_unknown_peers>
+                    
+                    <!-- Enable endpoint discovery -->
+                    <enabled_transports>
+                        <element>builtin.udpv4</element>
+                    </enabled_transports>
+                </discovery>
+                
+                <!-- Wire protocol settings for participant indexing -->
+                <wire_protocol>
+                    <!-- Let DDS auto-assign participant IDs -->
+                    <participant_id>-1</participant_id>
+                    
+                    <!-- Use standard auto-ID to avoid index conflicts -->
+                    <rtps_auto_id_kind>LONG_GUID_AUTO_ID</rtps_auto_id_kind>
+                    
+                    <!-- Increase host/app ID for better indexing -->
+                    <rtps_host_id>0</rtps_host_id>
+                    <rtps_app_id>AUTO</rtps_app_id>
+                </wire_protocol>
+                
+                <!-- Resource limits to support many participants -->
+                <resource_limits>
+                    <!-- Allow up to 256 local participants -->
+                    <local_writer_allocation>
+                        <max_count>256</max_count>
+                    </local_writer_allocation>
+                    <local_reader_allocation>
+                        <max_count>256</max_count>
+                    </local_reader_allocation>
+                    <local_publisher_allocation>
+                        <max_count>128</max_count>
+                    </local_publisher_allocation>
+                    <local_subscriber_allocation>
+                        <max_count>128</max_count>
+                    </local_subscriber_allocation>
+                    <local_topic_allocation>
+                        <max_count>128</max_count>
+                    </local_topic_allocation>
+                </resource_limits>
+                
+                <!-- Database settings for discovery -->
+                <database>
+                    <shutdown_cleanup_period>
+                        <sec>3</sec>
+                        <nanosec>0</nanosec>
+                    </shutdown_cleanup_period>
+                </database>
+                
+                <!-- Participant resource limits -->
+                <domain_participant_resource_limits>
+                    <participant_user_data_max_length>256</participant_user_data_max_length>
+                    <local_writer_allocation>
+                        <initial_count>32</initial_count>
+                        <max_count>256</max_count>
+                    </local_writer_allocation>
+                    <local_reader_allocation>
+                        <initial_count>32</initial_count>
+                        <max_count>256</max_count>
+                    </local_reader_allocation>
+                </domain_participant_resource_limits>
+            </domain_participant_qos>
+            
+            <!-- DataReader QoS defaults -->
+            <datareader_qos>
+                <reliability>
+                    <kind>RELIABLE_RELIABILITY_QOS</kind>
+                </reliability>
+                <history>
+                    <kind>KEEP_LAST_HISTORY_QOS</kind>
+                    <depth>10</depth>
+                </history>
+                <resource_limits>
+                    <max_samples>1000</max_samples>
+                    <max_instances>100</max_instances>
+                    <max_samples_per_instance>100</max_samples_per_instance>
+                </resource_limits>
+            </datareader_qos>
+            
+            <!-- DataWriter QoS defaults -->
+            <datawriter_qos>
+                <reliability>
+                    <kind>RELIABLE_RELIABILITY_QOS</kind>
+                </reliability>
+                <history>
+                    <kind>KEEP_LAST_HISTORY_QOS</kind>
+                    <depth>10</depth>
+                </history>
+                <resource_limits>
+                    <max_samples>1000</max_samples>
+                    <max_instances>100</max_instances>
+                    <max_samples_per_instance>100</max_samples_per_instance>
+                </resource_limits>
+            </datawriter_qos>
+            
+        </qos_profile>
+        
+        <!-- High-throughput profile for monitoring topics -->
+        <qos_profile name="GenesisMonitoringProfile" base_name="GenesisDefaultProfile">
+            <datareader_qos>
+                <resource_limits>
+                    <max_samples>5000</max_samples>
+                    <max_instances>500</max_instances>
+                    <max_samples_per_instance>50</max_samples_per_instance>
+                </resource_limits>
+            </datareader_qos>
+            <datawriter_qos>
+                <resource_limits>
+                    <max_samples>5000</max_samples>
+                    <max_instances>500</max_instances>
+                    <max_samples_per_instance>50</max_samples_per_instance>
+                </resource_limits>
+            </datawriter_qos>
+        </qos_profile>
+        
+    </qos_library>
+</dds>
+
