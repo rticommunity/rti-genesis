@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Genesis Multi-Agent GUI</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .main-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 60px 1fr 50px;
+            height: 100vh;
+            gap: 1px;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .header {
+            grid-column: 1 / -1;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #e74c3c;
+            transition: background 0.3s ease;
+        }
+
+        .status-dot.connected {
+            background: #27ae60;
+        }
+
+        .chat-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .network-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .panel-header {
+            padding: 15px 20px;
+            background: rgba(52, 73, 94, 0.1);
+            border-bottom: 1px solid rgba(52, 73, 94, 0.2);
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .agent-selector {
+            padding: 15px 20px;
+            border-bottom: 1px solid rgba(52, 73, 94, 0.1);
+        }
+
+        .agent-dropdown {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: white;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            max-height: calc(100vh - 300px);
+        }
+
+        .message {
+            margin-bottom: 15px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .message-user {
+            text-align: right;
+        }
+
+        .message-agent {
+            text-align: left;
+        }
+
+        .message-content {
+            display: inline-block;
+            max-width: 80%;
+            padding: 12px 16px;
+            border-radius: 18px;
+            word-wrap: break-word;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+            line-height: 1.5;
+        }
+
+        .message-user .message-content {
+            background: #007bff;
+            color: white;
+        }
+
+        .message-agent .message-content {
+            background: #f1f3f4;
+            color: #333;
+        }
+
+        /* Markdown styling within messages */
+        .message-content h1, .message-content h2, .message-content h3,
+        .message-content h4, .message-content h5, .message-content h6 {
+            margin: 8px 0 4px 0;
+            font-weight: 600;
+        }
+
+        .message-content p {
+            margin: 4px 0;
+            line-height: 1.4;
+        }
+
+        .message-content code {
+            background: rgba(0, 0, 0, 0.1);
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+
+        .message-content pre {
+            background: rgba(0, 0, 0, 0.1);
+            padding: 8px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 8px 0;
+        }
+
+        .message-content pre code {
+            background: none;
+            padding: 0;
+        }
+
+        .message-content blockquote {
+            border-left: 3px solid rgba(0, 0, 0, 0.2);
+            padding-left: 12px;
+            margin: 8px 0;
+            color: rgba(0, 0, 0, 0.7);
+        }
+
+        .message-content ul, .message-content ol {
+            margin: 8px 0;
+            padding-left: 20px;
+        }
+
+        .message-content li {
+            margin: 4px 0;
+            line-height: 1.6;
+        }
+
+        .message-content ul li {
+            list-style-type: disc;
+        }
+
+        .message-content ol li {
+            list-style-type: decimal;
+        }
+
+        .message-content strong, .message-content b {
+            font-weight: 700 !important;
+            color: #1a1a1a;
+        }
+
+        .message-content em, .message-content i {
+            font-style: italic;
+            color: #2c3e50;
+        }
+
+        /* Math expression styling */
+        .message-content .mjx-math {
+            display: inline-block !important;
+        }
+
+        .message-timestamp {
+            font-size: 11px;
+            opacity: 0.6;
+            margin-top: 5px;
+        }
+
+        .chat-input-container {
+            padding: 20px;
+            border-top: 1px solid rgba(52, 73, 94, 0.1);
+            background: rgba(248, 249, 250, 0.8);
+        }
+
+        .chat-input-form {
+            display: flex;
+            gap: 10px;
+        }
+
+        .chat-input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 1px solid #ddd;
+            border-radius: 25px;
+            outline: none;
+            font-size: 14px;
+        }
+
+        .chat-input:focus {
+            border-color: #007bff;
+        }
+
+        .send-button {
+            padding: 12px 24px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.3s ease;
+        }
+
+        .send-button:hover {
+            background: #0056b3;
+        }
+
+        .send-button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .network-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .network-svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .network-stats {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 12px;
+            backdrop-filter: blur(10px);
+        }
+
+        .node {
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .node:hover {
+            stroke-width: 3px;
+        }
+
+        .node-interface {
+            fill: #3498db;
+            stroke: #2980b9;
+        }
+
+        .node-agent {
+            fill: #e74c3c;
+            stroke: #c0392b;
+        }
+
+        .node-service {
+            fill: #f39c12;
+            stroke: #e67e22;
+        }
+
+        .node-function {
+            fill: #27ae60;
+            stroke: #229954;
+        }
+
+        .link {
+            stroke: #95a5a6;
+            stroke-width: 2;
+            fill: none;
+            transition: all 0.3s ease;
+        }
+
+        .link-interface-agent {
+            stroke: #3498db;
+        }
+
+        .link-agent-agent {
+            stroke: #e74c3c;
+        }
+
+        .link-agent-service {
+            stroke: #f39c12;
+        }
+
+        .link-service-function {
+            stroke: #27ae60;
+        }
+
+        .node-label {
+            font-size: 12px;
+            text-anchor: middle;
+            dominant-baseline: central;
+            pointer-events: none;
+            fill: white;
+            font-weight: 600;
+        }
+
+        .tooltip {
+            position: absolute;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            border-radius: 5px;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .footer {
+            grid-column: 1 / -1;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            color: #7f8c8d;
+            border-top: 1px solid rgba(52, 73, 94, 0.1);
+        }
+
+        .init-button {
+            padding: 10px 20px;
+            background: #27ae60;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.3s ease;
+        }
+
+        .init-button:hover {
+            background: #229954;
+        }
+
+        .init-button:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+
+        .communication-pulse {
+            animation: pulse 0.5s ease;
+        }
+
+        .error-message {
+            background: #e74c3c;
+            color: white;
+            padding: 10px;
+            margin: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .success-message {
+            background: #27ae60;
+            color: white;
+            padding: 10px;
+            margin: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <div class="header">
+            <div class="logo">🚀 Genesis Multi-Agent GUI</div>
+            <div class="status-indicator">
+                <div class="status-dot" id="status-dot"></div>
+                <span id="status-text">Disconnected</span>
+                <button id="init-button" class="init-button">Initialize Genesis</button>
+            </div>
+        </div>
+
+        <div class="chat-panel">
+            <div class="panel-header">💬 Agent Chat</div>
+            
+            <div class="agent-selector">
+                <select id="agent-dropdown" class="agent-dropdown" disabled>
+                    <option value="">Select an agent...</option>
+                </select>
+            </div>
+
+            <div id="chat-messages" class="chat-messages">
+                <div class="message message-agent">
+                    <div class="message-content">
+                        Welcome! Initialize Genesis to discover agents and start chatting.
+                    </div>
+                </div>
+            </div>
+
+            <div class="chat-input-container">
+                <form id="chat-form" class="chat-input-form">
+                    <input 
+                        type="text" 
+                        id="chat-input" 
+                        class="chat-input" 
+                        placeholder="Type your message..."
+                        disabled
+                    >
+                    <button type="submit" id="send-button" class="send-button" disabled>
+                        Send
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <div class="network-panel">
+            <div class="panel-header">🌐 Genesis Network Topology</div>
+            <div class="network-container">
+                <!-- Replace legacy D3 view with embedded reference viewer -->
+                <iframe id="graph-embed" src="/genesis-graph/reference" style="width:100%;height:100%;border:0;background:#0b0f16;"></iframe>
+            </div>
+        </div>
+
+        <div class="footer">
+            Genesis Multi-Agent Demo • Real-time network monitoring and agent interaction
+        </div>
+    </div>
+
+    <div class="tooltip" id="tooltip"></div>
+
+    <script>
+        // MathJax configuration
+        window.MathJax = {
+            tex: {
+                inlineMath: [['\\(', '\\)']],
+                displayMath: [['\\[', '\\]']],
+                processEscapes: true,
+                processEnvironments: true
+            },
+            options: {
+                skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre'],
+                ignoreHtmlClass: 'no-mathjax'
+            }
+        };
+
+        // Global variables
+        let socket;
+        let agents = [];
+        let currentAgent = null;
+        let networkGraph = { nodes: [], edges: [] };
+        let simulation;
+        let svg, g;
+        let statsUpdateInterval;
+
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', function() {
+            // Configure marked for better markdown rendering
+            if (typeof marked !== 'undefined') {
+                marked.setOptions({
+                    breaks: true,        // Convert line breaks to <br>
+                    gfm: true,          // GitHub Flavored Markdown
+                    sanitize: false,    // Allow HTML (we trust agent responses)
+                    smartLists: true,   // Better list formatting
+                    smartypants: true   // Smart quotes and dashes
+                });
+            }
+            
+            initializeSocket();
+            // D3 network view replaced by embedded reference viewer (iframe)
+            setupEventListeners();
+        });
+
+        function initializeSocket() {
+            socket = io();
+
+            socket.on('connect', function() {
+                updateStatus('connected', 'Connected to server');
+                
+                // Start periodic stats update
+                if (statsUpdateInterval) clearInterval(statsUpdateInterval);
+                statsUpdateInterval = setInterval(updateNetworkStats, 1000);
+            });
+
+            socket.on('disconnect', function() {
+                updateStatus('disconnected', 'Disconnected from server');
+                
+                // Stop periodic stats update
+                if (statsUpdateInterval) {
+                    clearInterval(statsUpdateInterval);
+                    statsUpdateInterval = null;
+                }
+            });
+
+            socket.on('status', function(data) {
+                showMessage(data.message, 'status');
+            });
+
+            socket.on('error', function(data) {
+                showMessage(data.message, 'error');
+            });
+
+            socket.on('agents_discovered', function(data) {
+                agents = data.agents;
+                updateAgentDropdown();
+                showMessage(`Discovered ${agents.length} agent(s)`, 'success');
+            });
+
+            socket.on('agent_connected', function(data) {
+                currentAgent = data.agent_name;
+                showMessage(`Connected to ${data.agent_name}`, 'success');
+                enableChat();
+            });
+
+            socket.on('agent_disconnected', function() {
+                currentAgent = null;
+                disableChat();
+                showMessage('Disconnected from agent', 'status');
+            });
+
+            socket.on('message_sent', function(data) {
+                addChatMessage(data.message, 'user', data.timestamp);
+            });
+
+            socket.on('agent_response', function(data) {
+                addChatMessage(data.message, 'agent', data.timestamp, data.agent_name);
+            });
+
+            socket.on('network_state', function(data) {
+                // Add a small delay on first load to ensure DOM is ready
+                if (!networkGraph || networkGraph.nodes.length === 0) {
+                    setTimeout(() => {
+                        updateNetworkVisualization(data);
+                    }, 300);
+                } else {
+                    updateNetworkVisualization(data);
+                }
+            });
+
+            socket.on('node_update', function(data) {
+                handleNodeUpdate(data);
+            });
+
+            socket.on('edge_update', function(data) {
+                handleEdgeUpdate(data);
+            });
+
+            socket.on('communication_event', function(data) {
+                highlightCommunication(data);
+            });
+        }
+
+        function setupEventListeners() {
+            document.getElementById('init-button').addEventListener('click', function() {
+                this.disabled = true;
+                this.textContent = 'Initializing...';
+                socket.emit('initialize_genesis');
+            });
+
+            document.getElementById('agent-dropdown').addEventListener('change', function() {
+                const selectedAgent = this.value;
+                if (selectedAgent) {
+                    socket.emit('connect_to_agent', { agent_name: selectedAgent });
+                }
+            });
+
+            document.getElementById('chat-form').addEventListener('submit', function(e) {
+                e.preventDefault();
+                const input = document.getElementById('chat-input');
+                const message = input.value.trim();
+                if (message && currentAgent) {
+                    socket.emit('send_message', { message: message });
+                    input.value = '';
+                }
+            });
+        }
+
+        function updateStatus(status, message) {
+            const statusDot = document.getElementById('status-dot');
+            const statusText = document.getElementById('status-text');
+            
+            statusDot.className = `status-dot ${status === 'connected' ? 'connected' : ''}`;
+            statusText.textContent = message;
+        }
+
+        function updateAgentDropdown() {
+            const dropdown = document.getElementById('agent-dropdown');
+            dropdown.innerHTML = '<option value="">Select an agent...</option>';
+            
+            agents.forEach(agent => {
+                const option = document.createElement('option');
+                option.value = agent.name;
+                option.textContent = `${agent.name} (${agent.type})`;
+                dropdown.appendChild(option);
+            });
+            
+            dropdown.disabled = false;
+        }
+
+        function addChatMessage(message, sender, timestamp, agentName = null) {
+            const messagesContainer = document.getElementById('chat-messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message message-${sender}`;
+            
+            const senderName = sender === 'agent' && agentName ? agentName : 
+                              sender === 'user' ? 'You' : 'Agent';
+            
+            // Process the message for markdown and math rendering
+            let processedMessage = message;
+            
+            if (sender === 'agent') {
+                // Convert markdown to HTML using marked
+                try {
+                    if (typeof marked !== 'undefined') {
+                        processedMessage = marked.parse(message);
+                        console.log('Markdown processing:', { original: message, parsed: processedMessage });
+                    } else {
+                        console.warn('Marked library not available, using plain text');
+                        processedMessage = message.replace(/\n/g, '<br>');
+                    }
+                } catch (e) {
+                    console.warn('Markdown parsing failed:', e);
+                    processedMessage = message.replace(/\n/g, '<br>');
+                }
+            } else {
+                // For user messages, just escape HTML
+                processedMessage = escapeHtml(message);
+            }
+            
+            messageDiv.innerHTML = `
+                <div class="message-content">${processedMessage}</div>
+                <div class="message-timestamp">${new Date(timestamp).toLocaleTimeString()}</div>
+            `;
+            
+            messagesContainer.appendChild(messageDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            
+            // Render math expressions if MathJax is available
+            if (window.MathJax && sender === 'agent') {
+                MathJax.typesetPromise([messageDiv]).catch(function (err) {
+                    console.warn('MathJax typesetting failed:', err);
+                });
+            }
+        }
+
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+        }
+
+        function showMessage(message, type) {
+            const messagesContainer = document.getElementById('chat-messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `${type}-message`;
+            messageDiv.textContent = message;
+            messagesContainer.appendChild(messageDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            
+            // Remove the message after 5 seconds
+            setTimeout(() => {
+                if (messageDiv.parentNode) {
+                    messageDiv.parentNode.removeChild(messageDiv);
+                }
+            }, 5000);
+        }
+
+        function enableChat() {
+            document.getElementById('chat-input').disabled = false;
+            document.getElementById('send-button').disabled = false;
+            document.getElementById('chat-input').placeholder = `Chat with ${currentAgent}...`;
+            document.getElementById('chat-input').focus();
+        }
+
+        function disableChat() {
+            document.getElementById('chat-input').disabled = true;
+            document.getElementById('send-button').disabled = true;
+            document.getElementById('chat-input').placeholder = 'Select an agent to start chatting...';
+        }
+
+        // initializeNetworkVisualization removed (using embedded viewer)
+        
+        function createSimulation(centerX, centerY) {
+            // Create a new simulation with the correct center
+            return d3.forceSimulation()
+                .force('link', d3.forceLink()
+                    .id(d => d.id)
+                    .distance(120))
+                .force('charge', d3.forceManyBody()
+                    .strength(-400)
+                    .distanceMax(300))
+                .force('center', d3.forceCenter(centerX, centerY))
+                .force('collision', d3.forceCollide()
+                    .radius(35)
+                    .strength(0.7))
+                .force('x', d3.forceX(centerX).strength(0.1))
+                .force('y', d3.forceY(centerY).strength(0.1));
+        }
+        
+        function getSVGDimensions() {
+            // Get the container element
+            const container = document.querySelector('.network-container');
+            const svg = document.querySelector('#network-svg');
+            
+            if (!container || !svg) {
+                return { width: 600, height: 400, centerX: 300, centerY: 200 };
+            }
+            
+            // Use container dimensions which are more reliable
+            const containerRect = container.getBoundingClientRect();
+            const width = containerRect.width || 600;
+            const height = containerRect.height || 400;
+            
+            return { 
+                width: width, 
+                height: height, 
+                centerX: width / 2, 
+                centerY: height / 2 
+            };
+        }
+
+        // updateNetworkVisualization removed (embedded viewer manages its own rendering)
+        
+        function updateNetworkStats() {
+            // Update stats from current networkGraph
+            const totalNodes = networkGraph.nodes ? networkGraph.nodes.length : 0;
+            const totalEdges = networkGraph.edges ? networkGraph.edges.length : 0;
+            
+            document.getElementById('node-count').textContent = totalNodes;
+            document.getElementById('edge-count').textContent = totalEdges;
+        }
+
+        function handleNodeUpdate(data) {
+            if (data.action === 'add') {
+                // Check if node already exists
+                const existingIndex = networkGraph.nodes.findIndex(n => n.id === data.node.id);
+                if (existingIndex === -1) {
+                    networkGraph.nodes.push(data.node);
+                    updateNetworkVisualization(networkGraph);
+                }
+            } else if (data.action === 'update') {
+                const nodeIndex = networkGraph.nodes.findIndex(n => n.id === data.node.id);
+                if (nodeIndex !== -1) {
+                    // Preserve position if it exists
+                    const existingNode = networkGraph.nodes[nodeIndex];
+                    data.node.x = existingNode.x;
+                    data.node.y = existingNode.y;
+                    data.node.vx = existingNode.vx;
+                    data.node.vy = existingNode.vy;
+                    
+                    networkGraph.nodes[nodeIndex] = data.node;
+                    updateNetworkStats();
+                    
+                    // Update node visually without full re-render
+                    const nodeElement = g.select(`circle[data-id="${data.node.id}"]`);
+                    if (!nodeElement.empty()) {
+                        nodeElement.attr('class', `node node-${data.node.type.toLowerCase()}`);
+                    }
+                }
+            }
+        }
+
+        function handleEdgeUpdate(data) {
+            if (data.action === 'add') {
+                // Check if edge already exists
+                const existingIndex = networkGraph.edges.findIndex(e => e.id === data.edge.id);
+                if (existingIndex === -1) {
+                    networkGraph.edges.push(data.edge);
+                    updateNetworkVisualization(networkGraph);
+                }
+            }
+        }
+
+        function highlightCommunication(data) {
+            // Find and highlight the communication path
+            const sourceNode = g.select(`.node circle[data-id="${data.source}"]`);
+            const targetNode = g.select(`.node circle[data-id="${data.target}"]`);
+            
+            if (!sourceNode.empty() && !targetNode.empty()) {
+                sourceNode.classed('communication-pulse', true);
+                targetNode.classed('communication-pulse', true);
+                
+                setTimeout(() => {
+                    sourceNode.classed('communication-pulse', false);
+                    targetNode.classed('communication-pulse', false);
+                }, 1000);
+            }
+        }
+
+        function showTooltip(event, d) {
+            const tooltip = document.getElementById('tooltip');
+            tooltip.style.opacity = 1;
+            tooltip.style.left = (event.pageX + 10) + 'px';
+            tooltip.style.top = (event.pageY - 10) + 'px';
+            
+            let content = `<strong>${d.name}</strong><br/>`;
+            content += `Type: ${d.type}<br/>`;
+            content += `Status: ${d.status}<br/>`;
+            if (d.description) content += `Description: ${d.description}<br/>`;
+            if (d.capabilities && d.capabilities.length > 0) {
+                content += `Capabilities: ${d.capabilities.join(', ')}`;
+            }
+            
+            tooltip.innerHTML = content;
+        }
+
+        function hideTooltip() {
+            document.getElementById('tooltip').style.opacity = 0;
+        }
+
+        // Handle window resize
+        let resizeTimeout;
+        window.addEventListener('resize', function() {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                if (networkGraph && networkGraph.nodes && networkGraph.nodes.length > 0) {
+                    // Re-render the entire visualization with new dimensions
+                    updateNetworkVisualization(networkGraph);
+                }
+            }, 250);
+        });
+    </script>
+</body>
+</html> 
