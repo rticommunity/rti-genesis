@@ -29,9 +29,9 @@ INTERFACE_BETWEEN_Q_SEC=${INTERFACE_BETWEEN_Q_SEC:-3}
 
 # Defaults for scripts (can be overridden via flags)
 DEFAULT_AGENT_SCRIPT="${ROOT_DIR}/examples/MultiAgent/agents/personal_assistant.py"
-DEFAULT_SERVICE_SCRIPT="${ROOT_DIR}/test_functions/calculator_service.py"
+DEFAULT_SERVICE_SCRIPT="${ROOT_DIR}/test_functions/services/calculator_service.py"
 # Use SimpleGenesisInterfaceCLI by default so one interface can ask multiple questions
-DEFAULT_INTERFACE_SCRIPT="${ROOT_DIR}/run_scripts/simpleGenesisInterfaceCLI.py"
+DEFAULT_INTERFACE_SCRIPT="${ROOT_DIR}/tests/helpers/simpleGenesisInterfaceCLI.py"
 
 AGENT_CMD=("${PYTHON_BIN}" "${DEFAULT_AGENT_SCRIPT}")
 SERVICE_CMD=("${PYTHON_BIN}" "${DEFAULT_SERVICE_SCRIPT}")
