@@ -35,6 +35,7 @@ import rti.rpc as rpc
 from .genesis_app import GenesisApp
 from .llm import ChatAgent, AnthropicChatAgent
 from .utils import get_datamodel_path
+from genesis_lib.advertisement_bus import AdvertisementBus
 from .agent_communication import AgentCommunicationMixin
 from .agent_classifier import AgentClassifier
 from genesis_lib.memory import SimpleMemoryAdapter
@@ -44,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 class GenesisAgent(ABC):
     """Base class for all Genesis agents"""
-    registration_writer: Optional[dds.DynamicData.DataWriter] = None # Define at class level
+    # registration_writer removed - now using unified Advertisement topic via AdvertisementBus
 
     def __init__(self, agent_name: str, base_service_name: str, 
                  service_instance_tag: Optional[str] = None, agent_id: str = None,
@@ -96,23 +97,8 @@ class GenesisAgent(ABC):
         self._auto_run_requested: bool = auto_run
 
 
-        # Create registration writer with QoS
-        writer_qos = dds.QosProvider.default.datawriter_qos
-        writer_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
-        writer_qos.history.kind = dds.HistoryKind.KEEP_LAST
-        writer_qos.history.depth = 500
-        writer_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
-        writer_qos.liveliness.kind = dds.LivelinessKind.AUTOMATIC
-        writer_qos.liveliness.lease_duration = dds.Duration(seconds=2)
-        writer_qos.ownership.kind = dds.OwnershipKind.SHARED
-
-        # Create registration writer
-        self.registration_writer = dds.DynamicData.DataWriter(
-            self.app.publisher,
-            self.app.registration_topic,
-            qos=writer_qos
-        )
-        logger.debug("✅ TRACE: Registration writer created with QoS settings")
+        # Legacy GenesisRegistration writer removed - now using unified Advertisement topic via AdvertisementBus
+        logger.debug("✅ TRACE: Agent will use unified Advertisement topic for announcements")
 
         # Create replier with data available listener
         class RequestListener(dds.DynamicData.DataReaderListener):
@@ -121,22 +107,32 @@ class GenesisAgent(ABC):
                 self.agent = agent
                 
             def on_data_available(self, reader):
+                # ALWAYS print to verify callback is invoked
+                print(f"🔔🔔🔔 PRINT: RequestListener.on_data_available() CALLED for {self.agent.agent_name}!")
+                logger.info(f"RequestListener.on_data_available() CALLED for {self.agent.agent_name}")
+                
                 # Get all available samples
                 samples = self.agent.replier.take_requests()
+                print(f"📊 PRINT: RequestListener got {len(samples)} request samples")
+                
                 for request, info in samples:
                     if request is None or info.state.instance_state != dds.InstanceState.ALIVE:
+                        print(f"⏭️ PRINT: Skipping invalid request sample")
                         continue
                         
+                    print(f"✅ PRINT: Processing valid Interface-to-Agent request")
                     logger.info(f"Received request: {request}")
                     
                     try:
                         # Create task to process request asynchronously
                         asyncio.run_coroutine_threadsafe(self._process_request(request, info), self.agent.loop)
                     except Exception as e:
+                        print(f"💥 PRINT: Error creating request processing task: {e}")
                         logger.error(f"Error creating request processing task: {e}")
                         logger.error(traceback.format_exc())
                         
             async def _process_request(self, request, info):
+                print(f"🚀 PRINT: _process_request() started for {self.agent.agent_name}")
                 try:
                     request_dict = {}
                     if hasattr(self.agent.request_type, 'members') and callable(self.agent.request_type.members):
@@ -162,24 +158,32 @@ class GenesisAgent(ABC):
                         # It's better to let it fail or send an error reply if conversion is impossible.
                         raise TypeError("Failed to introspect request_type members for DDS-to-dict conversion.")
 
+                    print(f"📝 PRINT: Converted request to dict: {request_dict}")
                     # Get reply data from concrete implementation, passing the dictionary
+                    print(f"🔄 PRINT: Calling process_request()...")
                     reply_data = await self.agent.process_request(request_dict)
+                    print(f"✅ PRINT: process_request() returned: {reply_data}")
                     
-                    # Create reply
+                    # Create reply - explicitly set all required fields
+                    print(f"📤 PRINT: Creating DDS reply...")
                     reply = dds.DynamicData(self.agent.reply_type)
-                    for key, value in reply_data.items():
-                        reply[key] = value
-                        
+                    reply["message"] = str(reply_data.get("message", ""))
+                    reply["status"] = int(reply_data.get("status", 0))
+                    reply["conversation_id"] = str(reply_data.get("conversation_id", ""))
+                    
+                    print(f"📤 PRINT: Sending reply via replier...")
                     # Send reply
                     self.agent.replier.send_reply(reply, info)
+                    print(f"✅ PRINT: Reply sent successfully!")
                     logger.info(f"Sent reply: {reply}")
                 except Exception as e:
                     logger.error(f"Error processing request: {e}")
                     logger.error(traceback.format_exc())
-                    # Send error reply
+                    # Send error reply - explicitly set all required fields
                     reply = dds.DynamicData(self.agent.reply_type)
-                    reply["status"] = 1  # Error status
                     reply["message"] = f"Error: {str(e)}"
+                    reply["status"] = 1  # Error status
+                    reply["conversation_id"] = ""  # Empty conversation ID for errors
                     self.agent.replier.send_reply(reply, info)
         
         # Create replier with listener
@@ -261,6 +265,8 @@ class GenesisAgent(ABC):
                     # Share the app instance and agent attributes
                     self.app = parent_agent.app
                     self.base_service_name = parent_agent.base_service_name
+                    # Ensure RPC service name (with tag) is visible to the mixin
+                    self.rpc_service_name = getattr(parent_agent, 'rpc_service_name', None)
                     self.agent_name = parent_agent.agent_name
                     self.agent_type = getattr(parent_agent, 'agent_type', 'AGENT')
                     self.description = getattr(parent_agent, 'description', f'Agent {parent_agent.agent_name}')
@@ -671,7 +677,7 @@ class GenesisAgent(ABC):
             print(f"🚀 PRINT: GenesisAgent.run() starting for {self.agent_name}")
             # Announce presence
             print("📢 PRINT: About to announce agent presence...")
-            logger.info("Announcing agent presence...")
+            logger.info("Announcing agent presence via unified advertisement...")
             await self.announce_self()
             print("✅ PRINT: Agent presence announced successfully")
             
@@ -680,8 +686,14 @@ class GenesisAgent(ABC):
             logger.info(f"{self.agent_name} listening for requests (Ctrl+C to exit)...")
             
             # Main event loop with agent request handling
+            loop_count = 0
             while True:
                 try:
+                    loop_count += 1
+                    # Print every 100 iterations to verify loop is running
+                    if loop_count % 100 == 1:
+                        print(f"🔄 PRINT: Main event loop iteration #{loop_count}, agent_communication={self.agent_communication is not None}")
+                    
                     # Handle agent-to-agent requests if communication is enabled
                     if self.agent_communication:
                         await self.agent_communication._handle_agent_requests()
@@ -748,55 +760,37 @@ class GenesisAgent(ABC):
             loop.close()
 
     async def announce_self(self):
-        """Publish a GenesisRegistration announcement for this agent."""
+        """Publish a unified GenesisAdvertisement(kind=AGENT) for this agent."""
         try:
             print(f"🚀 PRINT: Starting announce_self for agent {self.agent_name}")
             logger.info(f"Starting announce_self for agent {self.agent_name}")
-            
-            # Create registration dynamic data
-            print("🏗️ PRINT: Creating registration dynamic data...")
-            registration = dds.DynamicData(self.app.registration_type)
-            print("✅ PRINT: Registration dynamic data created")
-            
-            print("📝 PRINT: Setting registration fields...")
-            registration["message"] = f"Agent {self.agent_name} ({self.base_service_name}) announcing presence"
-            registration["prefered_name"] = self.agent_name
-            registration["default_capable"] = 1 # Assuming this means it can handle default requests for its service type
-            registration["instance_id"] = self.app.agent_id
-            registration["service_name"] = self.rpc_service_name # This is the name clients connect to for RPC
-            print("✅ PRINT: Registration fields set")
-            # TODO: If IDL is updated, add a separate field for self.base_service_name for better type discovery by interfaces.
-            # For now, CLI will see self.rpc_service_name as 'Service' and can use it to connect.
-            
-            logger.debug(f"Created registration announcement: message='{registration['message']}', prefered_name='{registration['prefered_name']}', default_capable={registration['default_capable']}, instance_id='{registration['instance_id']}', service_name='{registration['service_name']}' (base_service_name: {self.base_service_name})")
-            
-            # Write and flush the registration announcement
-            print("📤 PRINT: About to write registration announcement...")
-            logger.debug("🔍 TRACE: About to write registration announcement...")
-            write_result = self.registration_writer.write(registration)
-            print(f"✅ PRINT: Registration announcement write result: {write_result}")
-            logger.debug(f"✅ TRACE: Registration announcement write result: {write_result}")
-            
-            try:
-                print("🔄 PRINT: About to flush registration writer...")
-                logger.debug("🔍 TRACE: About to flush registration writer...")
-                # Get writer status before flush
-                status = self.registration_writer.datawriter_protocol_status
-                logger.debug(f"📊 TRACE: Writer status before flush - Sent")
-                
-                self.registration_writer.flush()
-                print("✅ PRINT: Registration writer flushed successfully")
-                
-                # Get writer status after flush
-                status = self.registration_writer.datawriter_protocol_status
-                logger.debug(f"📊 TRACE: Writer status after flush - Sent")
-                logger.debug("✅ TRACE: Registration writer flushed successfully")
-                logger.info("Successfully announced agent presence")
-            except Exception as flush_error:
-                print(f"💥 PRINT: Error flushing registration writer: {flush_error}")
-                logger.error(f"💥 TRACE: Error flushing registration writer: {flush_error}")
-                logger.error(traceback.format_exc())
-                
+
+            # Use shared advertisement bus (reuses topic/writer per participant)
+            bus = AdvertisementBus.get(self.app.participant)
+            ad_type = bus.ad_type
+            writer = bus.writer
+
+            # Build advertisement sample (AGENT)
+            ad = dds.DynamicData(ad_type)
+            ad["advertisement_id"] = self.app.agent_id
+            ad["kind"] = 1  # AGENT
+            ad["name"] = self.agent_name
+            ad["description"] = self.base_service_name or ""
+            ad["service_name"] = self.rpc_service_name
+            ad["provider_id"] = str(writer.instance_handle)
+            ad["last_seen"] = int(time.time() * 1000)
+            payload = {
+                "agent_type": getattr(self, 'agent_type', 'AGENT'),
+                "prefered_name": self.agent_name,
+            }
+            ad["payload"] = json.dumps(payload)
+
+            # Write and flush
+            logger.debug("Writing unified agent advertisement...")
+            writer.write(ad)
+            writer.flush()
+            logger.info("Successfully announced agent presence via GenesisAdvertisement")
+
         except Exception as e:
             print(f"💥 PRINT: Error in announce_self: {e}")
             logger.error(f"Error in announce_self: {e}")

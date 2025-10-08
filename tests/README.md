@@ -46,7 +46,7 @@ This README documents what the top-level test runner executes today, the order a
 
 4) Math interface/agent simple: `run_math_interface_agent_simple.sh` (60s)
    - Two-phase test: registration durability then interface request/response.
-   - Verifies durable GenesisRegistration, request/reply topics, and pass tokens.
+   - Verifies durable Advertisement, request/reply topics, and pass tokens.
 
 5) Basic calculator client: `run_math.sh` (30s)
    - Spawns `CalculatorService` and uses `GenesisRPCClient` to verify add/sub/mul/div and div-by-zero handling.

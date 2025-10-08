@@ -98,8 +98,7 @@ dds_writer_sweep() {
   rm -f "$SWEEP_LOG"
   # Topics most tests use; adjust as needed
   local topics=(
-    'GenesisRegistration'
-    'FunctionCapability'
+    'Advertisement'
     'CalculatorServiceRequest' 'CalculatorServiceReply'
     'InterfaceAgentRequest' 'InterfaceAgentReply'
     'MathTestServiceRequest' 'MathTestServiceReply'
@@ -187,7 +186,7 @@ main() {
     if run_with_timeout "$(resolve_path run_math.sh)" 30; then
       fail_and_exit "High-level flows failed; basic RPC passed (likely discovery/registration sequencing)" \
         "${LOG_DIR}/triage_test_agent_to_agent_communication.log" \
-        "consider timing/durability; check FunctionCapability durability and registration topics"
+        "consider timing/durability; check Advertisement durability"
     fi
     # If all subtests fail, declare broad DDS/RPC failure
     fail_and_exit "Agent↔Agent failed; all triage subtests failed (DDS/RPC baseline failing)" \

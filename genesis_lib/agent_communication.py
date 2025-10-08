@@ -7,7 +7,7 @@ MonitoredAgent to add agent discovery, connection management, and RPC communicat
 between agents.
 
 Key Features:
-- Agent discovery through AgentCapability announcements
+- Agent discovery through unified Advertisement topic (kind=AGENT)
 - Dynamic RPC connection management
 - Agent-to-agent request/reply handling
 - Connection pooling and cleanup
@@ -26,6 +26,7 @@ from abc import ABC, abstractmethod
 import rti.connextdds as dds
 import rti.rpc as rpc
 from .utils import get_datamodel_path
+from .advertisement_bus import AdvertisementBus
 
 # Get logger
 logger = logging.getLogger(__name__)
@@ -48,12 +49,12 @@ class AgentCommunicationMixin:
         self.discovered_agents: Dict[str, Dict[str, Any]] = {}
         logger.debug("✅ TRACE: discovered_agents dict initialized")
         
-        # Agent capability writer for advertising our capabilities
-        self.agent_capability_writer = None
-        self.agent_capability_topic = None
-        self.agent_capability_publisher = None
-        self.agent_capability_type = None  # Add this to store the DDS type
-        logger.debug("✅ TRACE: capability writer/topic/publisher/type initialized to None")
+        # Unified advertisement writer/reader for all discovery
+        self.advertisement_writer = None
+        self.advertisement_reader = None
+        self.advertisement_topic = None
+        self.advertisement_type = None
+        logger.debug("✅ TRACE: Advertisement writer/reader/topic/type initialized to None")
         
         # Initialize agent-to-agent RPC types
         self.agent_request_type = None
@@ -108,13 +109,20 @@ class AgentCommunicationMixin:
             return False
     
     def _get_agent_service_name(self, agent_id: str) -> str:
-        """Generate unique RPC service name for an agent"""
-        # Use pattern: {base_service_name}_{agent_id}
-        if hasattr(self, 'base_service_name') and hasattr(self, 'app'):
-            return f"{self.base_service_name}_{agent_id}"
-        else:
-            # Fallback pattern
-            return f"AgentService_{agent_id}"
+        """Generate RPC service name for an agent.
+
+        Prefer explicit rpc_service_name (e.g., with service_instance_tag) when available
+        to satisfy tests and make service names stable. Fallback to unique
+        base_service_name_{agent_id} when no explicit name was provided.
+        """
+        try:
+            if hasattr(self, 'rpc_service_name') and self.rpc_service_name:
+                return self.rpc_service_name
+            if hasattr(self, 'base_service_name') and hasattr(self, 'app'):
+                return f"{self.base_service_name}_{agent_id}"
+        except Exception:
+            pass
+        return f"AgentService_{agent_id}"
     
     def get_discovered_agents(self) -> Dict[str, Dict[str, Any]]:
         """Return dictionary of discovered agents"""
@@ -165,115 +173,92 @@ class AgentCommunicationMixin:
                 return False
             logger.debug("✅ TRACE: DDS participant available")
             
-            # Get AgentCapability type from XML
-            logger.debug("📄 TRACE: Getting datamodel path for AgentCapability...")
-            config_path = get_datamodel_path()
-            logger.debug(f"📄 TRACE: Datamodel path: {config_path}")
+            # AgentCapability topic removed - now using unified Advertisement topic for agent discovery
+            logger.debug("✅ TRACE: Agent discovery will use unified Advertisement topic (AGENT kind)")
             
-            logger.debug("🏗️ TRACE: Creating QosProvider for AgentCapability...")
-            type_provider = dds.QosProvider(config_path)
-            logger.debug("✅ TRACE: QosProvider created")
-            
-            logger.debug("📥 TRACE: Loading AgentCapability type...")
-            agent_capability_type = type_provider.type("genesis_lib", "AgentCapability")
-            logger.debug("✅ TRACE: AgentCapability type loaded")
-            
-            # Find or create topic for AgentCapability
-            logger.debug("🔍 TRACE: Finding or creating AgentCapability topic...")
+            # Set up unified advertisement reader to populate discovered_agents via shared AdvertisementBus
             try:
-                # Try to find existing topic first
-                logger.debug("🔍 TRACE: Attempting to find existing AgentCapability topic...")
-                self.agent_capability_topic = self.app.participant.find_topic("rti/connext/genesis/AgentCapability", dds.Duration.from_seconds(1))
-                if self.agent_capability_topic is None:
-                    logger.debug("🏗️ TRACE: Existing topic not found, creating new AgentCapability topic...")
-                    # Create new topic if not found
-                    self.agent_capability_topic = dds.DynamicData.Topic(
-                        self.app.participant,
-                        "rti/connext/genesis/AgentCapability",
-                        agent_capability_type
-                    )
-                    logger.debug("✅ TRACE: New AgentCapability topic created")
-                else:
-                    logger.debug("✅ TRACE: Found existing AgentCapability topic")
-            except Exception as topic_error:
-                logger.debug(f"⚠️ TRACE: find_topic failed ({topic_error}), creating new topic...")
-                # If find_topic fails, create new topic
-                self.agent_capability_topic = dds.DynamicData.Topic(
-                    self.app.participant,
-                    "rti/connext/genesis/AgentCapability",
-                    agent_capability_type
-                )
-                logger.debug("✅ TRACE: New AgentCapability topic created after find_topic failure")
-            
-            topic = self.agent_capability_topic
-            logger.debug("✅ TRACE: AgentCapability topic ready")
-            
-            # Create DataReader for AgentCapability with listener
-            logger.debug("🏗️ TRACE: Creating AgentCapabilityListener class...")
-            class AgentCapabilityListener(dds.DynamicData.NoOpDataReaderListener):
-                def __init__(self, agent_comm_mixin):
-                    logger.debug("🚀 TRACE: AgentCapabilityListener.__init__() starting")
-                    super().__init__()
-                    self.agent_comm_mixin = agent_comm_mixin
-                    logger.debug("✅ TRACE: AgentCapabilityListener.__init__() completed")
+                print("🏗️ PRINT: Setting up unified advertisement reader...")
+                logger.info("🏗️ TRACE: Setting up unified advertisement reader...")
                 
-                def on_data_available(self, reader):
-                    try:
-                        # Check if tracing is enabled before printing
-                        enable_tracing = getattr(self.agent_comm_mixin, 'enable_tracing', False)
-                        if enable_tracing:
-                            print(f"🔔 PRINT: AgentCapabilityListener.on_data_available() called for agent {getattr(self.agent_comm_mixin, 'agent_name', 'Unknown')}")
-                        
-                        # Get new data samples
-                        samples = reader.take()
-                        for data, info in samples:
-                            # Check if the sample contains valid data that hasn't been read before
-                            if info.state.sample_state == dds.SampleState.NOT_READ:
-                                if data is None or info.state.instance_state != dds.InstanceState.ALIVE:
-                                    continue
-                                
-                                # Process the agent capability announcement
-                                self.agent_comm_mixin._on_agent_capability_received(data)
-                            else:
-                                continue
-                    except Exception as e:
-                        if enable_tracing:
-                            print(f"💥 PRINT: Error processing agent capability data: {e}")
-                        logger.error(f"💥 TRACE: Error processing agent capability data: {e}")
-                        import traceback
-                        if enable_tracing:
-                            print(f"💥 PRINT: Traceback: {traceback.format_exc()}")
-                        logger.error(f"💥 TRACE: Traceback: {traceback.format_exc()}")
-            
-            # Create reader with durable QoS and listener
-            logger.debug("🏗️ TRACE: Creating DataReader for AgentCapability with durable QoS...")
-            
-            # Set up durable QoS for AgentCapability discovery
-            reader_qos = dds.QosProvider.default.datareader_qos
-            reader_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
-            reader_qos.history.kind = dds.HistoryKind.KEEP_LAST
-            reader_qos.history.depth = 500
-            reader_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
-            reader_qos.liveliness.kind = dds.LivelinessKind.AUTOMATIC
-            reader_qos.liveliness.lease_duration = dds.Duration(seconds=2)
-            
-            # Create subscriber and store it for cleanup
-            self.agent_capability_subscriber = dds.Subscriber(self.app.participant)
-            
-            # Create listener first
-            logger.debug("🏗️ TRACE: Creating capability listener instance...")
-            capability_listener = AgentCapabilityListener(self)
-            logger.debug("✅ TRACE: Capability listener instance created")
-            
-            # Create DataReader with listener using the working pattern from FunctionRegistry
-            self.agent_capability_reader = dds.DynamicData.DataReader(
-                topic=topic,
-                qos=reader_qos,
-                listener=capability_listener,
-                subscriber=self.agent_capability_subscriber,
-                mask=dds.StatusMask.ALL
-            )
-            logger.debug("✅ TRACE: DataReader created with listener and durable QoS")
+                # Get datamodel path for type provider
+                config_path = get_datamodel_path()
+                provider = dds.QosProvider(config_path)
+                self.advertisement_type = provider.type("genesis_lib", "GenesisAdvertisement")
+                # Use AdvertisementBus to get the shared topic (avoids duplicate creation)
+                print("🔍 PRINT: Getting AdvertisementBus...")
+                logger.info("🔍 TRACE: Getting AdvertisementBus...")
+                bus = AdvertisementBus.get(self.app.participant)
+                ad_topic = bus.topic
+                print(f"✅ PRINT: Got advertisement topic: {ad_topic.name}")
+                print(f"🔍 PRINT: Topic object id: {id(ad_topic)}, Writer topic id: {id(bus.writer.topic)}")
+                print(f"🔍 PRINT: Same topic object? {ad_topic is bus.writer.topic}")
+                logger.info(f"✅ TRACE: Got advertisement topic: {ad_topic.name}")
+                
+                class _AdvertisementListener(dds.DynamicData.NoOpDataReaderListener):
+                    def __init__(self, outer):
+                        super().__init__()
+                        self._outer = outer
+                    def on_data_available(self, reader):
+                        # ALWAYS print to verify callback is invoked
+                        print(f"🔔🔔🔔 PRINT: _AdvertisementListener.on_data_available() CALLED!")
+                        try:
+                            enable_tracing = getattr(self._outer, 'enable_tracing', False)
+                            if enable_tracing:
+                                print(f"🔔 PRINT: _AdvertisementListener.on_data_available() called for agent {getattr(self._outer, 'agent_name', 'Unknown')}")
+                            logger.info(f"🔔 TRACE: _AdvertisementListener.on_data_available() called")
+                            
+                            samples = reader.take()  # Use take() to consume samples
+                            print(f"📊 PRINT: Got {len(samples)} advertisement samples")
+                            logger.info(f"📊 TRACE: Got {len(samples)} advertisement samples")
+                            for data, info in samples:
+                                print(f"🔍 PRINT: Sample state={info.state.sample_state}, instance_state={info.state.instance_state}")
+                                if info.state.sample_state == dds.SampleState.NOT_READ and info.state.instance_state == dds.InstanceState.ALIVE:
+                                    if enable_tracing:
+                                        print(f"📨 PRINT: Processing advertisement sample...")
+                                    print(f"📨 PRINT: Processing valid advertisement sample...")
+                                    logger.info("📨 TRACE: Processing advertisement sample...")
+                                    self._outer._on_agent_advertisement_received(data)
+                                else:
+                                    print(f"⏭️ PRINT: Skipping sample (already read or not alive)")
+                        except Exception as e:
+                            # NEVER silently swallow exceptions - log them!
+                            logger.error(f"💥 ERROR: _AdvertisementListener failed to process advertisement: {e}")
+                            logger.error(f"💥 ERROR: Traceback: {traceback.format_exc()}")
+                            if enable_tracing:
+                                print(f"💥 PRINT: _AdvertisementListener error: {e}")
+                                print(f"💥 PRINT: Traceback: {traceback.format_exc()}")
+                
+                print("🏗️ PRINT: Creating advertisement listener instance...")
+                logger.info("🏗️ TRACE: Creating advertisement listener instance...")
+                ad_listener = _AdvertisementListener(self)
+                print("🏗️ PRINT: Creating advertisement DataReader...")
+                logger.info("🏗️ TRACE: Creating advertisement DataReader...")
+                
+                # Create reader with EXACTLY the same QoS pattern as AdvertisementBus writer
+                # Match advertisement_bus.py lines 44-48 exactly
+                ad_reader_qos = dds.QosProvider.default.datareader_qos
+                ad_reader_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
+                ad_reader_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
+                ad_reader_qos.history.kind = dds.HistoryKind.KEEP_LAST
+                ad_reader_qos.history.depth = 500
+                print(f"📊 PRINT: Reader QoS: durability={ad_reader_qos.durability.kind}, reliability={ad_reader_qos.reliability.kind}, history_depth={ad_reader_qos.history.depth}")
+                
+                # CRITICAL: Set listener BEFORE creating reader to receive TRANSIENT_LOCAL historical data
+                print("🏗️ PRINT: Creating DataReader with listener attached from creation...")
+                self.advertisement_reader = dds.DynamicData.DataReader(
+                    self.app.participant,
+                    ad_topic,
+                    ad_reader_qos,
+                    ad_listener,  # Attach listener during creation, not after!
+                    dds.StatusMask.DATA_AVAILABLE  # Listen for data available events
+                )
+                print("✅ PRINT: Unified advertisement reader created successfully!")
+                logger.info("✅ TRACE: Unified advertisement reader created via AdvertisementBus")
+            except Exception as e:
+                print(f"💥 PRINT: Unified advertisement reader failed: {e}")
+                logger.error(f"💥 ERROR: Unified advertisement reader failed: {e}")
+                logger.error(f"💥 ERROR: Traceback: {traceback.format_exc()}")
             
             logger.info("✅ TRACE: Agent discovery setup completed successfully")
             return True
@@ -283,6 +268,67 @@ class AgentCommunicationMixin:
             import traceback
             logger.error(f"💥 TRACE: Traceback: {traceback.format_exc()}")
             return False
+
+    def _on_agent_advertisement_received(self, ad_sample):
+        """Handle discovered unified agent advertisement"""
+        print(f"🎯 PRINT: _on_agent_advertisement_received() called")
+        try:
+            # Filter to AGENT kind if possible
+            try:
+                kind = ad_sample["kind"]
+                kind_str = str(kind) if kind is not None else ""
+                print(f"🔍 PRINT: Advertisement kind={kind_str}")
+                if kind_str and "AGENT" not in kind_str and kind_str not in ("1",):
+                    print(f"⏭️ PRINT: Skipping non-AGENT advertisement (kind={kind_str})")
+                    return
+            except Exception as e:
+                print(f"⚠️ PRINT: Error checking kind: {e}")
+                pass
+            agent_id = ad_sample.get_string("advertisement_id") or ""
+            name = ad_sample.get_string("name") or ""
+            description = ad_sample.get_string("description") or ""
+            service_name = ad_sample.get_string("service_name") or ""
+            print(f"🔍 PRINT: Advertisement: agent_id={agent_id}, name={name}, service={service_name}")
+            last_seen = ad_sample.get_int64("last_seen") if hasattr(ad_sample, 'get_int64') else 0
+            payload_str = ad_sample.get_string("payload") or "{}"
+            try:
+                payload = json.loads(payload_str)
+            except Exception:
+                payload = {}
+            agent_type = payload.get("agent_type", "")
+            capabilities = payload.get("capabilities", [])
+            specializations = payload.get("specializations", [])
+            classification_tags = payload.get("classification_tags", [])
+            model_info = payload.get("model_info")
+            performance_metrics = payload.get("performance_metrics")
+            default_capable = bool(payload.get("default_capable", True))
+            # Skip our own
+            if hasattr(self, 'app') and agent_id == self.app.agent_id:
+                print(f"⏭️ PRINT: Skipping own advertisement (agent_id={agent_id})")
+                return
+            agent_info = {
+                "agent_id": agent_id,
+                "name": name,
+                "agent_type": agent_type,
+                "service_name": service_name,
+                "description": description,
+                "last_seen": last_seen,
+                "discovered_at": time.time(),
+                "capabilities": capabilities,
+                "specializations": specializations,
+                "classification_tags": classification_tags,
+                "model_info": model_info,
+                "performance_metrics": performance_metrics,
+                "default_capable": default_capable,
+            }
+            is_new_agent = agent_id not in self.discovered_agents
+            self.discovered_agents[agent_id] = agent_info
+            print(f"📝 PRINT: Added to discovered_agents: {name} (new={is_new_agent}), total agents: {len(self.discovered_agents)}")
+            if is_new_agent:
+                print(f"🎉 PRINT: Discovered new agent via Advertisement: {name} ({agent_id}) service={service_name}")
+                logger.info(f"Discovered new agent via Advertisement: {name} ({agent_id}) service={service_name}")
+        except Exception as e:
+            logger.error(f"Error processing agent advertisement: {e}")
     
     def _setup_agent_capability_publishing(self):
         """Set up agent capability publishing for advertising this agent"""
@@ -294,51 +340,20 @@ class AgentCommunicationMixin:
                 logger.error("Cannot set up agent capability publishing: no DDS participant available")
                 return False
             
-            # Get AgentCapability type from XML
+            # Legacy AgentCapability topic/writer removed - now using unified Advertisement topic
+            
+            # Get unified advertisement writer via shared bus
             config_path = get_datamodel_path()
             type_provider = dds.QosProvider(config_path)
-            agent_capability_type = type_provider.type("genesis_lib", "AgentCapability")
-            
-            # Use existing topic if already created, otherwise find or create it
-            if not self.agent_capability_topic:
-                try:
-                    # Try to find existing topic first
-                    self.agent_capability_topic = self.app.participant.find_topic("rti/connext/genesis/AgentCapability", dds.Duration.from_seconds(1))
-                    if self.agent_capability_topic is None:
-                        # Create new topic if not found
-                        self.agent_capability_topic = dds.DynamicData.Topic(
-                            self.app.participant,
-                            "rti/connext/genesis/AgentCapability",
-                            agent_capability_type
-                        )
-                except:
-                    # If find_topic fails, create new topic
-                    self.agent_capability_topic = dds.DynamicData.Topic(
-                        self.app.participant,
-                        "rti/connext/genesis/AgentCapability",
-                        agent_capability_type
-                    )
-            
-            # Create DataWriter for AgentCapability with durable QoS
-            writer_qos = dds.QosProvider.default.datawriter_qos
-            writer_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
-            writer_qos.history.kind = dds.HistoryKind.KEEP_LAST
-            writer_qos.history.depth = 500
-            writer_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
-            writer_qos.liveliness.kind = dds.LivelinessKind.AUTOMATIC
-            writer_qos.liveliness.lease_duration = dds.Duration(seconds=2)
-            
-            # Create publisher and store it for cleanup
-            self.agent_capability_publisher = dds.Publisher(self.app.participant)
-            
-            self.agent_capability_writer = dds.DynamicData.DataWriter(
-                pub=self.agent_capability_publisher,
-                topic=self.agent_capability_topic,
-                qos=writer_qos,
-                mask=dds.StatusMask.ALL
-            )
-            
-            self.agent_capability_type = agent_capability_type
+            try:
+                self.advertisement_type = type_provider.type("genesis_lib", "GenesisAdvertisement")
+                bus = AdvertisementBus.get(self.app.participant)
+                self.advertisement_topic = bus.topic
+                self.advertisement_writer = bus.writer
+                logger.info("Using unified Advertisement topic for agent capability publishing")
+            except Exception as e:
+                logger.error(f"Failed to set up unified advertisement writer: {e}")
+                return False
             
             logger.info("Agent capability publishing setup completed successfully")
             return True
@@ -349,7 +364,7 @@ class AgentCommunicationMixin:
     
     def publish_agent_capability(self, agent_capabilities: Optional[Dict[str, Any]] = None):
         """
-        Publish agent capability to the DDS network.
+        Publish agent capability to the unified Advertisement topic.
         This allows other agents to discover this agent and its capabilities.
         """
         print(f"🚀 TRACE: publish_agent_capability() called for agent {self.agent_name}")
@@ -360,84 +375,54 @@ class AgentCommunicationMixin:
             agent_capabilities = agent_capabilities or self.get_agent_capabilities()
             print(f"🔍 TRACE: Raw agent capabilities from get_agent_capabilities(): {agent_capabilities}")
             
-            # Create the capability message with enhanced information
-            capability = dds.DynamicData(self.agent_capability_type)
-            capability["agent_id"] = self.app.agent_id
-            capability["name"] = self.agent_name
-            capability["agent_type"] = self.agent_type
-            capability["service_name"] = self._get_agent_service_name(self.app.agent_id)
-            capability["description"] = self.description
-            
-            # Enhanced capabilities - convert to list and then serialize as JSON string
+            # Process capabilities lists
             capabilities_list = agent_capabilities.get("capabilities", [])
             if isinstance(capabilities_list, str):
                 capabilities_list = [capabilities_list]
             elif not isinstance(capabilities_list, list):
                 capabilities_list = []
             
-            print(f"🔍 TRACE: Processed capabilities list: {capabilities_list}")
-            capability["capabilities"] = json.dumps(capabilities_list)  # Serialize as JSON string
-            
-            # Enhanced specializations - convert to list and then serialize as JSON string
             specializations_list = agent_capabilities.get("specializations", [])
             if isinstance(specializations_list, str):
                 specializations_list = [specializations_list]
             elif not isinstance(specializations_list, list):
                 specializations_list = []
             
-            print(f"🔍 TRACE: Processed specializations list: {specializations_list}")
-            capability["specializations"] = json.dumps(specializations_list)  # Serialize as JSON string
-            
-            # Enhanced classification tags - convert to list and then serialize as JSON string
             classification_tags_list = agent_capabilities.get("classification_tags", [])
             if isinstance(classification_tags_list, str):
                 classification_tags_list = [classification_tags_list]
             elif not isinstance(classification_tags_list, list):
                 classification_tags_list = []
             
-            print(f"🔍 TRACE: Processed classification_tags list: {classification_tags_list}")
-            capability["classification_tags"] = json.dumps(classification_tags_list)  # Serialize as JSON string
+            # Publish to unified Advertisement topic
+            print("📡 PRINT: Publishing to unified Advertisement topic...")
+            ad = dds.DynamicData(self.advertisement_type)
+            ad["advertisement_id"] = self.app.agent_id
+            # AdvertisementKind: FUNCTION=0, AGENT=1, REGISTRATION=2
+            ad["kind"] = 1  # AGENT
+            ad["name"] = self.agent_name
+            ad["description"] = self.description or ""
+            ad["provider_id"] = str(self.advertisement_writer.instance_handle)
+            ad["service_name"] = self._get_agent_service_name(self.app.agent_id)
+            ad["last_seen"] = int(time.time() * 1000)
             
-            # Enhanced model info - serialize as JSON string if not None
-            model_info = agent_capabilities.get("model_info", None)
-            if model_info is not None:
-                capability["model_info"] = json.dumps(model_info)
-            else:
-                capability["model_info"] = ""
+            payload = {
+                "agent_type": self.agent_type,
+                "capabilities": capabilities_list,
+                "specializations": specializations_list,
+                "classification_tags": classification_tags_list,
+                "model_info": agent_capabilities.get("model_info", {}),
+                "performance_metrics": agent_capabilities.get("performance_metrics", {}),
+                "default_capable": agent_capabilities.get("default_capable", True),
+                "prefered_name": self.agent_name,
+            }
+            ad["payload"] = json.dumps(payload)
             
-            # Enhanced performance metrics - serialize as JSON string if not None
-            performance_metrics = agent_capabilities.get("performance_metrics", None)
-            if performance_metrics is not None:
-                capability["performance_metrics"] = json.dumps(performance_metrics)
-            else:
-                capability["performance_metrics"] = ""
-            
-            # Default capable flag
-            default_capable = agent_capabilities.get("default_capable", True)
-            capability["default_capable"] = 1 if default_capable else 0
-            
-            # Set timestamp
-            capability["last_seen"] = int(time.time() * 1000)
-            
-            print(f"📊 TRACE: Final DDS capability message being published:")
-            print(f"📊 TRACE:   agent_id: {capability['agent_id']}")
-            print(f"📊 TRACE:   name: {capability['name']}")
-            print(f"📊 TRACE:   agent_type: {capability['agent_type']}")
-            print(f"📊 TRACE:   service_name: {capability['service_name']}")
-            print(f"📊 TRACE:   description: {capability['description']}")
-            print(f"📊 TRACE:   capabilities: {capability['capabilities']}")
-            print(f"📊 TRACE:   specializations: {capability['specializations']}")
-            print(f"📊 TRACE:   classification_tags: {capability['classification_tags']}")
-            print(f"📊 TRACE:   model_info: {capability['model_info']}")
-            print(f"📊 TRACE:   performance_metrics: {capability['performance_metrics']}")
-            print(f"📊 TRACE:   default_capable: {capability['default_capable']}")
-            print(f"📊 TRACE:   last_seen: {capability['last_seen']}")
-            
-            # Write the capability
-            print(f"📡 TRACE: Writing capability to DDS...")
-            self.agent_capability_writer.write(capability)
-            self.agent_capability_writer.flush()
-            print(f"✅ TRACE: Successfully published agent capability for {self.agent_name}")
+            print(f"📡 PRINT: Writing advertisement for {self.agent_name} (service={ad['service_name']})...")
+            self.advertisement_writer.write(ad)
+            self.advertisement_writer.flush()
+            print("✅ PRINT: Successfully published GenesisAdvertisement(kind=AGENT)")
+            logger.debug("Published GenesisAdvertisement(kind=AGENT)")
             
         except Exception as e:
             print(f"❌ TRACE: Error publishing agent capability for {self.agent_name}: {e}")
@@ -445,124 +430,7 @@ class AgentCommunicationMixin:
             logger.error(f"Error publishing agent capability: {e}")
             logger.error(traceback.format_exc())
     
-    def _on_agent_capability_received(self, capability_sample):
-        """Handle discovered agent capability announcements"""
-        try:
-            # Check if tracing is enabled before printing
-            enable_tracing = getattr(self, 'enable_tracing', False)
-            if enable_tracing:
-                print(f"🔔 PRINT: _on_agent_capability_received() called for agent {getattr(self, 'agent_name', 'Unknown')}")
-            
-            # Extract agent information from the capability sample
-            agent_id = capability_sample.get_string("agent_id")
-            agent_name = capability_sample.get_string("name")
-            agent_type = capability_sample.get_string("agent_type")
-            service_name = capability_sample.get_string("service_name")
-            description = capability_sample.get_string("description")
-            last_seen = capability_sample.get_int64("last_seen")
-            
-            if enable_tracing:
-                print(f"📥 PRINT: Received capability for agent_id: {agent_id}, name: {agent_name}")
-            
-            # Skip our own announcements
-            if hasattr(self, 'app') and agent_id == self.app.agent_id:
-                if enable_tracing:
-                    print(f"⏭️ PRINT: Skipping own announcement for {agent_id}")
-                return
-            
-            if enable_tracing:
-                print(f"✅ PRINT: Processing capability for external agent: {agent_id}")
-            
-            # Parse enhanced capability fields
-            capabilities_str = capability_sample.get_string("capabilities")
-            specializations_str = capability_sample.get_string("specializations")
-            model_info_str = capability_sample.get_string("model_info")
-            classification_tags_str = capability_sample.get_string("classification_tags")
-            performance_metrics_str = capability_sample.get_string("performance_metrics")
-            default_capable = capability_sample.get_int32("default_capable")
-            
-            if enable_tracing:
-                print(f"🔍 PRINT: Raw capability data from DDS:")
-                print(f"🔍 PRINT:   capabilities_str: {capabilities_str}")
-                print(f"🔍 PRINT:   specializations_str: {specializations_str}")
-                print(f"🔍 PRINT:   classification_tags_str: {classification_tags_str}")
-                print(f"🔍 PRINT:   default_capable: {default_capable}")
-            
-            # Parse JSON fields
-            import json
-            try:
-                capabilities = json.loads(capabilities_str) if capabilities_str else []
-                specializations = json.loads(specializations_str) if specializations_str else []
-                classification_tags = json.loads(classification_tags_str) if classification_tags_str else []
-                model_info = json.loads(model_info_str) if model_info_str else None
-                performance_metrics = json.loads(performance_metrics_str) if performance_metrics_str else None
-            except json.JSONDecodeError as e:
-                if enable_tracing:
-                    print(f"⚠️ PRINT: Failed to parse JSON capability fields: {e}")
-                logger.warning(f"Failed to parse JSON capability fields: {e}")
-                capabilities = []
-                specializations = []
-                classification_tags = []
-                model_info = None
-                performance_metrics = None
-            
-            if enable_tracing:
-                print(f"🔍 PRINT: Parsed capability data:")
-                print(f"🔍 PRINT:   capabilities: {capabilities}")
-                print(f"🔍 PRINT:   specializations: {specializations}")
-                print(f"🔍 PRINT:   classification_tags: {classification_tags}")
-            
-            # Store agent information with enhanced capabilities
-            agent_info = {
-                "agent_id": agent_id,
-                "name": agent_name,
-                "agent_type": agent_type,
-                "service_name": service_name,
-                "description": description,
-                "last_seen": last_seen,
-                "discovered_at": time.time(),
-                # Enhanced capability information
-                "capabilities": capabilities,
-                "specializations": specializations,
-                "classification_tags": classification_tags,
-                "model_info": model_info,
-                "performance_metrics": performance_metrics,
-                "default_capable": bool(default_capable)
-            }
-            
-            if enable_tracing:
-                print(f"🔍 PRINT: Final agent_info being stored: {agent_info}")
-            
-            # Check if this is a new agent or an update
-            is_new_agent = agent_id not in self.discovered_agents
-            self.discovered_agents[agent_id] = agent_info
-            
-            if enable_tracing:
-                print(f"🔍 PRINT: Stored agent_info in discovered_agents[{agent_id}]")
-                print(f"🔍 PRINT: Current discovered_agents keys: {list(self.discovered_agents.keys())}")
-            
-            if is_new_agent:
-                capabilities_summary = f"Capabilities: {capabilities}, Specializations: {specializations}"
-                if enable_tracing:
-                    print(f"🎉 PRINT: Discovered NEW agent: {agent_name} (ID: {agent_id}, Type: {agent_type}, Service: {service_name})")
-                    print(f"📊 PRINT: Agent capabilities: {capabilities_summary}")
-                logger.info(f"Discovered new agent: {agent_name} (ID: {agent_id}, Type: {agent_type}, Service: {service_name}) - {capabilities_summary}")
-            else:
-                if enable_tracing:
-                    print(f"🔄 PRINT: Updated agent info: {agent_name} (ID: {agent_id})")
-                logger.debug(f"Updated agent info: {agent_name} (ID: {agent_id})")
-            
-            if enable_tracing:
-                print(f"📊 PRINT: Total discovered agents: {len(self.discovered_agents)}")
-                logger.debug(f"Total discovered agents: {len(self.discovered_agents)}")
-                
-        except Exception as e:
-            if enable_tracing:
-                print(f"💥 PRINT: Error processing agent capability: {e}")
-            logger.error(f"Error processing agent capability: {e}")
-            import traceback
-            if enable_tracing:
-                print(f"💥 PRINT: Traceback: {traceback.format_exc()}")
+    # _on_agent_capability_received() removed - now using _on_agent_advertisement_received() for unified discovery
     
     def get_agents_by_type(self, agent_type: str) -> List[Dict[str, Any]]:
         """Get all discovered agents of a specific type"""
@@ -817,7 +685,10 @@ class AgentCommunicationMixin:
                 return False
             
             # Generate unique service name for this agent
-            agent_service_name = self._get_agent_service_name(self.app.agent_id)
+            # CRITICAL: Agent-to-agent RPC must use a DIFFERENT service name than Interface-to-Agent RPC
+            # to avoid service name collisions. Append "_AgentRPC" to distinguish them.
+            base_agent_service_name = self._get_agent_service_name(self.app.agent_id)
+            agent_service_name = f"{base_agent_service_name}_AgentRPC"
             print(f"🏗️ PRINT: Creating agent RPC service with name: {agent_service_name}")
             logger.info(f"Creating agent RPC service with name: {agent_service_name}")
             
@@ -850,62 +721,125 @@ class AgentCommunicationMixin:
             return False
     
     def _setup_agent_request_listener(self):
-        """Set up listener for incoming agent requests (deprecated - now using polling)"""
-        # This method is deprecated in favor of the polling approach used in _handle_agent_requests
-        # Keep it for backward compatibility but make it a no-op
-        logger.info("Agent request listener setup completed (using polling approach)")
-        return True
+        """Set up listener for incoming agent requests using DDS callbacks"""
+        try:
+            print("🏗️ PRINT: Setting up agent-to-agent request listener...")
+            
+            # Create listener class for agent-to-agent RPC requests
+            class AgentRequestListener(dds.DynamicData.DataReaderListener):
+                def __init__(self, outer):
+                    super().__init__()
+                    self._outer = outer
+                    
+                def on_data_available(self, reader):
+                    # ALWAYS print to verify callback is invoked
+                    agent_name = getattr(self._outer, 'agent_name', 'Unknown')
+                    print(f"🔔🔔🔔 PRINT: AgentRequestListener.on_data_available() CALLED for {agent_name}!")
+                    logger.info(f"AgentRequestListener.on_data_available() CALLED for {agent_name}")
+                    
+                    try:
+                        # Get all available samples using the replier's take_requests method
+                        samples = self._outer.agent_replier.take_requests()
+                        print(f"📊 PRINT: AgentRequestListener got {len(samples)} agent request samples")
+                        
+                        for request, info in samples:
+                            if request is None or info.state.instance_state != dds.InstanceState.ALIVE:
+                                print(f"⏭️ PRINT: Skipping invalid agent request sample")
+                                continue
+                            
+                            print(f"📨 PRINT: Processing agent request sample...")
+                            print(f"🔧 PRINT: Step 1 - Entering try block...")
+                            # CRITICAL: DDS callbacks run in a different thread than the asyncio event loop
+                            # Use run_coroutine_threadsafe to schedule the async task in the correct event loop
+                            # The wrapper's parent_agent has the event loop
+                            try:
+                                print(f"🔧 PRINT: Step 2 - Inside try, about to call run_coroutine_threadsafe...")
+                                print(f"🔧 PRINT: Loop = {self._outer.parent_agent.loop}")
+                                print(f"🔧 PRINT: Loop running = {self._outer.parent_agent.loop.is_running()}")
+                                future = asyncio.run_coroutine_threadsafe(
+                                    self._outer._process_agent_request(request, info),
+                                    self._outer.parent_agent.loop
+                                )
+                                print(f"✅ PRINT: run_coroutine_threadsafe returned future: {future}")
+                            except Exception as schedule_error:
+                                print(f"💥 PRINT: Error scheduling agent request processing: {schedule_error}")
+                                logger.error(f"Error scheduling agent request processing: {schedule_error}")
+                                logger.error(traceback.format_exc())
+                    except Exception as e:
+                        print(f"💥 PRINT: Error in AgentRequestListener.on_data_available: {e}")
+                        logger.error(f"Error in AgentRequestListener.on_data_available: {e}")
+                        logger.error(traceback.format_exc())
+            
+            # Create and attach the listener
+            self.agent_request_listener = AgentRequestListener(self)
+            # Attach listener to the replier's request DataReader (not the replier itself)
+            mask = dds.StatusMask.DATA_AVAILABLE
+            self.agent_replier.request_datareader.set_listener(self.agent_request_listener, mask)
+            
+            print("✅ PRINT: Agent-to-agent request listener attached successfully")
+            logger.info("Agent-to-agent request listener setup completed (using callback approach)")
+            return True
+            
+        except Exception as e:
+            print(f"💥 PRINT: Failed to set up agent request listener: {e}")
+            logger.error(f"Failed to set up agent request listener: {e}")
+            logger.error(traceback.format_exc())
+            return False
     
     async def _process_agent_request(self, request, info):
         """Process an agent-to-agent request and send reply"""
+        # ALWAYS print at start to verify this method is being called
+        agent_name = getattr(self, 'agent_name', 'Unknown')
+        print(f"🚀🚀🚀 PRINT: _process_agent_request() STARTED for {agent_name}!")
+        logger.info(f"_process_agent_request() STARTED for {agent_name}")
+        
         try:
             # Check if tracing is enabled before printing
             enable_tracing = getattr(self, 'enable_tracing', False)
             
             # Extract request data
+            print(f"📥 PRINT: Extracting request data...")
             request_data = {
                 "message": request.get_string("message"),
                 "conversation_id": request.get_string("conversation_id")
             }
+            print(f"📥 PRINT: Extracted request data: {request_data}")
             
             if enable_tracing:
-                print(f"📥 PRINT: Extracted request data: {request_data}")
+                print(f"📥 PRINT: Trace mode - Extracted request data: {request_data}")
             logger.info(f"Received agent request: {request_data['message']}")
             
             # Process the request using the abstract method
+            print(f"🔄 PRINT: About to call process_agent_request() method...", flush=True)
             try:
-                if enable_tracing:
-                    print(f"🔄 PRINT: About to call process_agent_request() method...")
                 response_data = await self.process_agent_request(request_data)
-                if enable_tracing:
-                    print(f"✅ PRINT: process_agent_request() returned: {response_data}")
+                print(f"✅ PRINT: process_agent_request() returned: {response_data}", flush=True)
             except Exception as e:
-                if enable_tracing:
-                    print(f"💥 PRINT: Error in process_agent_request(): {e}")
+                print(f"💥 PRINT: Error in process_agent_request(): {e}", flush=True)
                 logger.error(f"Error processing agent request: {e}")
+                logger.error(traceback.format_exc())
                 response_data = {
                     "message": f"Error processing request: {str(e)}",
                     "status": -1,
                     "conversation_id": request_data.get("conversation_id", "")
                 }
             
-            if enable_tracing:
-                print(f"📤 PRINT: About to create reply sample with data: {response_data}")
+            print(f"📤 PRINT: About to create reply sample with data: {response_data}", flush=True)
             
             # Create reply sample
             reply_sample = dds.DynamicData(self.agent_reply_type)
-            reply_sample.set_string("message", response_data.get("message", ""))
+            # Ensure message is always a string, never None
+            message = response_data.get("message") or ""
+            reply_sample.set_string("message", str(message) if message else "")
             reply_sample.set_int32("status", response_data.get("status", 0))
             reply_sample.set_string("conversation_id", response_data.get("conversation_id", ""))
             
-            if enable_tracing:
-                print(f"📤 PRINT: About to send reply via agent_replier...")
+            print(f"📤 PRINT: About to send reply via agent_replier...", flush=True)
             
             # Send reply
             self.agent_replier.send_reply(reply_sample, info)
             
-            if enable_tracing:
-                print(f"✅ PRINT: Reply sent successfully: {response_data.get('message', '')}")
+            print(f"✅ PRINT: Agent-to-agent reply sent successfully! Message length: {len(str(message))}", flush=True)
             logger.info(f"Sent reply to agent request: {response_data.get('message', '')}")
             
         except Exception as e:
@@ -928,53 +862,13 @@ class AgentCommunicationMixin:
                 logger.error(f"Error sending error reply: {reply_error}")
     
     async def _handle_agent_requests(self):
-        """Handle incoming agent requests using polling approach (like GenesisRPCService)"""
-        if not self.agent_replier:
-            # Only log this occasionally to avoid spam
-            return
-        
-        try:
-            # Use the same pattern as GenesisRPCService.run() - receive_requests with timeout
-            requests = self.agent_replier.receive_requests(max_wait=dds.Duration(1))  # 1 second timeout
-            
-            # Check if tracing is enabled before printing
-            enable_tracing = getattr(self, 'enable_tracing', False)
-            
-            if requests and enable_tracing:  # Only print if we have requests AND tracing is enabled
-                print(f"🔔 PRINT: _handle_agent_requests() found {len(requests)} requests for agent {getattr(self, 'agent_name', 'Unknown')}")
-            
-            for request_sample in requests:
-                request = request_sample.data
-                request_info = request_sample.info
-                
-                if enable_tracing:
-                    print(f"🔄 PRINT: Processing agent request via polling: {request.get_string('message')}")
-                logger.debug(f"Processing agent request: {request.get_string('message')}")
-                
-                try:
-                    # Process the request using our async method
-                    await self._process_agent_request(request, request_info)
-                except Exception as e:
-                    if enable_tracing:
-                        print(f"💥 PRINT: Error processing agent request in polling: {e}")
-                    logger.error(f"Error processing agent request: {e}")
-                    # Send error reply
-                    try:
-                        reply_sample = dds.DynamicData(self.agent_reply_type)
-                        reply_sample.set_string("message", f"Error processing request: {str(e)}")
-                        reply_sample.set_int32("status", -1)
-                        reply_sample.set_string("conversation_id", request.get_string("conversation_id"))
-                        self.agent_replier.send_reply(reply_sample, request_info)
-                        if enable_tracing:
-                            print("✅ PRINT: Error reply sent via polling")
-                    except Exception as reply_error:
-                        if enable_tracing:
-                            print(f"💥 PRINT: Error sending error reply in polling: {reply_error}")
-                        logger.error(f"Error sending error reply: {reply_error}")
-                        
-        except Exception as e:
-            # This is normal if no requests are available - don't print anything
-            pass
+        """
+        DEPRECATED: Agent-to-agent requests are now handled via DDS listener callbacks.
+        This method is kept for backward compatibility but is a no-op.
+        The actual handling happens in AgentRequestListener.on_data_available().
+        """
+        # No-op: All agent request handling is done via callbacks now
+        pass
     
     async def connect_to_agent(self, target_agent_id: str, timeout_seconds: float = 5.0) -> bool:
         """
@@ -1013,29 +907,38 @@ class AgentCommunicationMixin:
             # Get target agent's service name from discovered agent info
             agent_info = self.discovered_agents[target_agent_id]
             target_service_name = agent_info.get("service_name")
+            print(f"🔍 PRINT: target_agent_id={target_agent_id}, agent_info={agent_info}")
+            print(f"🔍 PRINT: target_service_name from agent_info: {target_service_name}")
             
             if not target_service_name:
                 # Fallback to generating service name if not stored
                 target_service_name = self._get_agent_service_name(target_agent_id)
+                print(f"⚠️ PRINT: No service_name in discovered agent info, using fallback: {target_service_name}")
                 logger.warning(f"No service_name in discovered agent info, using fallback: {target_service_name}")
             
-            logger.info(f"Creating RPC requester for service: {target_service_name}")
+            # CRITICAL: Agent-to-agent RPC must use "_AgentRPC" suffix to distinguish from Interface-to-Agent RPC
+            agent_to_agent_service_name = f"{target_service_name}_AgentRPC"
+            print(f"🚀 PRINT: Creating RPC requester for agent-to-agent service: {agent_to_agent_service_name}")
+            logger.info(f"Creating RPC requester for agent-to-agent service: {agent_to_agent_service_name}")
             
             # Create RPC requester
             requester = rpc.Requester(
                 request_type=self.agent_request_type,
                 reply_type=self.agent_reply_type,
                 participant=self.app.participant,
-                service_name=f"rti/connext/genesis/{target_service_name}"
+                service_name=f"rti/connext/genesis/{agent_to_agent_service_name}"
             )
             
             # Wait for DDS match with timeout
+            print(f"⏳ PRINT: Waiting for DDS match with agent {target_agent_id} (timeout: {timeout_seconds}s)")
             logger.debug(f"Waiting for DDS match with agent {target_agent_id} (timeout: {timeout_seconds}s)")
             start_time = time.time()
             
             while True:
                 # Check if we have a match
-                if requester.matched_replier_count > 0:
+                matched_count = requester.matched_replier_count
+                if matched_count > 0:
+                    print(f"✅ PRINT: Successfully connected to agent {target_agent_id} (matched repliers: {matched_count})")
                     logger.info(f"Successfully connected to agent {target_agent_id}")
                     self.agent_connections[target_agent_id] = requester
                     return True
@@ -1043,9 +946,14 @@ class AgentCommunicationMixin:
                 # Check timeout
                 elapsed = time.time() - start_time
                 if elapsed >= timeout_seconds:
+                    print(f"⏰ PRINT: Timeout connecting to agent {target_agent_id} after {timeout_seconds}s (matched: {matched_count})")
                     logger.warning(f"Timeout connecting to agent {target_agent_id} after {timeout_seconds}s")
                     requester.close()
                     return False
+                
+                # Log progress every second
+                if int(elapsed) > int(elapsed - 0.1) and int(elapsed) % 1 == 0:
+                    print(f"⏳ PRINT: Still waiting for match... elapsed={int(elapsed)}s, matched={matched_count}")
                 
                 # Wait a bit before checking again
                 await asyncio.sleep(0.1)
@@ -1072,12 +980,16 @@ class AgentCommunicationMixin:
             Reply data or None if failed
         """
         try:
+            print(f"🚀 PRINT: send_agent_request() called for target {target_agent_id}")
             logger.info(f"Sending request to agent {target_agent_id}: {message}")
             
             # Ensure connection exists
-            if not await self.connect_to_agent(target_agent_id):
+            print(f"🔗 PRINT: Calling connect_to_agent({target_agent_id}, timeout={timeout_seconds})...")
+            if not await self.connect_to_agent(target_agent_id, timeout_seconds=timeout_seconds):
+                print(f"❌ PRINT: Failed to connect to agent {target_agent_id}")
                 logger.error(f"Failed to connect to agent {target_agent_id}")
                 return None
+            print(f"✅ PRINT: Connected to agent {target_agent_id}")
             
             # Get the requester
             requester = self.agent_connections[target_agent_id]
@@ -1193,11 +1105,31 @@ class AgentCommunicationMixin:
             if self.agent_capability_reader and hasattr(self.agent_capability_reader, 'close'):
                 self.agent_capability_reader.close()
                 self.agent_capability_reader = None
+            # Close unified advertisement reader
+            if self.advertisement_reader and hasattr(self.advertisement_reader, 'close'):
+                try:
+                    self.advertisement_reader.close()
+                except Exception:
+                    pass
+                self.advertisement_reader = None
             
             # Close agent capability subscriber
             if self.agent_capability_subscriber and hasattr(self.agent_capability_subscriber, 'close'):
                 self.agent_capability_subscriber.close()
                 self.agent_capability_subscriber = None
+            # Close advertisement writer/topic
+            if self.advertisement_writer and hasattr(self.advertisement_writer, 'close'):
+                try:
+                    self.advertisement_writer.close()
+                except Exception:
+                    pass
+                self.advertisement_writer = None
+            if self.advertisement_topic and hasattr(self.advertisement_topic, 'close'):
+                try:
+                    self.advertisement_topic.close()
+                except Exception:
+                    pass
+                self.advertisement_topic = None
             
             logger.info("Agent communication closed successfully")
             

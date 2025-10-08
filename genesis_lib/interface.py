@@ -30,6 +30,7 @@ from .genesis_app import GenesisApp
 import uuid
 import json
 from genesis_lib.utils import get_datamodel_path
+from genesis_lib.advertisement_bus import AdvertisementBus
 import asyncio
 import traceback
 
@@ -37,7 +38,7 @@ import traceback
 logger = logging.getLogger(__name__)
 
 class RegistrationListener(dds.DynamicData.NoOpDataReaderListener):
-    """Listener for registration announcements"""
+    """Listener for registration announcements (legacy)"""
     def __init__(self, 
                  interface, 
                  loop: asyncio.AbstractEventLoop,
@@ -152,49 +153,107 @@ class GenesisInterface(ABC):
         self._on_agent_discovered_callback: Optional[Callable[[Dict[str, Any]], Coroutine[Any, Any, None]]] = None
         self._on_agent_departed_callback: Optional[Callable[[str], Coroutine[Any, Any, None]]] = None
         
-        # Set up registration monitoring with listener
+        # Set up advertisement-based monitoring with listener
         self._loop = asyncio.get_running_loop()
-        self._setup_registration_monitoring()
+        self._setup_advertisement_monitoring()
 
-    def _setup_registration_monitoring(self):
-        """Set up registration monitoring with listener"""
+    def _setup_advertisement_monitoring(self):
+        """Set up unified advertisement monitoring with listener (AGENT ads)"""
         try:
-            logger.debug("🔧 TRACE: Setting up registration monitoring...")
+            logger.debug("🔧 TRACE: Setting up advertisement monitoring...")
             
-            # Configure reader QoS
+            # Configure reader QoS - MUST MATCH AdvertisementBus writer QoS
             reader_qos = dds.QosProvider.default.datareader_qos
             reader_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
             reader_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
             reader_qos.history.kind = dds.HistoryKind.KEEP_LAST
             reader_qos.history.depth = 500  # Match agent's writer depth
-            reader_qos.liveliness.kind = dds.LivelinessKind.AUTOMATIC
-            reader_qos.liveliness.lease_duration = dds.Duration(seconds=2)
+            # Do NOT set liveliness - must match AdvertisementBus writer (default AUTOMATIC/INFINITE)
             reader_qos.ownership.kind = dds.OwnershipKind.SHARED
             
             logger.debug("📋 TRACE: Configured reader QoS settings")
-            
-            # Create registration reader with listener
-            logger.debug("🎯 TRACE: Creating registration listener...")
-            self.registration_listener = RegistrationListener(
-                self,
-                self._loop,
-                on_discovered=self._on_agent_discovered_callback, 
-                on_departed=self._on_agent_departed_callback
-            )
-            
-            logger.debug("📡 TRACE: Creating registration reader...")
-            self.app.registration_reader = dds.DynamicData.DataReader(
+            # Resolve advertisement type/topic
+            bus = AdvertisementBus.get(self.app.participant)
+            ad_type = bus.ad_type
+            ad_topic = bus.topic
+
+            # Create advertisement listener that references the interface's callbacks dynamically
+            logger.debug("🎯 TRACE: Creating advertisement listener...")
+            class AdvertisementListener(dds.DynamicData.NoOpDataReaderListener):
+                def __init__(self, iface: "GenesisInterface"):
+                    super().__init__()
+                    self._iface = iface
+                    self.received = {}
+                def on_data_available(self, reader):
+                    try:
+                        logger.info("🔔 INTERFACE: AdvertisementListener.on_data_available() CALLED!")
+                        samples = reader.read()
+                        logger.info(f"📊 INTERFACE: Got {len(samples)} advertisement samples")
+                        for data, info in samples:
+                            if data is None:
+                                logger.debug("⏭️ INTERFACE: Skipping None data")
+                                continue
+                            # Filter to AGENT ads
+                            try:
+                                k = data["kind"]
+                                logger.debug(f"🔍 INTERFACE: Advertisement kind={k}, str(k)={str(k)}")
+                                if str(k) not in ("1",) and "AGENT" not in str(k):
+                                    logger.debug(f"⏭️ INTERFACE: Skipping non-AGENT advertisement (kind={k})")
+                                    continue
+                            except Exception as filter_err:
+                                logger.warning(f"⚠️ INTERFACE: Error checking advertisement kind: {filter_err}")
+                                pass
+                            agent_id = data.get_string("advertisement_id") or ""
+                            if not agent_id:
+                                continue
+                            if info.state.instance_state == dds.InstanceState.ALIVE:
+                                if agent_id not in self.received:
+                                    name = data.get_string("name") or ""
+                                    service_name = data.get_string("service_name") or ""
+                                    agent_info = {
+                                        'message': f'Agent {name} advertising',
+                                        'prefered_name': name,
+                                        'default_capable': 1,
+                                        'instance_id': agent_id,
+                                        'service_name': service_name,
+                                        'timestamp': time.time()
+                                    }
+                                    self.received[agent_id] = agent_info
+                                    # Legacy log format for test compatibility
+                                    logger.info(f"Agent DISCOVERED: {name} ({service_name})")
+                                    logger.debug(f"✨ TRACE: Agent DISCOVERED via Advertisement: {name} ({service_name}) - ID: {agent_id}")
+                                    cb = self._iface._on_agent_discovered_callback
+                                    if cb:
+                                        # Schedule on the interface's loop
+                                        self._iface._loop.call_soon_threadsafe(asyncio.create_task, cb(agent_info))
+                            elif info.state.instance_state in [dds.InstanceState.NOT_ALIVE_DISPOSED, dds.InstanceState.NOT_ALIVE_NO_WRITERS]:
+                                if agent_id in self.received:
+                                    self.received.pop(agent_id, None)
+                                    logger.debug(f"👻 TRACE: Agent DEPARTED via Advertisement: ID: {agent_id} - Reason: {info.state.instance_state}")
+                                    cb = self._iface._on_agent_departed_callback
+                                    if cb:
+                                        self._iface._loop.call_soon_threadsafe(asyncio.create_task, cb(agent_id))
+                    except Exception as e:
+                        logger.error(f"❌ TRACE: Error in AdvertisementListener.on_data_available: {e}")
+
+            # Create advertisement reader
+            logger.debug("📡 TRACE: Creating advertisement reader...")
+            self.advertisement_reader = dds.DynamicData.DataReader(
                 subscriber=self.app.subscriber,
-                topic=self.app.registration_topic,
+                topic=ad_topic,
                 qos=reader_qos,
-                listener=self.registration_listener,
-                mask=dds.StatusMask.DATA_AVAILABLE | dds.StatusMask.SUBSCRIPTION_MATCHED
+                listener=AdvertisementListener(self),
+                mask=dds.StatusMask.DATA_AVAILABLE
             )
+            # Keep a handle to listener for potential future updates
+            self.advertisement_listener = self.advertisement_reader.listener
             
-            logger.debug("✅ TRACE: Registration monitoring setup complete")
+            # Legacy AgentCapability fallback removed - now fully consolidated to Advertisement topic
+
+            logger.debug("✅ TRACE: Advertisement monitoring setup complete")
             
         except Exception as e:
-            logger.error(f"❌ TRACE: Error setting up registration monitoring: {e}")
+            logger.error(f"❌ TRACE: Error setting up advertisement monitoring: {e}")
             logger.error(traceback.format_exc())
             raise
 
@@ -375,9 +434,15 @@ class GenesisInterface(ABC):
         """Register a callback to be invoked when an agent is discovered."""
         logger.debug(f"🔧 TRACE: Registering discovery callback: {callback.__name__ if callback else 'None'}")
         self._on_agent_discovered_callback = callback
-        # If listener already exists, update its callback directly
-        if hasattr(self, 'registration_listener') and self.registration_listener:
-            self.registration_listener.on_agent_discovered = callback
+        # If advertisement listener exists, backfill any already-received agents
+        try:
+            listener = getattr(self, 'advertisement_listener', None)
+            if listener and hasattr(listener, 'received') and isinstance(listener.received, dict):
+                for agent_info in list(listener.received.values()):
+                    # Schedule callback on the interface loop
+                    self._loop.call_soon_threadsafe(asyncio.create_task, callback(agent_info))
+        except Exception:
+            pass
 
     def register_departure_callback(self, callback: Callable[[str], Coroutine[Any, Any, None]]):
         """Register a callback to be invoked when an agent departs."""

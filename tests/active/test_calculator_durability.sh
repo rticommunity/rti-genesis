@@ -107,7 +107,7 @@ check_log() {
     local description=$3
     local required=$4
 
-    if grep -q "$pattern" "$log_file"; then
+    if grep -Eq "$pattern" "$log_file"; then
         echo "✅ TRACE: $description - Found in logs"
         return 0
     else
@@ -157,9 +157,9 @@ echo "🔍 TRACE: Running Test 1 checks..."
 check_log "$SERVICE_LOG" "CalculatorService initializing" "Service initialization" true
 check_log "$SERVICE_LOG" "CalculatorService initialized" "Service initialization complete" true
 
-# Check registration announcement (topic may or may not include rti/connext/genesis/ prefix)
-check_log "$REGISTRATION_SPY_LOG" 'New writer.*topic=.*FunctionCapability' "Function capability writer creation" true
-check_log "$REGISTRATION_SPY_LOG" 'New data.*topic=.*FunctionCapability' "Function capability announcement" true
+# Check registration announcement via unified Advertisement topic
+check_log "$REGISTRATION_SPY_LOG" 'New writer.*topic=.*Advertisement' "Advertisement writer creation" true
+check_log "$REGISTRATION_SPY_LOG" 'New data.*topic=.*Advertisement' "Function advertisement announcement" true
 
 # Clean up Test 1
 echo "🧹 TRACE: Cleaning up Test 1..."
@@ -202,10 +202,12 @@ echo "🔍 TRACE: Running Test 2 checks..."
 check_log "$AGENT_LOG" "✅ TRACE: Agent created, starting run..." "Agent initialization" true
 check_log "$AGENT_LOG" "MathTestAgent listening for requests" "Agent listening state" true
 
-# Check DDS Spy logs for function registration (topic may or may not include rti/connext/genesis/ prefix)
-check_log "$SERVICE_SPY_LOG" 'New data.*topic=.*FunctionCapability' "Spy received durable FunctionCapability data" true
+# Check DDS Spy logs for function registration via unified Advertisement topic
+check_log "$SERVICE_SPY_LOG" 'New data.*topic=.*Advertisement' "Spy received durable Advertisement data" true
 check_log "$SERVICE_SPY_LOG" 'New writer.*topic=.*CalculatorServiceReply.*type="FunctionReply".*name="Replier"' "Service reply writer" true
-check_log "$SERVICE_SPY_LOG" "reason: .*Function 'add' available.*" "Function discovery" true
+# With lifecycle events now VOLATILE, the durable graph node metadata carries the reason
+# Accept either lifecycle 'reason:' line or durable GraphNode 'metadata:' containing the reason
+check_log "$SERVICE_SPY_LOG" "reason: .*Function 'add' available.*|metadata:.*Function 'add' available.*" "Function discovery" true
 
 # Clean up Test 2
 echo "🧹 TRACE: Cleaning up Test 2..."

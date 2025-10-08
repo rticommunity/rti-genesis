@@ -178,8 +178,8 @@ check_and_cleanup_dds() {
         
         # Check if DDS activity is still present on specific test topics
         # Use extended regex (-E) to match specific topics
-        if grep -E '(New writer|New data).*topic="(FunctionCapability|CalculatorServiceRequest|TextProcessorServiceRequest|LetterCounterServiceRequest)"' "$SPY_LOG"; then
-            echo "❌ ERROR: Detected lingering DDS activity on test topics (FunctionCapability or Service Requests) after cleanup attempt."
+        if grep -E '(New writer|New data).*topic="(Advertisement|CalculatorServiceRequest|TextProcessorServiceRequest|LetterCounterServiceRequest)"' "$SPY_LOG"; then
+            echo "❌ ERROR: Detected lingering DDS activity on test topics (Advertisement or Service Requests) after cleanup attempt."
             kill $SPY_PID 2>/dev/null || true
             return 1
         fi
@@ -406,9 +406,21 @@ check_and_cleanup_dds || { echo "Test suite aborted due to DDS process issues"; 
 echo "🧠 Running agent memory recall test..."
 run_with_timeout "$(resolve_path run_test_agent_memory.sh)" 60 || { echo "Test failed: run_test_agent_memory.sh - AGENT MEMORY FUNCTIONALITY BROKEN"; exit 1; }
 
+# Wait for complete cleanup between tests
+echo "⏳ Waiting for DDS cleanup between tests..."
+# Kill any leftover agent processes from memory test
+pkill -f "python.*genesis_lib.*agent" || true
+pkill -f "simpleGenesisAgent" || true
+pkill -f "OpenAIChat" || true
+sleep 8  # Increased delay to ensure complete DDS cleanup
+
 # Agent-to-Agent Communication Test (SECOND - Comprehensive Core Genesis Test)
 echo "🚀 Running comprehensive agent-to-agent communication test..."
 run_with_timeout "$(resolve_path test_agent_to_agent_communication.py)" 120 || { echo "Test failed: test_agent_to_agent_communication.py - CORE GENESIS FUNCTIONALITY BROKEN"; exit 1; }
+
+# Cleanup after agent-to-agent test
+pkill -f "personal_assistant_service\|weather_agent_service" || true
+sleep 3
 
 # Interface -> Agent -> Service Pipeline Test (Moved to be second after agent-to-agent)
 run_with_timeout "$(resolve_path run_interface_agent_service_test.sh)" 75 || { echo "Test failed: run_interface_agent_service_test.sh"; exit 1; }

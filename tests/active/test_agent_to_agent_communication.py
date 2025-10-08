@@ -169,7 +169,7 @@ class AgentToAgentTester:
         output_file.close()
         
         process = subprocess.Popen([
-            sys.executable, service_path
+            sys.executable, '-u', service_path  # -u for unbuffered output
         ], stdout=open(output_file.name, 'w'), stderr=subprocess.STDOUT, text=True)
         
         self.processes.append(process)
@@ -436,7 +436,8 @@ class AgentToAgentTester:
         print("🧪 Testing Agent-to-Agent Communication")
         print("=" * 50)
         
-        interface = MonitoredInterface('AgentToAgentTest', 'OpenAIAgent')
+        # Bind the interface to PersonalAssistant service (unique service name for deterministic routing)
+        interface = MonitoredInterface('AgentToAgentTest', 'PersonalAssistant')
         
         try:
             # Wait for agent discovery
@@ -461,9 +462,9 @@ class AgentToAgentTester:
             
             print("✅ PersonalAssistant discovered")
             
-            # Connect to PersonalAssistant
+            # Connect to PersonalAssistant (via its PersonalAssistant service)
             print("🔗 Connecting to PersonalAssistant...")
-            connected = await interface.connect_to_agent('OpenAIAgent')
+            connected = await interface.connect_to_agent('PersonalAssistant')
             
             if not connected:
                 print("❌ FAILED: Could not connect to PersonalAssistant")
@@ -583,6 +584,10 @@ class AgentToAgentTester:
         print()
         
         try:
+            # Ensure OpenAI tool usage is deterministic for this test
+            # so PersonalAssistant and WeatherAgent prefer tools/agents over free-form answers.
+            os.environ["GENESIS_TOOL_CHOICE"] = os.environ.get("GENESIS_TOOL_CHOICE", "required")
+
             # Step 1: Clean environment
             self.cleanup_existing_processes()
             

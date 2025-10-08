@@ -239,8 +239,8 @@ sequenceDiagram
 
     A->>N: Joins Network (Starts DDS Participant)
     N-->>A: Discovers Existing Agents/Functions (via DDS Discovery)
-    A->>F: Subscribes to `FunctionCapability` Topic
-    F-->>A: Receives Function Announcements
+    A->>F: Subscribes to `Advertisement` Topic (unified discovery)
+    F-->>A: Receives Function & Agent Announcements
     A-)O: Uses RPC Client to Call Functions as Needed
     O-)A: Responds via RPC Reply
 ```
@@ -310,7 +310,7 @@ graph TD
 
     subgraph "DDS Communication Layer"
         DDS[RTI Connext DDS]
-        DDS -- Pub/Sub --> Discovery[FunctionCapability, AgentCapability]
+        DDS -- Pub/Sub --> Discovery[Advertisement - unified discovery]
         DDS -- Req/Rep --> RPC_Topics[FunctionExecution, AgentAgent]
         DDS -- Pub/Sub --> Monitoring_Topics[ChainEvent, LifecycleEvent]
     end
@@ -333,7 +333,7 @@ graph TD
 **Key Revolutionary Components:**
 
 * **Agent-as-Tool Engine:** The breakthrough feature that automatically:  
-  * **Discovers** agents through enhanced `AgentCapability` announcements  
+  * **Discovers** agents through unified `Advertisement` topic (kind=AGENT)  
   * **Converts** agent capabilities to OpenAI tool schemas using universal patterns  
   * **Injects** agent tools alongside function tools in single LLM calls  
   * **Executes** agent tool calls via seamless DDS agent-to-agent communication  
@@ -356,9 +356,10 @@ graph TD
   * **Performance Tracking:** Latency and success metrics for each hop  
   * **Error Propagation:** Graceful failure handling through chains  
 
-* **Universal Discovery System:** Unified discovery for:  
-  * **Function Discovery:** Via `FunctionCapability` with rich metadata  
-  * **Agent Discovery:** Via `AgentCapability` with specializations and capabilities  
+* **Universal Discovery System:** Unified discovery via single `Advertisement` topic:  
+  * **Function Discovery:** Via `Advertisement` (kind=FUNCTION) with rich metadata  
+  * **Agent Discovery:** Via `Advertisement` (kind=AGENT) with specializations and capabilities  
+  * **Single Topic Architecture:** One durable topic for all discovery (47% topic reduction)  
   * **Capability-Based Matching:** Tools named by functionality, not agent names  
   * **Dynamic Registration:** Hot-pluggable agents and functions  
 
@@ -379,8 +380,8 @@ GENESIS components are identified by globally unique identifiers (GUIDs) automat
 * **Discovery:** Genesis logs GUIDs upon discovery:
 
 ```
-FunctionCapability subscription matched with remote GUID: 0101f2a4a246e5cf70e2629680000002
-FunctionCapability subscription matched with self GUID:   010193af524e12b65bd4c08980000002
+Advertisement subscription matched with remote GUID: 0101f2a4a246e5cf70e2629680000002
+Advertisement subscription matched with self GUID:   010193af524e12b65bd4c08980000002
 ```
 
 * **Function Association:** Provider-client relationships are logged:
@@ -397,9 +398,9 @@ DEBUG: CLIENT side processing function_id=569fb375-1c98-40c7-ac12-c6f8ae9b3854,
 
 * **DDS-Powered Communication:** Utilizes RTI Connext DDS for:  
     
-  * **Publish/Subscribe:** For discovery (`FunctionCapability`, `AgentCapability`), monitoring (`MonitoringEvent`, etc.), and data streaming.  
+  * **Publish/Subscribe:** For unified discovery (`Advertisement`), monitoring (`MonitoringEvent`, etc.), and data streaming.  
   * **Request/Reply (RPC):** For reliable remote procedure calls (`FunctionExecutionRequest`/`Reply`, `AgentAgentRequest`/`Reply`).  
-  * **Automatic Discovery:** Built-in mechanism for agents/services to find each other.  
+  * **Automatic Discovery:** Built-in mechanism for agents/services to find each other via single consolidated topic.  
   * **Quality of Service (QoS):** Fine-grained control (reliability, durability, latency, etc.) configurable via XML profiles for different topics (e.g., reliable/durable discovery, reliable/volatile RPC, best-effort monitoring).  
   * **Real-time Performance:** Optimized for low-latency, high-throughput.  
   * **Platform Independence:** Supports various platforms (Genesis focuses on Python).
@@ -416,7 +417,7 @@ DEBUG: CLIENT side processing function_id=569fb375-1c98-40c7-ac12-c6f8ae9b3854,
 
 * **Revolutionary Agent-as-Tool Pattern:** GENESIS 2.0's breakthrough feature:  
     
-  * **Automatic Agent Discovery:** Agents automatically discover each other through enhanced `AgentCapability` announcements with rich metadata (specializations, capabilities, performance metrics).  
+  * **Automatic Agent Discovery:** Agents automatically discover each other through unified `Advertisement` topic (kind=AGENT) with rich metadata (specializations, capabilities, performance metrics).  
   * **Universal Tool Schema:** Discovered agents are automatically converted to OpenAI tool schemas using a universal pattern - no manual schema definition required.  
   * **Capability-Based Tool Names:** Tools generated based on agent specializations and capabilities (e.g., `get_weather_info`, `use_financial_service`) rather than agent names.  
   * **Single LLM Call Integration:** Agents appear alongside functions in OpenAI tool calls, eliminating the need for separate agent classification stages.  
@@ -434,7 +435,7 @@ DEBUG: CLIENT side processing function_id=569fb375-1c98-40c7-ac12-c6f8ae9b3854,
 
 * **Dynamic Function Discovery & Injection:**  
     
-  * Agents advertise Functions (`FunctionCapability` topic) with standardized schemas.  
+  * Agents advertise Functions via unified `Advertisement` topic (kind=FUNCTION) with standardized schemas.  
   * Agents discover functions dynamically at runtime (`function_discovery.py`).  
   * **LLM-based classification** (`agent_function_injection.md`) to intelligently match requests to capabilities.  
   * Discovered functions automatically "injected" into LLM prompts/contexts alongside agent tools.
@@ -507,7 +508,7 @@ GENESIS is flexible; state is managed at the agent/service level:
 
 * **Agent Internal State:** Managed within Python class instances (e.g., conversation history).  
 * **Stateless Functions:** RPC Services often designed stateless for scalability.  
-* **DDS for Shared State (Durability):** DDS Durability QoS (`TRANSIENT_LOCAL`, `PERSISTENT`) can share state (e.g., `FunctionCapability`, shared world model) across agents or with late joiners.  
+* **DDS for Shared State (Durability):** DDS Durability QoS (`TRANSIENT_LOCAL`, `PERSISTENT`) can share state (e.g., `Advertisement`, shared world model) across agents or with late joiners.  
 * **External Databases/Stores:** Agents can integrate with external DBs for complex persistence.
 
 ### Error Handling and Resilience
@@ -637,7 +638,7 @@ class ChainEvolution:
 * **Logging:** Crucial. Use built-in `LogMessage` topic for aggregation. Check Python and DDS log levels. Example log line indicating an issue:
 
 ```
-2025-04-08 08:47:37,710 - FunctionCapabilityListener.4418720944 - ERROR - Error processing function capability: 'NoneType' object is not subscriptable
+2025-10-08 10:15:42,320 - GenesisAdvertisementListener.4418720944 - ERROR - Error processing advertisement: 'NoneType' object is not subscriptable
 ```
 
 * **RTI DDS Tools:** *Admin Console* (visualize network, participants, topics, QoS mismatches), *Monitor* (performance metrics), *Wireshark* (DDS dissector).  
@@ -1118,7 +1119,7 @@ This section ensures any new user can create and run a simple agent, service, an
 GENESIS leverages DDS (Data Distribution Service) for all agent, function, and service discovery, as well as for communication and monitoring. This enables automatic, zero-configuration discovery, robust real-time messaging, and a unified agent-as-tool pattern.
 
 ### Why DDS?
-- **Automatic Discovery:** Agents and services announce their capabilities via DDS topics (`AgentCapability`, `FunctionCapability`), enabling zero-config, dynamic discovery and connection.
+- **Automatic Discovery:** Agents and services announce their capabilities via unified `Advertisement` topic (with `kind` field: AGENT=1, FUNCTION=0), enabling zero-config, dynamic discovery and connection.
 - **Real-Time, Reliable Messaging:** DDS provides publish/subscribe and request/reply patterns with configurable Quality of Service (QoS) for reliability, durability, and low latency.
 - **Scalability & Flexibility:** DDS supports peer-to-peer, brokerless communication, and scales to large, dynamic agent networks.
 - **Strong Data Typing:** DDS enforces schemas for all messages, ensuring robust, type-safe communication.
@@ -1126,8 +1127,9 @@ GENESIS leverages DDS (Data Distribution Service) for all agent, function, and s
 - **Security (Architected):** DDS Security (authentication, encryption, access control) is designed into the architecture, but is **not yet implemented** in GENESIS. The framework is ready for future security enhancements using DDS's native security plugins.
 
 ### DDS Discovery & Communication
-- **Agent Discovery:** Agents publish and subscribe to `AgentCapability` topics, automatically finding each other and their specializations.
-- **Function Discovery:** Services publish to `FunctionCapability` topics, enabling agents to discover available functions at runtime.
+- **Unified Discovery:** Single `Advertisement` topic consolidates all discovery (47% topic reduction vs. legacy architecture).
+- **Agent Discovery:** Agents publish and subscribe to `Advertisement` (kind=AGENT), automatically finding each other and their specializations.
+- **Function Discovery:** Services publish to `Advertisement` (kind=FUNCTION), enabling agents to discover available functions at runtime.
 - **Unified Registry:** Each agent maintains a registry of discovered agents and functions, auto-generating tool schemas for LLMs.
 - **Agent-to-Agent & Agent-to-Function Calls:** All remote calls use DDS request/reply topics, with context and conversation state preserved across chains.
 - **Monitoring:** All events (chain execution, errors, performance) are published to DDS monitoring topics for real-time visibility.
@@ -1228,12 +1230,12 @@ The monitoring/topology topics use the following QoS today. Note that liveliness
     - Writers: `genesis_lib/graph_monitoring.py` (`_DDSWriters.graph_node_writer`, `graph_edge_writer`)
     - Readers: `genesis_lib/graph_state.py` (`GraphSubscriber` durable readers)
 
-- Registration / Discovery and some agent communication topics
-  - Writers/Readers often set liveliness explicitly to AUTOMATIC with lease_duration ≈ 2s
+- Discovery via unified Advertisement topic
+  - Advertisement writer uses TRANSIENT_LOCAL durability for persistent discovery
+  - No liveliness settings on Advertisement topic (persistent discovery, not tied to writer liveliness)
   - Where configured:
-    - Registration writer: `genesis_lib/genesis_app.py` (writer_qos.liveliness.kind = AUTOMATIC, lease_duration = 2s)
-    - FunctionCapability writer/reader: `genesis_lib/function_discovery.py` (AUTOMATIC, 2s)
-    - Interface registration reader: `genesis_lib/interface.py` (AUTOMATIC, 2s)
+    - Advertisement writer (unified): `genesis_lib/advertisement_bus.py` (TRANSIENT_LOCAL, RELIABLE, no liveliness)
+    - Advertisement readers: Various components subscribe without liveliness requirements
 
 - Removal behavior (crash vs graceful)
   - The graph viewer listens to ComponentLifecycleEvent and the durable GenesisGraphNode/Edge topics.

@@ -60,3 +60,4 @@ echo "    cd $PROJECT_ROOT/tests && source venv/bin/activate && ./run_all_tests.
 
 
 
+
