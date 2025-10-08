@@ -230,7 +230,7 @@ class GenesisInterface(ABC):
             # Create content-filtered topic to only receive AGENT advertisements (kind=1)
             # This filters at the DDS layer, not in code - much more efficient!
             logger.debug("🔍 TRACE: Creating content-filtered topic for AGENT advertisements...")
-            filtered_topic = dds.ContentFilteredTopic(
+            filtered_topic = dds.DynamicData.ContentFilteredTopic(
                 ad_topic,
                 "AgentAdvertisementFilter",
                 dds.Filter("kind = %0", ["1"])  # AGENT kind enum value
@@ -240,7 +240,7 @@ class GenesisInterface(ABC):
             logger.debug("📡 TRACE: Creating advertisement reader with content filter...")
             self.advertisement_reader = dds.DynamicData.DataReader(
                 subscriber=self.app.subscriber,
-                topic=filtered_topic,  # Use filtered topic, not base topic
+                cft=filtered_topic,  # Use 'cft' parameter for ContentFilteredTopic
                 qos=reader_qos,
                 listener=AdvertisementListener(self),
                 mask=dds.StatusMask.DATA_AVAILABLE
