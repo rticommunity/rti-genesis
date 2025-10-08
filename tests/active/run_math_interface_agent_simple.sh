@@ -108,7 +108,7 @@ sleep 5
 
 # Now start RTI DDS Spy AFTER the agent
 echo "🚀 TRACE: Starting RTI DDS Spy to verify durability..."
-NDDS_QOS_PROFILES="$PROJECT_ROOT/USER_QOS_PROFILES.xml" "$NDDSHOME/bin/rtiddsspy" -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$REGISTRATION_SPY_LOG" 2>&1 &
+"$NDDSHOME/bin/rtiddsspy" -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$REGISTRATION_SPY_LOG" 2>&1 &
 REGISTRATION_SPY_PID=$!
 echo "✅ TRACE: RTI DDS Spy started with PID: $REGISTRATION_SPY_PID (Log: $REGISTRATION_SPY_LOG)"
 
@@ -146,8 +146,9 @@ echo "⏳ TRACE: Waiting for agent to initialize..."
 sleep 5
 
 # Start RTI DDS Spy for interface test
+# Use NDDS_DISCOVERY_PEERS to configure UDP4 discovery without loading full QoS profile
 echo "🚀 TRACE: Starting RTI DDS Spy for interface test..."
-NDDS_QOS_PROFILES="$PROJECT_ROOT/USER_QOS_PROFILES.xml" "$NDDSHOME/bin/rtiddsspy" -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$INTERFACE_SPY_LOG" 2>&1 &
+NDDS_DISCOVERY_PEERS="builtin.udpv4://127.0.0.1" "$NDDSHOME/bin/rtiddsspy" -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$INTERFACE_SPY_LOG" 2>&1 &
 INTERFACE_SPY_PID=$!
 echo "✅ TRACE: RTI DDS Spy started with PID: $INTERFACE_SPY_PID (Log: $INTERFACE_SPY_LOG)"
 
