@@ -49,12 +49,9 @@
                     <!-- Let DDS auto-assign participant IDs -->
                     <participant_id>-1</participant_id>
                     
-                    <!-- Use standard auto-ID to avoid index conflicts -->
-                    <rtps_auto_id_kind>LONG_GUID_AUTO_ID</rtps_auto_id_kind>
-                    
-                    <!-- Increase host/app ID for better indexing -->
-                    <rtps_host_id>0</rtps_host_id>
-                    <rtps_app_id>AUTO</rtps_app_id>
+                    <!-- Use RTPS to avoid index conflicts -->
+                    <rtps_host_id>RTPS_AUTO_ID</rtps_host_id>
+                    <rtps_app_id>RTPS_AUTO_ID</rtps_app_id>
                 </wire_protocol>
                 
                 <!-- Resource limits to support many participants -->
