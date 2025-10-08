@@ -149,10 +149,9 @@ async def main(
             return
 
         # Derive a unique RPC service name. If the advertised service name does not include the
-        # agent instance_id, append it so the Requester binds to a single replier.
+        # Use the agent's service name directly - it's already unique (includes PID)
+        # Don't append UUID as it makes service name too long for DDS RPC (>256 char limit)
         unique_service_name = target_agent_service_name
-        if target_agent_id and (target_agent_id not in (target_agent_service_name or "")):
-            unique_service_name = f"{target_agent_service_name}_{target_agent_id}"
 
         print(
             f"Attempting to connect to agent '{connected_agent_name}' "
