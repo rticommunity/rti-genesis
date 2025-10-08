@@ -420,7 +420,7 @@ run_with_timeout "$(resolve_path test_agent_to_agent_communication.py)" 120 || {
 
 # Cleanup after agent-to-agent test
 pkill -f "personal_assistant_service\|weather_agent_service" || true
-sleep 3
+sleep 8  # Extended delay to ensure durable advertisements are fully purged from DDS
 
 # Interface -> Agent -> Service Pipeline Test (Moved to be second after agent-to-agent)
 run_with_timeout "$(resolve_path run_interface_agent_service_test.sh)" 75 || { echo "Test failed: run_interface_agent_service_test.sh"; exit 1; }
