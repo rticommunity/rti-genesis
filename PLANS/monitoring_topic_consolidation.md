@@ -561,6 +561,15 @@ The monitoring consolidation will break anything that subscribes to the old 5 to
 - Can make breaking changes freely
 - Clean slate approach
 
+### 5. DDS Configuration for Large Topologies (macOS)
+- **CRITICAL:** Testing with 20+ participants requires `USER_QOS_PROFILES.xml`
+- **Issue:** Default DDS exhausts participant indexes on macOS (fails after 2-5 services)
+- **Error:** `ERROR: No index available for participant`
+- **Solution:** Use provided `USER_QOS_PROFILES.xml` (UDP4 discovery, expanded index range)
+- **Usage:** Run from `Genesis_LIB/` directory (DDS auto-loads config)
+- **Details:** See `DDS_CONFIGURATION.md` for full documentation
+- **Impact:** Enables testing of consolidation with realistic large-scale topologies
+
 ---
 
 ## 📊 Expected Benefits
