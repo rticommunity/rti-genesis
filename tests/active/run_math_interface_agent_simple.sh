@@ -124,8 +124,8 @@ check_log "$AGENT_LOG" "✅ TRACE: Agent created, starting run..." "Agent initia
 check_log "$AGENT_LOG" "MathTestAgent listening for requests" "Agent listening state" true
 
 # Check registration announcement (wait for durable discovery and sample)
-wait_for_log "$REGISTRATION_SPY_LOG" "New writer.*topic=\"(rti/connext/genesis/)?GenesisRegistration\"" "Registration writer creation" true 20
-wait_for_log "$REGISTRATION_SPY_LOG" "New data.*topic=\"(rti/connext/genesis/)?GenesisRegistration\".*type=\"genesis_agent_registration_announce\"" "Registration announcement" true 20
+wait_for_log "$REGISTRATION_SPY_LOG" "New writer.*topic=\"(rti/connext/genesis/)?Advertisement\"" "Advertisement writer creation" true 20
+wait_for_log "$REGISTRATION_SPY_LOG" "New data.*topic=\"(rti/connext/genesis/)?Advertisement\"" "Agent advertisement received" true 20
 
 # Clean up Test 1
 echo "🧹 TRACE: Cleaning up Test 1..."
@@ -183,7 +183,7 @@ check_log "$INTERFACE_LOG" "✅ TRACE: Math test passed" "Math test verification
 check_log "$INTERFACE_LOG" "🏁 TRACE: MathTestInterface ending with exit code: 0" "Clean exit" true
 
 # Check DDS Spy logs (retry for a few seconds for flush/order variability)
-wait_for_log "$INTERFACE_SPY_LOG" "New data.*topic=\"(rti/connext/genesis/)?GenesisRegistration\".*type=\"genesis_agent_registration_announce\"" "Agent registration" true 15
+wait_for_log "$INTERFACE_SPY_LOG" "New data.*topic=\"(rti/connext/genesis/)?Advertisement\"" "Agent advertisement visible to interface" true 15
 # Match without relying on emoji and with literal parentheses
 check_log "$INTERFACE_LOG" "Agent DISCOVERED: MathTestAgent \(MathTestService\)" "Interface discovery" true
 # Note: Spy may wrap long lines; match by topic name appearing in writer/reader/sample lines

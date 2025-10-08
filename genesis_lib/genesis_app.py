@@ -76,14 +76,7 @@ class GenesisApp:
         # Get types from XML
         config_path = get_datamodel_path()
         self.type_provider = dds.QosProvider(config_path)
-        self.registration_type = self.type_provider.type("genesis_lib", "genesis_agent_registration_announce")
-        
-        # Create topics
-        self.registration_topic = dds.DynamicData.Topic(
-            self.participant, 
-            "rti/connext/genesis/GenesisRegistration", 
-            self.registration_type
-        )
+        # GenesisRegistration topic removed - now using unified Advertisement topic
         
         # Create publisher and subscriber with QoS
         self.publisher = dds.Publisher(
@@ -140,8 +133,7 @@ class GenesisApp:
 
         try:
             # Close DDS entities in reverse order of creation
-            resources_to_close = ['function_registry', 'registration_topic',
-                                'publisher', 'subscriber', 'participant']
+            resources_to_close = ['function_registry', 'publisher', 'subscriber', 'participant']
             
             for resource in resources_to_close:
                 if hasattr(self, resource):

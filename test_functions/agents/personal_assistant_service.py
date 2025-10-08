@@ -35,7 +35,7 @@ class PersonalAssistant(OpenAIGenesisAgent):
         super().__init__(
             model_name="gpt-4o",
             agent_name="PersonalAssistant",
-            base_service_name="OpenAIAgent",
+            base_service_name="PersonalAssistant",
             description="Test personal assistant with access to specialized agents and services",
             enable_agent_communication=True,
             enable_tracing=True  # Enable built-in enhanced tracing

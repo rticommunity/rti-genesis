@@ -145,7 +145,7 @@ if [ -n "$RTIDDSSPY_BIN" ]; then
   echo "Running DDS writer sweep (advisory, -printSample only)..."
   rm -f "$SPY_LOG"
   TOPICS=(
-    'FunctionCapability'
+    'Advertisement'
     'CalculatorServiceRequest' 'CalculatorServiceReply'
     'MonitoringEvent' 'ChainEvent'
   )

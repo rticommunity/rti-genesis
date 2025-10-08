@@ -37,6 +37,7 @@ import rti.rpc as rpc
 import re
 import os
 from genesis_lib.utils import get_datamodel_path
+from genesis_lib.advertisement_bus import AdvertisementBus
 import asyncio
 import sys
 import traceback
@@ -453,69 +454,37 @@ class FunctionRegistry:
         # Get types from XML
         config_path = get_datamodel_path()
         self.type_provider = dds.QosProvider(config_path)
-        self.capability_type = self.type_provider.type("genesis_lib", "FunctionCapability")
-        
-        # Create topics
-        # Try to find the topic first, create if not found
+        # FunctionCapability topic removed - now using unified Advertisement topic
+        # Unified advertisement type
         try:
-            # find_topics returns all topics for the participant
-            all_topics = self.participant.find_topics()
-            found_topic = None
-            for topic in all_topics:
-                # Check if the topic name matches
-                if topic.name == "rti/connext/genesis/FunctionCapability":
-                     # Optional: Check type name if necessary
-                     # if topic.type_name == self.capability_type.name:
-                    found_topic = topic
-                    break # Found the topic
-            
-            if found_topic:
-                self.capability_topic = found_topic
-                logger.debug("===== DDS TRACE: Found existing FunctionCapability topic. =====")
-            else:
-                 # Topic not found, create it
-                logger.debug("===== DDS TRACE: FunctionCapability topic not found, creating new one... =====")
-                self.capability_topic = dds.DynamicData.Topic(
-                    participant=self.participant,
-                    topic_name="rti/connext/genesis/FunctionCapability",
-                    topic_type=self.capability_type
-                )
-                logger.debug("===== DDS TRACE: Created new FunctionCapability topic. =====")
-
-        except dds.Error as e:
-            # Handle potential errors during find_topics or create_topic
-            logger.error(f"===== DDS TRACE: DDS Error finding/creating FunctionCapability topic: {e} ====")
-            raise
-        except Exception as e:
-            # Catch any other unexpected errors
-            logger.error(f"===== DDS TRACE: Unexpected error during topic find/create: {e} ====")
-            raise
+            self.advertisement_type = self.type_provider.type("genesis_lib", "GenesisAdvertisement")
+        except Exception:
+            self.advertisement_type = None
+            logger.error("Failed to load GenesisAdvertisement type - discovery will not work!")
         
-        # Create DataWriter for capability advertisement (always needed)
-        writer_qos = dds.QosProvider.default.datawriter_qos
-        writer_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
-        writer_qos.history.kind = dds.HistoryKind.KEEP_LAST
-        writer_qos.history.depth = 500
-        writer_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
-        writer_qos.liveliness.kind = dds.LivelinessKind.AUTOMATIC
-        writer_qos.liveliness.lease_duration = dds.Duration(seconds=2)
+        # FunctionCapability topic removed - using unified Advertisement topic instead
         
-        self.capability_writer = dds.DynamicData.DataWriter(
-            pub=self.publisher,
-            topic=self.capability_topic,
-            qos=writer_qos,
-            mask=dds.StatusMask.ALL
-        )
+        # Unified advertisement writer via shared bus (replaces capability_writer)
+        self.advertisement_topic = None
+        self.advertisement_writer = None
+        if self.advertisement_type is not None:
+            try:
+                bus = AdvertisementBus.get(self.participant)
+                self.advertisement_topic = bus.topic
+                self.advertisement_writer = bus.writer
+            except Exception as e:
+                logger.warning(f"Unified advertisement writer setup skipped: {e}")
 
         if self.enable_discovery_listener:
             # Create subscriber
             self.subscriber = dds.Subscriber(self.participant)
-            
+
             # Get types for execution (only if discovery is enabled)
             self.execution_request_type = self.type_provider.type("genesis_lib", "FunctionExecutionRequest")
             self.execution_reply_type = self.type_provider.type("genesis_lib", "FunctionExecutionReply")
 
-            # Create DataReader for capability discovery
+            # Create DataReader(s) for discovery
+            # NOTE: This QoS is for legacy capability readers if needed
             reader_qos = dds.QosProvider.default.datareader_qos
             reader_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
             reader_qos.history.kind = dds.HistoryKind.KEEP_LAST
@@ -523,15 +492,56 @@ class FunctionRegistry:
             reader_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
             reader_qos.liveliness.kind = dds.LivelinessKind.AUTOMATIC
             reader_qos.liveliness.lease_duration = dds.Duration(seconds=2)
-            
-            self.capability_listener = FunctionCapabilityListener(self)
-            self.capability_reader = dds.DynamicData.DataReader(
-                topic=self.capability_topic,
-                qos=reader_qos,
-                listener=self.capability_listener,
-                subscriber=self.subscriber,
-                mask=dds.StatusMask.ALL
-            )
+
+            # Phase 3b: prefer unified advertisement; do not create legacy FunctionCapability reader
+            self.capability_listener = None
+            self.capability_reader = None
+
+            # Unified advertisement reader
+            self.advertisement_reader = None
+            if self.advertisement_type is not None and self.advertisement_topic is not None:
+                try:
+                    self.advertisement_listener = GenesisAdvertisementListener(self)
+                    
+                    # CRITICAL: Create separate QoS for Advertisement reader that matches AdvertisementBus writer QoS
+                    # The writer doesn't use liveliness settings, so reader must not either (or match defaults)
+                    ad_reader_qos = dds.QosProvider.default.datareader_qos
+                    ad_reader_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
+                    ad_reader_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
+                    ad_reader_qos.history.kind = dds.HistoryKind.KEEP_LAST
+                    ad_reader_qos.history.depth = 500
+                    # Do NOT set liveliness - must match AdvertisementBus writer (default AUTOMATIC/INFINITE)
+                    
+                    self.advertisement_reader = dds.DynamicData.DataReader(
+                        topic=self.advertisement_topic,
+                        qos=ad_reader_qos,
+                        listener=self.advertisement_listener,
+                        subscriber=self.subscriber,
+                        mask=dds.StatusMask.DATA_AVAILABLE,
+                    )
+                    logger.info(f"FunctionRegistry: Created Advertisement reader with matching QoS")
+                    print(f"📚 PRINT: FunctionRegistry about to retrieve historical advertisements...", flush=True)
+                    
+                    # CRITICAL: For TRANSIENT_LOCAL, manually retrieve historical data
+                    # The listener might miss historical samples if they arrive before callback setup
+                    try:
+                        print(f"📚 PRINT: Calling read() on advertisement_reader...", flush=True)
+                        historical_samples = self.advertisement_reader.read()
+                        print(f"📚 PRINT: Retrieved {len(historical_samples)} historical advertisement samples", flush=True)
+                        logger.info(f"📚 FunctionRegistry: Retrieved {len(historical_samples)} historical advertisement samples")
+                        for ad_data, info in historical_samples:
+                            if info.state.instance_state == dds.InstanceState.ALIVE:
+                                print(f"📚 PRINT: Processing historical FUNCTION advertisement...", flush=True)
+                                logger.info(f"📚 Processing historical FUNCTION advertisement...")
+                                self.handle_advertisement(ad_data, info)
+                        print(f"📚 PRINT: Finished processing historical advertisements", flush=True)
+                    except Exception as hist_err:
+                        print(f"📚 PRINT: ERROR retrieving historical advertisements: {hist_err}", flush=True)
+                        logger.warning(f"Could not retrieve historical advertisements: {hist_err}")
+                        logger.warning(traceback.format_exc())
+                except Exception as e:
+                    logger.error(f"Unified advertisement reader setup FAILED: {e}")
+                    logger.error(traceback.format_exc())
             
             # Create RPC client for function execution
             self.execution_client = rpc.Requester(
@@ -544,6 +554,7 @@ class FunctionRegistry:
             self.subscriber = None
             self.capability_reader = None
             self.capability_listener = None
+            self.advertisement_reader = None
             self.execution_client = None
             # Ensure discovered_functions is initialized if discovery is off,
             # though it's already initialized above.
@@ -695,99 +706,99 @@ class FunctionRegistry:
         return result
     
     def _advertise_function(self, function_info: FunctionInfo):
-        """Advertise function capability via DDS"""
+        """Advertise function capability via unified Advertisement topic"""
         logger.debug(f"===== DDS TRACE: Preparing DDS data for advertising function: {function_info.name} ({function_info.function_id}) =====")
-        capability = dds.DynamicData(self.capability_type)
-        capability['function_id'] = function_info.function_id
-        capability['name'] = function_info.name
-        capability['description'] = function_info.description
-        capability['provider_id'] = str(self.capability_writer.instance_handle)  # Use DataWriter GUID
-        capability['parameter_schema'] = json.dumps(function_info.schema)
-        capability['capabilities'] = json.dumps(function_info.categories)
-        capability['performance_metrics'] = json.dumps(function_info.performance_metrics)
-        capability['security_requirements'] = json.dumps(function_info.security_requirements)
-        capability['classification'] = json.dumps(function_info.classification or {})
-        capability['last_seen'] = int(time.time() * 1000)
         
-        # Add the service name from the service_base reference
+        # Determine service name
         if self.service_base and hasattr(self.service_base, 'service_name'):
-            capability['service_name'] = self.service_base.service_name
+            service_name = self.service_base.service_name
         else:
             logger.warning(f"Could not determine service_name when advertising function {function_info.name}")
-            capability['service_name'] = "UnknownService" # Default if service name is not found
+            service_name = "UnknownService"
         
-        logger.debug(f"===== DDS TRACE: Publishing FunctionCapability for {function_info.name} ({function_info.function_id}): {capability} =====")
-        try:
-            self.capability_writer.write(capability)
-            self.capability_writer.flush()
-            logger.debug(f"===== DDS TRACE: Successfully published FunctionCapability for {function_info.name} =====")
-        except Exception as e:
-            logger.error(f"===== DDS TRACE: Error publishing FunctionCapability for {function_info.name}: {e} ====", exc_info=True)
-            # Optionally re-raise or handle
+        # Publish to unified Advertisement topic (FUNCTION kind)
+        if self.advertisement_writer is not None and self.advertisement_type is not None:
+            try:
+                ad = dds.DynamicData(self.advertisement_type)
+                ad["advertisement_id"] = function_info.function_id
+                # AdvertisementKind order: FUNCTION=0, AGENT=1, REGISTRATION=2
+                ad["kind"] = 0
+                ad["name"] = function_info.name
+                ad["description"] = function_info.description
+                ad["provider_id"] = str(self.advertisement_writer.instance_handle)
+                ad["service_name"] = service_name
+                ad["last_seen"] = int(time.time() * 1000)
+                payload = {
+                    "parameter_schema": function_info.schema,
+                    "capabilities": list(function_info.categories or []),
+                    "performance_metrics": dict(function_info.performance_metrics or {}),
+                    "security_requirements": dict(function_info.security_requirements or {}),
+                    "classification": dict(function_info.classification or {}),
+                }
+                ad["payload"] = json.dumps(payload)
+                self.advertisement_writer.write(ad)
+                self.advertisement_writer.flush()
+                logger.debug(f"===== DDS TRACE: Published GenesisAdvertisement(kind=FUNCTION) for {function_info.name} =====")
+            except Exception as e:
+                logger.error(f"===== DDS TRACE: Error publishing GenesisAdvertisement for {function_info.name}: {e} =====", exc_info=True)
+        else:
+            logger.error(f"Cannot advertise function {function_info.name} - Advertisement writer not available!")
     
-    def handle_capability_advertisement(self, capability: dds.DynamicData, info: dds.SampleInfo):
-        """Handle received function capability data"""
-        function_id_str = "unknown_id"
+    # handle_capability_advertisement() removed - now using handle_advertisement() for unified discovery
+
+    def handle_advertisement(self, ad: dds.DynamicData, info: dds.SampleInfo):
+        """Handle received GenesisAdvertisement for FUNCTION kind."""
         try:
-            function_id_str = capability.get_string("function_id") # Get ID for logging early
-            logger.debug(f"===== DDS TRACE: handle_capability_advertisement received data for function_id: {function_id_str} =====")
+            # Attempt to filter to FUNCTION kind (0) when possible
+            try:
+                kind_val = ad["kind"]
+                kind_str = str(kind_val) if kind_val is not None else ""
+                if kind_str and "FUNCTION" not in kind_str and str(kind_val) not in ("0",):
+                    return
+            except Exception:
+                pass
 
-            # Check if instance state is ALIVE before processing
-            if info.state.instance_state != dds.InstanceState.ALIVE:
-                logger.debug(f"Ignoring non-alive capability sample: {info.state.instance_state}")
-                return
-            
-            # Extract required fields
-            function_id = capability["function_id"]
-            name = capability["name"]
-            provider_id = capability["provider_id"]
-            description = capability.get_string("description") # Use get_string for safety
-            schema_str = capability.get_string("parameter_schema") # Use get_string for safety
-            capabilities_str = capability.get_string("capabilities") # Use get_string for safety
-            service_name = capability.get_string("service_name") # Get service name
-            
-            # Basic validation
-            if not all([function_id, name, provider_id]):
-                logger.warning(f"Received capability advertisement with missing required fields")
+            function_id = ad.get_string("advertisement_id") or ""
+            name = ad.get_string("name") or ""
+            description = ad.get_string("description") or ""
+            provider_id = ad.get_string("provider_id") or ""
+            service_name = ad.get_string("service_name") or "UnknownService"
+            payload_str = ad.get_string("payload") or "{}"
+            try:
+                payload = json.loads(payload_str) if payload_str else {}
+            except Exception:
+                payload = {}
+            schema = payload.get("parameter_schema") or {}
+            capabilities = payload.get("capabilities") or []
+            if isinstance(capabilities, str):
+                try:
+                    capabilities = json.loads(capabilities) or []
+                except Exception:
+                    capabilities = [capabilities]
+
+            if not function_id or not name or not provider_id:
                 return
 
-            # Deserialize JSON strings safely
-            schema = json.loads(schema_str) if schema_str else {}
-            capabilities = json.loads(capabilities_str) if capabilities_str else []
-            
-            # Store or update the discovered function
-            # Use a dictionary to store structured info
             self.discovered_functions[function_id] = {
                 "name": name,
                 "description": description,
                 "provider_id": provider_id,
                 "schema": schema,
                 "capabilities": capabilities,
-                "service_name": service_name, # Store service name
-                "capability": capability # Store the raw capability object for potential future use
+                "service_name": service_name,
+                # Include a minimal capability dict to keep downstream logic working
+                "capability": {"service_name": service_name},
+                "advertisement": ad,
             }
-            
-            logger.info(f"Updated/Added discovered function: {name} ({function_id}) from provider {provider_id} for service {service_name}")
-            
-            # Signal that at least one function has been discovered
-            if not self._discovery_event.is_set():
-                logger.debug(f"===== DDS TRACE: Setting _discovery_event for function_id: {function_id} =====")
-                self._discovery_event.set()
-                logger.debug("===== DDS TRACE: Discovery event set (first function discovered). =====")
-            else:
-                logger.debug(f"===== DDS TRACE: _discovery_event already set (function_id: {function_id}). =====")
 
-            # Call discovery callbacks
+            # Use same log format as legacy path for test compatibility
+            logger.info(f"Updated/Added discovered function: {name} ({function_id}) from provider {provider_id} for service {service_name}")
+            if not self._discovery_event.is_set():
+                self._discovery_event.set()
             for callback in self.discovery_callbacks:
                 callback(function_id, self.discovered_functions[function_id])
-
-        except KeyError as e:
-            logger.error(f"===== DDS TRACE: Missing key in capability data (function_id: {function_id_str}): {e} ====")
-        except json.JSONDecodeError as e:
-            logger.error(f"Error decoding JSON in capability data: {e}")
-        except Exception as e: # Add a general except block for the try
-            logger.error(f"Error handling capability advertisement for function_id {function_id_str}: {e}")
-            logger.error(logging.traceback.format_exc())
+        except Exception as e:
+            logger.error(f"Error handling GenesisAdvertisement: {e}")
     
     def handle_capability_removal(self, reader: dds.DynamicData.DataReader):
         """Handle removal of function capabilities when a provider goes offline"""
@@ -918,12 +929,18 @@ class FunctionRegistry:
                 self.execution_client.close()
             if hasattr(self, 'capability_reader') and self.capability_reader:
                 self.capability_reader.close()
+            if hasattr(self, 'advertisement_reader') and self.advertisement_reader:
+                try:
+                    self.advertisement_reader.close()
+                except Exception:
+                    pass
             
             # capability_writer and capability_topic are always created (or should be)
             if hasattr(self, 'capability_writer') and self.capability_writer:
                 self.capability_writer.close()
             if hasattr(self, 'capability_topic') and self.capability_topic: # Topic is found or created
                 self.capability_topic.close()
+            # Do not close shared advertisement writer/topic (owned by bus)
 
             if hasattr(self, 'subscriber') and self.subscriber:
                 self.subscriber.close()
@@ -936,6 +953,9 @@ class FunctionRegistry:
             self.capability_writer = None
             self.capability_reader = None
             self.capability_topic = None
+            self.advertisement_writer = None
+            self.advertisement_reader = None
+            self.advertisement_topic = None
             self.subscriber = None
             self.publisher = None
             self.execution_client = None
@@ -969,99 +989,24 @@ class FunctionRegistry:
             self.discovery_callbacks.remove(callback)
             logger.debug(f"Removed discovery callback: {callback}")
 
-class FunctionCapabilityListener(dds.DynamicData.NoOpDataReaderListener):
-    """Listener for function capability advertisements"""
+# FunctionCapabilityListener removed - now using GenesisAdvertisementListener for unified discovery
 
+class GenesisAdvertisementListener(dds.DynamicData.NoOpDataReaderListener):
+    """Listener for unified GenesisAdvertisement (FUNCTION)"""
     def __init__(self, registry):
-        """Initialize listener with a reference to the registry"""
         super().__init__()
         self.registry = registry
-        logger.debug("FunctionCapabilityListener initialized")
-
-    def on_subscription_matched(self, reader, info):
-        """Handle subscription matches"""
-        logger.debug(f"Capability subscription matched: {info.current_count} total writers")
-        # Optionally, trigger an initial check or event if needed
-        # maybe set the discovery event here if count > 0?
-        # if info.current_count > 0 and not self.registry._discovery_event.is_set():
-        #     self.registry._discovery_event.set()
-        #     logger.info("Discovery event set via on_subscription_matched.")
+        logger.debug("GenesisAdvertisementListener initialized")
 
     def on_data_available(self, reader):
-        """Handle incoming capability data"""
-        logger.debug("===== DDS TRACE: FunctionCapabilityListener.on_data_available entered =====")
         try:
-            samples = reader.read() # Take all available samples
-            logger.debug(f"===== DDS TRACE: Read {len(samples)} FunctionCapability samples =====")
-            # Print sample details for debugging
-            for sample, info in samples:
-                logger.debug("===== DDS TRACE: Sample details =====")
-                logger.debug(f"Sample data: {sample}")
-                logger.debug(f"Sample info: {info}")
-                logger.debug(f"Sample state: {info.state.sample_state}")
-                logger.debug(f"Instance state: {info.state.instance_state}")
-                logger.debug("===== DDS TRACE: End sample details =====")
-            for capability_data, info in samples:
-                # Check if the sample contains valid data that hasn't been read before
-                if info.state.sample_state == dds.SampleState.NOT_READ: # FIX: Check for NOT_READ
-                    # This sample contains valid data for a new or updated function
-                    log_fid = "N/A"
-                    if capability_data:
-                        try:
-                             log_fid = capability_data.get_string("function_id") or "ID_NOT_IN_DATA"
-                        except Exception:
-                             log_fid = "ERROR_GETTING_ID"
-                    logger.debug(f"===== DDS TRACE: Processing READ sample - FuncID: {log_fid} =====")
-                    # Re-log state for this specific case
-                    logger.debug(f"===== DDS TRACE:   SampleState: {str(info.state.sample_state)}, InstanceState: {str(info.state.instance_state)} =====")
-
-                    # Process the valid data
-                    self.registry.handle_capability_advertisement(capability_data, info)
-
-                # Separately check if the instance associated with the sample is no longer alive
-                # This handles cases where the sample itself might not be marked as READ anymore,
-                # but we still need to know the instance was disposed or unregistered.
-                if info.state.instance_state != dds.InstanceState.ALIVE:
-                    log_fid = "N/A"
-                    key_holder = dds.DynamicData(self.registry.capability_type)
-                    try:
-                        reader.get_key_value(key_holder, info.instance_handle)
-                        log_fid = key_holder.get_string("function_id") or "ID_NOT_IN_DATA"
-                    except Exception:
-                        log_fid = "ERROR_GETTING_ID"
-
-                    logger.debug(f"===== DDS TRACE: Processing Non-ALIVE sample - FuncID: {log_fid} =====")
-                    # Re-log state for this specific case
-                    logger.debug(f"===== DDS TRACE:   SampleState: {str(info.state.sample_state)}, InstanceState: {str(info.state.instance_state)} =====")
-
-                    # Process the removal
-                    try:
-                        # Attempt to get the key value from the instance handle
-                        # reader.get_key_value(key_holder, info.instance_handle) # Already done above for logging
-                        function_id_to_remove = log_fid if log_fid not in ["N/A", "ID_NOT_IN_DATA", "ERROR_GETTING_ID"] else None
-
-                        if function_id_to_remove:
-                            logger.debug(f"===== DDS TRACE: Instance for function ID {function_id_to_remove} no longer alive (state: {info.state.instance_state}). Attempting removal from registry. =====")
-                            # Check if already removed to avoid redundant logging
-                            if function_id_to_remove in self.registry.discovered_functions:
-                                self.registry.remove_discovered_function(function_id_to_remove)
-                            # else: # Optionally log if already removed
-                            #    logger.debug(f"===== DDS TRACE: Function ID {function_id_to_remove} already removed (instance state: {info.state.instance_state}). =====")
-                        else:
-                            # This case should be rare if function_id is indeed the key
-                            logger.warning(f"===== DDS TRACE: Could not retrieve function_id (key) for disposed/unregistered instance handle {info.instance_handle}. Cannot remove. =====")
-                    except dds.Error as e: # Catch specific DDS errors
-                        logger.error(f"===== DDS TRACE: DDS Error getting key for disposed/unregistered instance handle {info.instance_handle}: {e} =====")
-                    except Exception as e: # Catch other unexpected errors
-                        logger.error(f"===== DDS TRACE: Unexpected error getting key/removing for instance handle {info.instance_handle}: {e} =====")
-                # else:
-                    # Potentially other states, e.g. sample_state != READ and instance_state == ALIVE.
-                    # logger.debug(f"===== DDS TRACE: Ignoring sample with info.state.sample_state={info.state.sample_state} and info.instance_state={info.instance_state} =====")
-
-            logger.debug("===== DDS TRACE: Finished processing FunctionCapability samples in on_data_available =====")
-        except dds.Error as e: # Catch DDS errors from reader.take()
-            logger.error(f"DDS Error in on_data_available (e.g., during take()): {e}")
-            logger.error(logging.traceback.format_exc())
-        except Exception as e: # Catch other unexpected errors
-            logger.error(f"Unexpected error in on_data_available: {e}")
-            logger.error(logging.traceback.format_exc())
+            logger.info("🔔 GenesisAdvertisementListener.on_data_available() CALLED!")
+            samples = reader.read()
+            logger.info(f"📊 GenesisAdvertisementListener got {len(samples)} advertisement samples")
+            for ad_data, info in samples:
+                if info.state.sample_state == dds.SampleState.NOT_READ and info.state.instance_state == dds.InstanceState.ALIVE:
+                    logger.info(f"📨 Processing FUNCTION advertisement...")
+                    self.registry.handle_advertisement(ad_data, info)
+        except Exception as e:
+            logger.error(f"Error in GenesisAdvertisementListener.on_data_available: {e}")
+            logger.error(traceback.format_exc())

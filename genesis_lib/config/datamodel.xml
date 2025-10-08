@@ -55,36 +55,22 @@
       <member name="function_name" type="string" stringMaxLength="256"/>
     </struct>
 
-    <!-- Function Discovery and Advertisement -->
-    <struct name="FunctionCapability">
-      <member name="function_id" type="string" key="true" stringMaxLength="128"/>
-      <member name="name" type="string" stringMaxLength="256"/>
-      <member name="description" type="string" stringMaxLength="2048"/>
-      <member name="provider_id" type="string" stringMaxLength="128"/>
-      <member name="parameter_schema" type="string" stringMaxLength="8192"/>
-      <member name="capabilities" type="string" stringMaxLength="2048"/>
-      <member name="performance_metrics" type="string" stringMaxLength="2048"/>
-      <member name="security_requirements" type="string" stringMaxLength="2048"/>
-      <member name="classification" type="string" stringMaxLength="2048"/>
-      <member name="last_seen" type="int64"/>
-      <member name="service_name" type="string" stringMaxLength="256"/>
-    </struct>
+    <!-- Unified Advertisement Model (durable discovery channel) - replaces legacy FunctionCapability and AgentCapability -->
+    <enum name="AdvertisementKind">
+      <enumerator name="FUNCTION"/>
+      <enumerator name="AGENT"/>
+      <enumerator name="REGISTRATION"/>
+    </enum>
 
-    <!-- Agent Discovery and Advertisement -->
-    <struct name="AgentCapability">
-      <member name="agent_id" type="string" key="true" stringMaxLength="128"/>
+    <struct name="GenesisAdvertisement">
+      <member name="advertisement_id" type="string" key="true" stringMaxLength="128"/>
+      <member name="kind" type="nonBasic" nonBasicTypeName="AdvertisementKind"/>
       <member name="name" type="string" stringMaxLength="256"/>
       <member name="description" type="string" stringMaxLength="2048"/>
-      <member name="agent_type" type="string" stringMaxLength="128"/>
-      <member name="service_name" type="string" stringMaxLength="128"/>
+      <member name="service_name" type="string" stringMaxLength="256"/>
+      <member name="provider_id" type="string" stringMaxLength="128"/>
       <member name="last_seen" type="int64"/>
-      <!-- Enhanced fields for discovery and classification -->
-      <member name="capabilities" type="string" stringMaxLength="2048"/>
-      <member name="specializations" type="string" stringMaxLength="2048"/>
-      <member name="model_info" type="string" stringMaxLength="1024"/>
-      <member name="classification_tags" type="string" stringMaxLength="2048"/>
-      <member name="performance_metrics" type="string" stringMaxLength="1024"/>
-      <member name="default_capable" type="int32"/>
+      <member name="payload" type="string" stringMaxLength="8192"/>
     </struct>
 
     <!-- Function Execution Request/Reply -->

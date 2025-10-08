@@ -80,7 +80,10 @@ rm -f "$SPY_LOG" # Clean up the spy log for this check
 
 # --- 2. Start SimpleGenesisAgent ---
 echo "Starting SimpleGenesisAgent..."
-python "$SCRIPT_DIR/../helpers/simpleGenesisAgent.py" --tag pipeline_test > "$AGENT_LOG" 2>&1 &
+# Force the agent to always use tools for this test to ensure the RPC path is exercised.
+export GENESIS_TOOL_CHOICE="required"
+# Start the agent with verbose logging to aid discovery diagnostics
+python "$SCRIPT_DIR/../helpers/simpleGenesisAgent.py" --tag pipeline_test --verbose > "$AGENT_LOG" 2>&1 &
 pids+=("$!")
 
 # --- 3. Start CalculatorService ---
@@ -90,6 +93,27 @@ pids+=("$!")
 
 echo "Waiting 5 seconds for agent and service to initialize..."
 sleep 5
+
+# Proactively wait for the agent to discover calculator functions before sending the request.
+# This avoids a race where the model answers directly (no tool schemas available yet).
+echo "Ensuring agent has discovered calculator functions (waiting up to 15s)..."
+DISCOVERY_WAIT_SECS=15
+DISCOVERY_START_TS=$(date +%s)
+while true; do
+  if grep -q "function_discovery - INFO - Updated/Added discovered function: add" "$AGENT_LOG"; then
+    echo "Function discovery confirmed in agent log."
+    break
+  fi
+  NOW=$(date +%s)
+  ELAPSED=$((NOW - DISCOVERY_START_TS))
+  if [ $ELAPSED -ge $DISCOVERY_WAIT_SECS ]; then
+    echo "ERROR: Agent did not log discovery of 'add' within ${DISCOVERY_WAIT_SECS}s."
+    echo "--- Agent Log (tail) ---"; tail -n 80 "$AGENT_LOG"; echo "--- End Agent Log ---"
+    echo "--- Service Log (tail) ---"; tail -n 80 "$CALC_LOG"; echo "--- End Service Log ---"
+    exit 1
+  fi
+  sleep 0.5
+done
 
 # --- 4. Run SimpleGenesisInterfaceStatic ---
 # It will use the question "What is 123 plus 456?" and expect 579

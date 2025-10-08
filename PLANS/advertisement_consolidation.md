@@ -130,3 +130,15 @@ Notes
 - QoS consistency matters: keep advertisement and graph durable; events volatile.
 - Depth and liveliness values should stay aligned with current code to avoid discovery regressions.
 
+Provider‑Neutral Naming (planned cleanup)
+- Rationale: Some topic/service names include provider‑specific labels (e.g., OpenAI). Names should be generic to support any backend.
+- Targets (non‑breaking plan after consolidation):
+  - Default `base_service_name` in agents: change "OpenAIChat" → "Chat"; preserve explicit overrides.
+  - Replace hardcoded topic name `OpenAIAgentReply` in `genesis_lib/monitored_interface.py` with generic reply listener strategy:
+    - Prefer binding to the RPC reply reader via service name rather than a fixed topic string, or
+    - Use a provider‑agnostic topic name (e.g., `InterfaceAgentReply`) only if a standalone reply topic is still required.
+  - Review tests/log messages that grep for provider names and update to generic labels.
+- Execution order:
+  1) Finish advertisement consolidation (Phases 3–6).
+  2) Update defaults and topic names; adjust tests, docs.
+  3) Validate: run `tests/run_all_tests.sh` and spot‑check agent/interface flows.

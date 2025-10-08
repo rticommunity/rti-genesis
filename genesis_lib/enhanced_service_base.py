@@ -15,7 +15,7 @@ import asyncio
 import json
 from typing import Dict, Any, List, Optional, Callable
 from genesis_lib.rpc_service import GenesisRPCService
-from genesis_lib.function_discovery import FunctionRegistry, FunctionCapabilityListener
+from genesis_lib.function_discovery import FunctionRegistry
 import uuid
 
 from genesis_lib.graph_monitoring import (
@@ -56,7 +56,8 @@ class EnhancedServiceBase(GenesisRPCService):
             enable_discovery_listener=False
         )
         self.registry.service_base = self
-        self.app_guid = str(self.registry.capability_writer.instance_handle)
+        # Get GUID from Advertisement writer (capability_writer removed)
+        self.app_guid = str(self.registry.advertisement_writer.instance_handle) if self.registry.advertisement_writer else str(self.participant.instance_handle)
 
         # Unified graph monitor
         self.graph = GraphMonitor(self.participant)
