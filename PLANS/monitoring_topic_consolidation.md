@@ -201,6 +201,22 @@
 </struct>
 ```
 
+**🔑 CRITICAL FEATURE: Content Filtering**
+
+Both unified types have a `kind` discriminator field that enables efficient **DDS ContentFilteredTopic** filtering:
+
+- **GraphTopology**: Filter by `kind` to get only NODEs (0) or only EDGEs (1)
+- **MonitoringEventUnified**: Filter by `kind` to get only CHAIN (0), LIFECYCLE (1), or GENERAL (2) events
+
+This allows subscribers to filter at the DDS middleware level, dramatically reducing:
+- Network traffic (filtered before transmission)
+- CPU usage (no deserialization of unwanted events)
+- Memory usage (no storage of irrelevant data)
+
+**Example:** Graph viewer only needs topology (no events), activity overlay only needs CHAIN events (no lifecycle/general).
+
+See `MONITORING_CONTENT_FILTERING.md` for complete examples and implementation patterns.
+
 ---
 
 ## 📦 Testing Infrastructure (Pulled from Main)

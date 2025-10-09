@@ -80,6 +80,7 @@ class MonitoredInterface(GenesisInterface):
         self._last_complete_event: Optional[asyncio.Event] = None
         # Optional ChainEvent writer for activity overlay
         self._chain_event_writer = None
+        self._unified_event_writer = None  # NEW: Unified monitoring event writer
         try:
             import rti.connextdds as dds  # type: ignore
             from genesis_lib.utils import get_datamodel_path  # type: ignore
@@ -92,6 +93,27 @@ class MonitoredInterface(GenesisInterface):
             self._chain_event_type = chain_type
             self._chain_event_writer = dds.DynamicData.DataWriter(
                 pub=dds.Publisher(self.app.participant), topic=chain_topic, qos=writer_qos
+            )
+            
+            # NEW: Create unified monitoring event writer (Phase 2: Dual-publishing)
+            unified_type = provider.type("genesis_lib", "MonitoringEventUnified")
+            try:
+                # Try to create the topic (may already exist from other components)
+                unified_topic = dds.DynamicData.Topic(
+                    self.app.participant, "rti/connext/genesis/monitoring/Event", unified_type
+                )
+            except Exception as e:
+                # Topic already exists, find it
+                unified_topic = dds.Topic.find(
+                    self.app.participant, "rti/connext/genesis/monitoring/Event"
+                )
+                if unified_topic is None:
+                    logger.warning(f"Failed to create or find unified Event topic: {e}")
+                    self._unified_event_writer = None
+                    raise
+            self._unified_event_type = unified_type
+            self._unified_event_writer = dds.DynamicData.DataWriter(
+                pub=dds.Publisher(self.app.participant), topic=unified_topic, qos=writer_qos
             )
             # Prepare a reader for InterfaceAgentReply so we can align COMPLETE with the final reply
             self._reply_type = provider.type("genesis_lib", "InterfaceAgentReply")
@@ -248,6 +270,34 @@ class MonitoredInterface(GenesisInterface):
                 self._chain_event_writer.write(ev)
                 self._chain_event_writer.flush()
                 logger.debug("ChainEvent INTERFACE_REQUEST_START emitted")
+                
+                # NEW: Publish to unified MonitoringEventUnified (kind=CHAIN)
+                if self._unified_event_writer is not None:
+                    unified_ev = dds.DynamicData(self._unified_event_type)
+                    unified_ev["event_id"] = call_id
+                    unified_ev["kind"] = 0  # CHAIN
+                    unified_ev["timestamp"] = int(time.time() * 1000)
+                    unified_ev["component_id"] = str(self.app.participant.instance_handle)
+                    unified_ev["severity"] = "INFO"
+                    unified_ev["message"] = "INTERFACE_REQUEST_START"
+                    # Pack ChainEvent data into payload
+                    chain_payload = {
+                        "chain_id": chain_id,
+                        "call_id": call_id,
+                        "interface_id": str(self.app.participant.instance_handle),
+                        "primary_agent_id": "",
+                        "specialized_agent_ids": "",
+                        "function_id": "",
+                        "query_id": call_id,
+                        "event_type": "INTERFACE_REQUEST_START",
+                        "source_id": str(self.app.participant.instance_handle),
+                        "target_id": self._connected_agent_id or "",
+                        "status": 0
+                    }
+                    unified_ev["payload"] = json.dumps(chain_payload)
+                    self._unified_event_writer.write(unified_ev)
+                    logger.debug("MonitoringEventUnified CHAIN START emitted")
+                
                 # Persist IDs for completion correlation
                 self._last_chain_id = chain_id
                 self._last_call_id = call_id
@@ -280,6 +330,34 @@ class MonitoredInterface(GenesisInterface):
                 self._chain_event_writer.write(ev)
                 self._chain_event_writer.flush()
                 logger.debug("ChainEvent INTERFACE_REQUEST_COMPLETE emitted")
+                
+                # NEW: Publish to unified MonitoringEventUnified (kind=CHAIN)
+                if self._unified_event_writer is not None:
+                    unified_ev = dds.DynamicData(self._unified_event_type)
+                    unified_ev["event_id"] = call_id
+                    unified_ev["kind"] = 0  # CHAIN
+                    unified_ev["timestamp"] = int(time.time() * 1000)
+                    unified_ev["component_id"] = self._connected_agent_id or str(self.app.participant.instance_handle)
+                    unified_ev["severity"] = "INFO"
+                    unified_ev["message"] = "INTERFACE_REQUEST_COMPLETE"
+                    # Pack ChainEvent data into payload
+                    chain_payload = {
+                        "chain_id": chain_id,
+                        "call_id": call_id,
+                        "interface_id": str(self.app.participant.instance_handle),
+                        "primary_agent_id": "",
+                        "specialized_agent_ids": "",
+                        "function_id": "",
+                        "query_id": call_id,
+                        "event_type": "INTERFACE_REQUEST_COMPLETE",
+                        "source_id": self._connected_agent_id or "",
+                        "target_id": str(self.app.participant.instance_handle),
+                        "status": 0
+                    }
+                    unified_ev["payload"] = json.dumps(chain_payload)
+                    self._unified_event_writer.write(unified_ev)
+                    logger.debug("MonitoringEventUnified CHAIN COMPLETE emitted")
+                
                 # Clear persisted IDs
                 try:
                     del self._last_chain_id

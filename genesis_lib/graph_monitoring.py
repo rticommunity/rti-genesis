@@ -112,6 +112,41 @@ class _DDSWriters:
         durable_qos.history.depth = 1
         self.graph_node_writer = dds.DynamicData.DataWriter(pub=self.publisher, topic=self.graph_node_topic, qos=durable_qos)
         self.graph_edge_writer = dds.DynamicData.DataWriter(pub=self.publisher, topic=self.graph_edge_topic, qos=durable_qos)
+        
+        # NEW UNIFIED MONITORING TOPICS (Phase 2: Dual-publishing)
+        # GraphTopology (durable) - consolidates GenesisGraphNode + GenesisGraphEdge
+        self.graph_topology_type = self.type_provider.type("genesis_lib", "GraphTopology")
+        try:
+            self.graph_topology_topic = dds.DynamicData.Topic(
+                self.participant, "rti/connext/genesis/monitoring/GraphTopology", self.graph_topology_type
+            )
+        except Exception:
+            # Topic already exists, find it
+            self.graph_topology_topic = dds.Topic.find(
+                self.participant, "rti/connext/genesis/monitoring/GraphTopology"
+            )
+        self.graph_topology_writer = dds.DynamicData.DataWriter(
+            pub=self.publisher, topic=self.graph_topology_topic, qos=durable_qos
+        )
+        
+        # MonitoringEventUnified (volatile) - consolidates ChainEvent + ComponentLifecycleEvent + MonitoringEvent
+        self.monitoring_event_unified_type = self.type_provider.type("genesis_lib", "MonitoringEventUnified")
+        try:
+            self.monitoring_event_unified_topic = dds.DynamicData.Topic(
+                self.participant, "rti/connext/genesis/monitoring/Event", self.monitoring_event_unified_type
+            )
+        except Exception:
+            # Topic already exists, find it
+            self.monitoring_event_unified_topic = dds.Topic.find(
+                self.participant, "rti/connext/genesis/monitoring/Event"
+            )
+        volatile_qos = dds.QosProvider.default.datawriter_qos
+        volatile_qos.durability.kind = dds.DurabilityKind.VOLATILE
+        volatile_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
+        self.monitoring_event_unified_writer = dds.DynamicData.DataWriter(
+            pub=self.publisher, topic=self.monitoring_event_unified_topic, qos=volatile_qos
+        )
+        
         # Optional legacy MonitoringEvent
         self.legacy_enabled = os.environ.get("GENESIS_MON_LEGACY", "0") == "1"
         if self.legacy_enabled:
@@ -202,6 +237,43 @@ class GraphMonitor:
         node["timestamp"] = int(time.time() * 1000)
         self.dds.graph_node_writer.write(node)
 
+        # NEW: Publish to unified GraphTopology topic (kind=NODE)
+        topology = dds.DynamicData(self.dds.graph_topology_type)
+        topology["element_id"] = component_id
+        topology["kind"] = 0  # NODE
+        topology["timestamp"] = int(time.time() * 1000)
+        topology["component_name"] = self._derive_node_name(component_type, attrs, component_id)
+        topology["component_type"] = node_type_str
+        topology["state"] = state_str
+        # Pack node metadata into JSON payload
+        node_payload = {
+            "node_type": node_type_str,
+            "node_state": state_str,
+            "capabilities": attrs or {}
+        }
+        topology["metadata"] = json.dumps(node_payload)
+        self.dds.graph_topology_writer.write(topology)
+        logger.debug(f"GraphMonitor: Published unified GraphTopology NODE {component_id}")
+
+        # NEW: Publish to unified MonitoringEventUnified topic (kind=LIFECYCLE)
+        unified_event = dds.DynamicData(self.dds.monitoring_event_unified_type)
+        unified_event["event_id"] = str(uuid.uuid4())
+        unified_event["kind"] = 1  # LIFECYCLE
+        unified_event["timestamp"] = int(time.time() * 1000)
+        unified_event["component_id"] = component_id
+        unified_event["severity"] = "INFO"
+        unified_event["message"] = f"Node {node_type_str} {state_str}"
+        # Pack lifecycle data into payload
+        lifecycle_payload = {
+            "previous_state": state_str,
+            "new_state": state_str,
+            "reason": attrs.get("reason", "") if attrs else "",
+            "capabilities": attrs or {},
+            "component_type": node_type_str
+        }
+        unified_event["payload"] = json.dumps(lifecycle_payload)
+        self.dds.monitoring_event_unified_writer.write(unified_event)
+
         # Optionally emit legacy MonitoringEvent
         if self.dds.legacy_enabled:
             self._publish_legacy_monitoring_event(component_id, component_type, state, attrs)
@@ -246,6 +318,46 @@ class GraphMonitor:
         edge["metadata"] = json.dumps(attrs or {})
         edge["timestamp"] = int(time.time() * 1000)
         self.dds.graph_edge_writer.write(edge)
+
+        # NEW: Publish to unified GraphTopology topic (kind=EDGE)
+        topology = dds.DynamicData(self.dds.graph_topology_type)
+        # Use compound ID for edges: source_id|target_id|edge_type
+        edge_id = f"{source_id}|{target_id}|{edge_type}"
+        topology["element_id"] = edge_id
+        topology["kind"] = 1  # EDGE
+        topology["timestamp"] = int(time.time() * 1000)
+        topology["component_name"] = f"{source_id[:8]}→{target_id[:8]}"
+        topology["component_type"] = edge_type
+        topology["state"] = "ACTIVE"
+        # Pack edge metadata into JSON payload
+        edge_payload = {
+            "source_id": source_id,
+            "target_id": target_id,
+            "edge_type": edge_type,
+            "attributes": attrs or {}
+        }
+        topology["metadata"] = json.dumps(edge_payload)
+        self.dds.graph_topology_writer.write(topology)
+        logger.debug(f"GraphMonitor: Published unified GraphTopology EDGE {source_id} -> {target_id}")
+
+        # NEW: Publish to unified MonitoringEventUnified topic (kind=LIFECYCLE for edge discovery)
+        unified_event = dds.DynamicData(self.dds.monitoring_event_unified_type)
+        unified_event["event_id"] = str(uuid.uuid4())
+        unified_event["kind"] = 1  # LIFECYCLE (edge discovery is a lifecycle event)
+        unified_event["timestamp"] = int(time.time() * 1000)
+        unified_event["component_id"] = source_id
+        unified_event["severity"] = "INFO"
+        unified_event["message"] = f"Edge {edge_type}: {source_id[:8]} -> {target_id[:8]}"
+        # Pack edge discovery data into payload
+        edge_event_payload = {
+            "event_category": "EDGE_DISCOVERY",
+            "source_id": source_id,
+            "target_id": target_id,
+            "edge_type": edge_type,
+            "attributes": attrs or {}
+        }
+        unified_event["payload"] = json.dumps(edge_event_payload)
+        self.dds.monitoring_event_unified_writer.write(unified_event)
 
         # Optionally emit legacy MonitoringEvent
         if self.dds.legacy_enabled:

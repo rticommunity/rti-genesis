@@ -191,6 +191,28 @@ class MonitoredAgent(GenesisAgent):
                 qos=writer_qos
             )
             
+            # NEW: Create unified monitoring event writer (Phase 2: Dual-publishing)
+            self.unified_event_type = self.type_provider.type("genesis_lib", "MonitoringEventUnified")
+            try:
+                self.unified_event_topic = dds.DynamicData.Topic(
+                    self.app.participant,
+                    "rti/connext/genesis/monitoring/Event",
+                    self.unified_event_type
+                )
+            except Exception:
+                # Topic already exists, find it
+                self.unified_event_topic = dds.Topic.find(
+                    self.app.participant, "rti/connext/genesis/monitoring/Event"
+                )
+            volatile_qos = dds.QosProvider.default.datawriter_qos
+            volatile_qos.durability.kind = dds.DurabilityKind.VOLATILE
+            volatile_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
+            self.unified_event_writer = dds.DynamicData.DataWriter(
+                pub=self.monitoring_publisher,
+                topic=self.unified_event_topic,
+                qos=volatile_qos
+            )
+            
             logger.debug("Monitoring setup completed successfully")
             
         except Exception as e:
@@ -496,6 +518,35 @@ class MonitoredAgent(GenesisAgent):
         chain_event["status"] = status
         self.chain_event_writer.write(chain_event)
         self.chain_event_writer.flush()
+        
+        # NEW: Publish to unified MonitoringEventUnified (kind=CHAIN)
+        if hasattr(self, 'unified_event_writer') and self.unified_event_writer:
+            try:
+                unified_event = dds.DynamicData(self.unified_event_type)
+                unified_event["event_id"] = call_id
+                unified_event["kind"] = 0  # CHAIN
+                unified_event["timestamp"] = int(time.time() * 1000)
+                unified_event["component_id"] = source_id
+                unified_event["severity"] = "INFO"
+                unified_event["message"] = f"Agent chain event: {event_type}"
+                # Pack ChainEvent data into payload
+                chain_payload = {
+                    "chain_id": chain_id,
+                    "call_id": call_id,
+                    "interface_id": str(self.app.participant.instance_handle),
+                    "primary_agent_id": self.app.agent_id,
+                    "specialized_agent_ids": target_id if target_id != self.app.agent_id else "",
+                    "function_id": "agent_communication",
+                    "query_id": call_id,
+                    "event_type": event_type,
+                    "source_id": source_id,
+                    "target_id": target_id,
+                    "status": status
+                }
+                unified_event["payload"] = json.dumps(chain_payload)
+                self.unified_event_writer.write(unified_event)
+            except Exception:
+                pass
 
     def _publish_llm_call_start(self, chain_id: str, call_id: str, model_identifier: str):
         """Publish a chain event for LLM call start"""
@@ -816,6 +867,32 @@ class MonitoredAgent(GenesisAgent):
             self.monitoring_writer.write(event)
             self.monitoring_writer.flush()
             logger.debug(f"Published monitoring event: {event_type}")
+            
+            # NEW: Publish to unified MonitoringEventUnified (kind=GENERAL)
+            if hasattr(self, 'unified_event_writer') and self.unified_event_writer:
+                try:
+                    unified_event = dds.DynamicData(self.unified_event_type)
+                    unified_event["event_id"] = str(uuid.uuid4())
+                    unified_event["kind"] = 2  # GENERAL
+                    unified_event["timestamp"] = int(time.time() * 1000)
+                    unified_event["component_id"] = self.agent_name
+                    unified_event["severity"] = "INFO"
+                    unified_event["message"] = event_type
+                    # Pack all monitoring data into payload
+                    general_payload = {
+                        "event_type": event_type,
+                        "entity_type": self.agent_type,
+                        "entity_id": self.agent_name,
+                        "metadata": metadata or {},
+                        "call_data": call_data or {},
+                        "result_data": result_data or {},
+                        "status_data": status_data or {}
+                    }
+                    unified_event["payload"] = json.dumps(general_payload)
+                    self.unified_event_writer.write(unified_event)
+                    logger.debug(f"Published unified monitoring event: {event_type}")
+                except Exception as unified_err:
+                    logger.error(f"Error publishing unified monitoring event: {str(unified_err)}")
             
         except Exception as e:
             logger.error(f"Error publishing monitoring event: {str(e)}")
