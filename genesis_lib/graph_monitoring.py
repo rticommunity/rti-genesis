@@ -90,42 +90,22 @@ class _DDSWriters:
         self.type_provider = dds.QosProvider(config_path)
         self.participant = participant
         self.publisher = dds.Publisher(self.participant)
-        # Topics
-        self.component_lifecycle_type = self.type_provider.type("genesis_lib", "ComponentLifecycleEvent")
-        self.component_lifecycle_topic = dds.DynamicData.Topic(
-            self.participant, "rti/connext/genesis/monitoring/ComponentLifecycleEvent", self.component_lifecycle_type
-        )
-        # Writers
-        writer_qos = dds.QosProvider.default.datawriter_qos
-        # Lifecycle is an event stream: make it VOLATILE (no history backfill)
-        writer_qos.durability.kind = dds.DurabilityKind.VOLATILE
-        writer_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
-        self.component_lifecycle_writer = dds.DynamicData.DataWriter(
-            pub=self.publisher,
-            topic=self.component_lifecycle_topic,
-            qos=writer_qos
-        )
-        # Durable Graph topology writers (node/edge)
-        self.graph_node_type = self.type_provider.type("genesis_lib", "GenesisGraphNode")
-        self.graph_edge_type = self.type_provider.type("genesis_lib", "GenesisGraphEdge")
-        self.graph_node_topic = dds.DynamicData.Topic(self.participant, "rti/connext/genesis/monitoring/GenesisGraphNode", self.graph_node_type)
-        self.graph_edge_topic = dds.DynamicData.Topic(self.participant, "rti/connext/genesis/monitoring/GenesisGraphEdge", self.graph_edge_type)
+        
+        # UNIFIED MONITORING TOPICS (Phase 7: V2 Only)
+        # Multiple components in the same process share the same participant.
+        # Use shared topic registry to avoid "topic name not unique" errors.
+        
+        participant_id = id(self.participant)
+        
+        # QoS for durable topology (GraphTopologyV2)
         durable_qos = dds.QosProvider.default.datawriter_qos
         durable_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
         durable_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
         durable_qos.history.kind = dds.HistoryKind.KEEP_LAST
         durable_qos.history.depth = 1
-        self.graph_node_writer = dds.DynamicData.DataWriter(pub=self.publisher, topic=self.graph_node_topic, qos=durable_qos)
-        self.graph_edge_writer = dds.DynamicData.DataWriter(pub=self.publisher, topic=self.graph_edge_topic, qos=durable_qos)
-        
-        # NEW UNIFIED MONITORING TOPICS (Phase 2: Dual-publishing)
-        # TRANSITION STRATEGY: Use versioned topic names (V2) during dual-publishing phase
-        # IMPORTANT: Multiple components in the same process share the same participant.
-        # If topic already exists, find and reuse it (though GraphMonitor is usually first).
         
         # GraphTopologyV2 (durable) - consolidates GenesisGraphNode + GenesisGraphEdge
         self.graph_topology_type = self.type_provider.type("genesis_lib", "GraphTopology")
-        participant_id = id(self.participant)
         topology_key = (participant_id, "GraphTopologyV2")
         
         if topology_key in _UNIFIED_TOPIC_REGISTRY:
@@ -162,19 +142,6 @@ class _DDSWriters:
         self.monitoring_event_unified_writer = dds.DynamicData.DataWriter(
             pub=self.publisher, topic=self.monitoring_event_unified_topic, qos=volatile_qos
         )
-        
-        # Optional legacy MonitoringEvent
-        self.legacy_enabled = os.environ.get("GENESIS_MON_LEGACY", "0") == "1"
-        if self.legacy_enabled:
-            self.monitoring_type = self.type_provider.type("genesis_lib", "MonitoringEvent")
-            self.monitoring_topic = dds.DynamicData.Topic(
-                self.participant, "rti/connext/genesis/monitoring/MonitoringEvent", self.monitoring_type
-            )
-            self.monitoring_writer = dds.DynamicData.DataWriter(
-                pub=self.publisher,
-                topic=self.monitoring_topic,
-                qos=writer_qos
-            )
 
     @classmethod
     def get(cls, participant):
@@ -212,30 +179,7 @@ class GraphMonitor:
         state: int (see STATE)
         attrs: dict (arbitrary metadata)
         """
-        event = dds.DynamicData(self.dds.component_lifecycle_type)
-        # Set all fields in the exact order as in the IDL
-        event["component_id"] = component_id
-        event["component_type"] = int(component_type)
-        event["previous_state"] = int(state)
-        event["new_state"] = int(state)
-        event["timestamp"] = int(time.time() * 1000)
-        event["reason"] = attrs.get("reason", "") if attrs else ""
-        event["capabilities"] = json.dumps(attrs) if attrs else ""
-        event["chain_id"] = ""
-        event["call_id"] = ""
-        event["event_category"] = int(EVENT_CATEGORY["NODE_DISCOVERY"])
-        event["source_id"] = component_id
-        event["target_id"] = component_id
-        event["connection_type"] = ""
-        self.dds.component_lifecycle_writer.write(event)
-        self.dds.component_lifecycle_writer.flush()
-        logger.info(f"GraphMonitor: Published NODE {component_id} type={component_type} state={state}")
-        print(f"GraphMonitor: Published NODE {component_id} type={component_type} state={state}")
-
-        # Durable node update
-        node = dds.DynamicData(self.dds.graph_node_type)
-        node["node_id"] = component_id
-        # Map integer to string for node_type/state in durable topic
+        # Map integer to string for node_type/state
         node_type_str = "UNKNOWN"
         try:
             node_type_str = [k for k, v in COMPONENT_TYPE.items() if v == int(component_type)][0]
@@ -246,14 +190,8 @@ class GraphMonitor:
             state_str = [k for k, v in STATE.items() if v == int(state)][0]
         except Exception:
             pass
-        node["node_type"] = node_type_str
-        node["node_state"] = state_str
-        node["node_name"] = self._derive_node_name(component_type, attrs, component_id)
-        node["metadata"] = json.dumps(attrs or {})
-        node["timestamp"] = int(time.time() * 1000)
-        self.dds.graph_node_writer.write(node)
 
-        # NEW: Publish to unified GraphTopology topic (kind=NODE)
+        # Publish to unified GraphTopology topic (kind=NODE)
         topology = dds.DynamicData(self.dds.graph_topology_type)
         topology["element_id"] = component_id
         topology["kind"] = 0  # NODE
@@ -269,9 +207,9 @@ class GraphMonitor:
         }
         topology["metadata"] = json.dumps(node_payload)
         self.dds.graph_topology_writer.write(topology)
-        logger.debug(f"GraphMonitor: Published unified GraphTopology NODE {component_id}")
+        logger.info(f"GraphMonitor: Published NODE {component_id} type={node_type_str} state={state_str}")
 
-        # NEW: Publish to unified MonitoringEventUnified topic (kind=LIFECYCLE)
+        # Publish to unified EventV2 topic (kind=LIFECYCLE)
         unified_event = dds.DynamicData(self.dds.monitoring_event_unified_type)
         unified_event["event_id"] = str(uuid.uuid4())
         unified_event["kind"] = 1  # LIFECYCLE
@@ -290,10 +228,6 @@ class GraphMonitor:
         unified_event["payload"] = json.dumps(lifecycle_payload)
         self.dds.monitoring_event_unified_writer.write(unified_event)
 
-        # Optionally emit legacy MonitoringEvent
-        if self.dds.legacy_enabled:
-            self._publish_legacy_monitoring_event(component_id, component_type, state, attrs)
-
     def publish_edge(self, source_id, target_id, edge_type, attrs=None, component_type=None):
         """
         Publish an edge (connection) between two nodes.
@@ -301,41 +235,9 @@ class GraphMonitor:
         target_id: str (GUID or UUID)
         edge_type: str (see EDGE_TYPE)
         attrs: dict (arbitrary metadata)
-        component_type: int (see COMPONENT_TYPE) - type of the source node (REQUIRED)
+        component_type: int (see COMPONENT_TYPE) - type of the source node (optional)
         """
-        if component_type is None:
-            # Default to INTERFACE if not specified, but this should be set by caller
-            component_type = COMPONENT_TYPE["INTERFACE"]
-        event = dds.DynamicData(self.dds.component_lifecycle_type)
-        # Set all fields in the exact order as in the IDL
-        event["component_id"] = source_id
-        event["component_type"] = int(component_type)
-        event["previous_state"] = int(STATE["DISCOVERING"])
-        event["new_state"] = int(STATE["DISCOVERING"])
-        event["timestamp"] = int(time.time() * 1000)
-        event["reason"] = attrs.get("reason", "") if attrs else ""
-        event["capabilities"] = json.dumps(attrs) if attrs else ""
-        event["chain_id"] = ""
-        event["call_id"] = ""
-        event["event_category"] = int(EVENT_CATEGORY["EDGE_DISCOVERY"])
-        event["source_id"] = source_id
-        event["target_id"] = target_id
-        event["connection_type"] = edge_type
-        self.dds.component_lifecycle_writer.write(event)
-        self.dds.component_lifecycle_writer.flush()
-        logger.info(f"GraphMonitor: Published EDGE {source_id} -> {target_id} type={edge_type}")
-        print(f"GraphMonitor: Published EDGE {source_id} -> {target_id} type={edge_type}")
-
-        # Durable edge update
-        edge = dds.DynamicData(self.dds.graph_edge_type)
-        edge["source_id"] = source_id
-        edge["target_id"] = target_id
-        edge["edge_type"] = edge_type
-        edge["metadata"] = json.dumps(attrs or {})
-        edge["timestamp"] = int(time.time() * 1000)
-        self.dds.graph_edge_writer.write(edge)
-
-        # NEW: Publish to unified GraphTopology topic (kind=EDGE)
+        # Publish to unified GraphTopology topic (kind=EDGE)
         topology = dds.DynamicData(self.dds.graph_topology_type)
         # Use compound ID for edges: source_id|target_id|edge_type
         edge_id = f"{source_id}|{target_id}|{edge_type}"
@@ -354,9 +256,9 @@ class GraphMonitor:
         }
         topology["metadata"] = json.dumps(edge_payload)
         self.dds.graph_topology_writer.write(topology)
-        logger.debug(f"GraphMonitor: Published unified GraphTopology EDGE {source_id} -> {target_id}")
+        logger.info(f"GraphMonitor: Published EDGE {source_id} -> {target_id} type={edge_type}")
 
-        # NEW: Publish to unified MonitoringEventUnified topic (kind=LIFECYCLE for edge discovery)
+        # Publish to unified EventV2 topic (kind=LIFECYCLE for edge discovery)
         unified_event = dds.DynamicData(self.dds.monitoring_event_unified_type)
         unified_event["event_id"] = str(uuid.uuid4())
         unified_event["kind"] = 1  # LIFECYCLE (edge discovery is a lifecycle event)
@@ -374,29 +276,6 @@ class GraphMonitor:
         }
         unified_event["payload"] = json.dumps(edge_event_payload)
         self.dds.monitoring_event_unified_writer.write(unified_event)
-
-        # Optionally emit legacy MonitoringEvent
-        if self.dds.legacy_enabled:
-            self._publish_legacy_monitoring_event(source_id, -1, STATE["DISCOVERING"], attrs, edge=True, target_id=target_id, edge_type=edge_type)
-
-    def _publish_legacy_monitoring_event(self, entity_id, entity_type, state, attrs, edge=False, target_id=None, edge_type=None):
-        """
-        Optionally publish a legacy MonitoringEvent for backward compatibility.
-        """
-        if not hasattr(self.dds, "monitoring_writer"):
-            return
-        event = dds.DynamicData(self.dds.monitoring_type)
-        event["event_id"] = str(uuid.uuid4())
-        event["timestamp"] = int(time.time() * 1000)
-        event["event_type"] = 0 if not edge else 1  # 0=node, 1=edge
-        event["entity_type"] = entity_type
-        event["entity_id"] = entity_id
-        if attrs:
-            event["metadata"] = json.dumps(attrs)
-        if edge and target_id:
-            event["call_data"] = json.dumps({"target_id": target_id, "edge_type": edge_type})
-        self.dds.monitoring_writer.write(event)
-        logger.debug(f"GraphMonitor: Published legacy MonitoringEvent for {'EDGE' if edge else 'NODE'} {entity_id}")
 
 # Export enums for import convenience
 __all__ = [
