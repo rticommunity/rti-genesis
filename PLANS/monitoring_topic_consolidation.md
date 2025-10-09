@@ -1,7 +1,7 @@
 # Monitoring Topic Consolidation Plan
 
-**Date:** October 8, 2025  
-**Status:** Planning Phase  
+**Date:** October 8-9, 2025  
+**Status:** Phase 5 Complete - V2 Subscribers Operational  
 **Goal:** Consolidate 5 monitoring topics into unified architecture
 
 ---
@@ -477,28 +477,30 @@ The monitoring consolidation will break anything that subscribes to the old 5 to
 - [ ] Update example READMEs if env vars change
 - [ ] Ensure examples work on both `rc1` and eventually `main`
 
-### Phase 5: Update Subscribers
+### Phase 5: Update Subscribers ✅ **COMPLETE**
 
-#### 5.1: Update `graph_state.py` (`GraphSubscriber`)
+#### 5.1: Update `graph_state.py` (`GraphSubscriber`) ✅
 **Critical:** This is the core subscriber that feeds the visualization stack
 
-- [ ] Add command-line or env var flag: `GENESIS_USE_NEW_MONITORING_TOPICS` (default: `false`)
-- [ ] **When flag=false (old topics):**
-  - [ ] Subscribe to ComponentLifecycleEvent (volatile) ✅ current
-  - [ ] Subscribe to GenesisGraphNode (durable) ✅ current
-  - [ ] Subscribe to GenesisGraphEdge (durable) ✅ current
-  - [ ] Subscribe to ChainEvent (volatile) ✅ current
+- [x] Add command-line or env var flag: `USE_UNIFIED_MONITORING_V2` (default: `false`)
+- [x] **When flag=false (old topics):**
+  - [x] Subscribe to ComponentLifecycleEvent (volatile) ✅ current
+  - [x] Subscribe to GenesisGraphNode (durable) ✅ current
+  - [x] Subscribe to GenesisGraphEdge (durable) ✅ current
+  - [x] Subscribe to ChainEvent (volatile) ✅ current
 
-- [ ] **When flag=true (new topics):**
-  - [ ] Subscribe to GraphTopology (durable) **NEW**
-  - [ ] Subscribe to MonitoringEventUnified (volatile) **NEW**
-  - [ ] Filter by `kind` field to route events correctly
-  - [ ] Map GraphTopology → node_update/edge_update events
-  - [ ] Map MonitoringEventUnified(kind=LIFECYCLE) → node state changes
-  - [ ] Map MonitoringEventUnified(kind=CHAIN) → activity events
+- [x] **When flag=true (new topics):**
+  - [x] Subscribe to GraphTopologyV2 (durable) **NEW** ✅
+  - [x] Subscribe to EventV2 (volatile) with ContentFilteredTopic for CHAIN **NEW** ✅
+  - [x] Filter by `kind` field to route events correctly ✅
+  - [x] Map GraphTopologyV2(kind=NODE) → node_update events ✅
+  - [x] Map GraphTopologyV2(kind=EDGE) → edge_update events ✅
+  - [x] Map EventV2(kind=CHAIN) → activity events ✅
+  - [x] Handle NOT_ALIVE instance states for node/edge removals ✅
 
-- [ ] Verify internal `GenesisNetworkGraph` receives identical updates from both paths
-- [ ] Verify late-joiner scenario works with new durable GraphTopology topic
+- [x] Verify internal `GenesisNetworkGraph` receives identical updates from both paths ✅
+- [x] Verify late-joiner scenario works with new durable GraphTopologyV2 topic ✅
+- [x] **Tested:** 26 node updates, 24 edge updates received from V2 topics ✅
 
 #### 5.2: Update `genesis_monitoring.py` (`MonitoringSubscriber`)
 **Lower priority:** This is for standalone monitoring, not critical for visualization
