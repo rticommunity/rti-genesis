@@ -38,6 +38,14 @@ EVENT_TYPE_MAP = {
     "AGENT_STATUS": 3      # FUNCTION_STATUS enum value
 }
 
+# Reverse mapping: enum value -> enum name (for consistent EventV2 message field)
+EVENT_TYPE_ENUM_NAMES = {
+    0: "FUNCTION_DISCOVERY",
+    1: "FUNCTION_CALL",
+    2: "FUNCTION_RESULT",
+    3: "FUNCTION_STATUS"
+}
+
 # Agent type mapping
 AGENT_TYPE_MAP = {
     "AGENT": 1,            # PRIMARY_AGENT
@@ -880,13 +888,16 @@ class MonitoredAgent(GenesisAgent):
             # NEW: Publish to unified MonitoringEventUnified (kind=GENERAL)
             if hasattr(self, 'unified_event_writer') and self.unified_event_writer:
                 try:
+                    print(f"🔵 MonitoredAgent: Publishing MonitoringEvent to EventV2: {event_type}")
                     unified_event = dds.DynamicData(self.unified_event_type)
                     unified_event["event_id"] = str(uuid.uuid4())
                     unified_event["kind"] = 2  # GENERAL
                     unified_event["timestamp"] = int(time.time() * 1000)
                     unified_event["component_id"] = self.agent_name
                     unified_event["severity"] = "INFO"
-                    unified_event["message"] = event_type
+                    # Use enum name for consistency with old MonitoringEvent
+                    enum_value = EVENT_TYPE_MAP.get(event_type, 0)
+                    unified_event["message"] = EVENT_TYPE_ENUM_NAMES.get(enum_value, event_type)
                     # Pack all monitoring data into payload
                     general_payload = {
                         "event_type": event_type,
@@ -899,9 +910,14 @@ class MonitoredAgent(GenesisAgent):
                     }
                     unified_event["payload"] = json.dumps(general_payload)
                     self.unified_event_writer.write(unified_event)
+                    self.unified_event_writer.flush()
+                    print(f"✅ MonitoredAgent: MonitoringEvent published to EventV2: {event_type}")
                     logger.debug(f"Published unified monitoring event: {event_type}")
                 except Exception as unified_err:
+                    print(f"❌ MonitoredAgent: ERROR publishing to EventV2: {str(unified_err)}")
                     logger.error(f"Error publishing unified monitoring event: {str(unified_err)}")
+            else:
+                print(f"⚠️  MonitoredAgent: unified_event_writer not available for {event_type}")
             
         except Exception as e:
             logger.error(f"Error publishing monitoring event: {str(e)}")

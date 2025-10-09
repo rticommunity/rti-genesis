@@ -118,11 +118,11 @@ def normalize_lifecycle_key(sample: Sample) -> str:
     return f"{component_id}:{timestamp}:{new_state}"
 
 def normalize_monitoring_key(sample: Sample) -> str:
-    """Extract unique key for general monitoring event samples."""
-    component_id = sample.data.get('component_id', '')
+    """Extract unique key for general monitoring event samples (old MonitoringEvent)."""
+    entity_id = sample.data.get('entity_id', '')
     timestamp = sample.data.get('timestamp', '')
-    severity = sample.data.get('severity', '')
-    return f"{component_id}:{timestamp}:{severity}"
+    event_type = sample.data.get('event_type', '')
+    return f"{entity_id}:{timestamp}:{event_type}"
 
 def match_topology_samples(old_nodes: List[Sample], old_edges: List[Sample], 
                            new_topology: List[Sample]) -> Tuple[List, List, List]:
@@ -251,8 +251,10 @@ def match_event_samples(old_chain: List[Sample], old_lifecycle: List[Sample],
         elif kind_val in ('2', 'GENERAL'):  # GENERAL
             component_id = new_sample.data.get('component_id', '')
             timestamp = new_sample.data.get('timestamp', '')
-            severity = new_sample.data.get('severity', '')
-            key = f"{component_id}:{timestamp}:{severity}"
+            message = new_sample.data.get('message', '')  # message contains event_type
+            # Old MonitoringEvent key: entity_id:timestamp:event_type
+            # New EventV2 key: component_id:timestamp:message (message = event_type)
+            key = f"{component_id}:{timestamp}:{message}"
             
             if key in old_keys['GENERAL']:
                 matched.append((old_keys['GENERAL'][key], new_sample))
