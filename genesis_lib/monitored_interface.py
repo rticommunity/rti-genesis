@@ -85,7 +85,7 @@ class MonitoredInterface(GenesisInterface):
             from genesis_lib.utils import get_datamodel_path  # type: ignore
             provider = dds.QosProvider(get_datamodel_path())
             
-            # Create unified monitoring event writer (EventV2)
+            # Create unified monitoring event writer (Event)
             # Use shared topic registry to avoid creating the same topic twice.
             from genesis_lib.graph_monitoring import _UNIFIED_TOPIC_REGISTRY
             
@@ -95,17 +95,17 @@ class MonitoredInterface(GenesisInterface):
             
             unified_type = provider.type("genesis_lib", "MonitoringEventUnified")
             participant_id = id(self.app.participant)
-            event_key = (participant_id, "EventV2")
+            event_key = (participant_id, "Event")
             
             if event_key in _UNIFIED_TOPIC_REGISTRY:
                 unified_topic = _UNIFIED_TOPIC_REGISTRY[event_key]
-                logger.debug("MonitoredInterface: Reusing EventV2 topic from shared registry")
+                logger.debug("MonitoredInterface: Reusing Event topic from shared registry")
             else:
                 unified_topic = dds.DynamicData.Topic(
-                    self.app.participant, "rti/connext/genesis/monitoring/EventV2", unified_type
+                    self.app.participant, "rti/connext/genesis/monitoring/Event", unified_type
                 )
                 _UNIFIED_TOPIC_REGISTRY[event_key] = unified_topic
-                logger.debug("MonitoredInterface: Created and registered EventV2 topic")
+                logger.debug("MonitoredInterface: Created and registered Event topic")
             
             self._unified_event_type = unified_type
             self._unified_event_writer = dds.DynamicData.DataWriter(
@@ -145,10 +145,10 @@ class MonitoredInterface(GenesisInterface):
                 listener=_ReplyListener(self, asyncio.get_running_loop()),
                 mask=dds.StatusMask.DATA_AVAILABLE
             )
-            logger.info("MonitoredInterface: EventV2 ChainEvent monitoring setup successful")
+            logger.info("MonitoredInterface: Event ChainEvent monitoring setup successful")
         except Exception as e:
             # Chain overlay is optional; continue without it if DDS setup fails
-            logger.warning(f"MonitoredInterface: EventV2 setup FAILED: {e}")
+            logger.warning(f"MonitoredInterface: Event setup FAILED: {e}")
             import traceback
             traceback.print_exc()
             self._unified_event_writer = None
@@ -242,7 +242,7 @@ class MonitoredInterface(GenesisInterface):
 
     @monitor_method("INTERFACE_REQUEST")
     async def send_request(self, request_data: Dict[str, Any], timeout_seconds: float = 10.0) -> Optional[Dict[str, Any]]:
-        # Emit ChainEvent start to EventV2 (optional)
+        # Emit ChainEvent start to Event (optional)
         # Prepare completion event for strict sequencing
         try:
             self._last_complete_event = asyncio.Event()
@@ -255,7 +255,7 @@ class MonitoredInterface(GenesisInterface):
                 chain_id = str(_uuid.uuid4())
                 call_id = str(_uuid.uuid4())
                 
-                # Publish to unified EventV2 (kind=CHAIN)
+                # Publish to unified Event (kind=CHAIN)
                 unified_ev = dds.DynamicData(self._unified_event_type)
                 unified_ev["event_id"] = call_id
                 unified_ev["kind"] = 0  # CHAIN
@@ -280,7 +280,7 @@ class MonitoredInterface(GenesisInterface):
                 unified_ev["payload"] = json.dumps(chain_payload)
                 self._unified_event_writer.write(unified_ev)
                 self._unified_event_writer.flush()
-                logger.debug("ChainEvent START published to EventV2")
+                logger.debug("ChainEvent START published to Event")
                 
                 # Persist IDs for completion correlation
                 self._last_chain_id = chain_id
@@ -291,7 +291,7 @@ class MonitoredInterface(GenesisInterface):
         # Wait for the final reply (GenesisInterface drains any extra replies briefly)
         result = await super().send_request(request_data, timeout_seconds)
 
-        # Emit ChainEvent complete to EventV2 (optional) at the precise return point
+        # Emit ChainEvent complete to Event (optional) at the precise return point
         if self._unified_event_writer is not None:
             try:
                 import rti.connextdds as dds  # type: ignore
@@ -299,7 +299,7 @@ class MonitoredInterface(GenesisInterface):
                 chain_id = getattr(self, "_last_chain_id", None) or str(_uuid.uuid4())
                 call_id = getattr(self, "_last_call_id", None) or str(_uuid.uuid4())
                 
-                # Publish to unified EventV2 (kind=CHAIN)
+                # Publish to unified Event (kind=CHAIN)
                 unified_ev = dds.DynamicData(self._unified_event_type)
                 unified_ev["event_id"] = call_id
                 unified_ev["kind"] = 0  # CHAIN
@@ -324,7 +324,7 @@ class MonitoredInterface(GenesisInterface):
                 unified_ev["payload"] = json.dumps(chain_payload)
                 self._unified_event_writer.write(unified_ev)
                 self._unified_event_writer.flush()
-                logger.debug("ChainEvent COMPLETE published to EventV2")
+                logger.debug("ChainEvent COMPLETE published to Event")
                 
                 # Clear persisted IDs
                 try:

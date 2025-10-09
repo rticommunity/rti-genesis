@@ -97,44 +97,44 @@ class _DDSWriters:
         
         participant_id = id(self.participant)
         
-        # QoS for durable topology (GraphTopologyV2)
+        # QoS for durable topology (GraphTopology)
         durable_qos = dds.QosProvider.default.datawriter_qos
         durable_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
         durable_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
         durable_qos.history.kind = dds.HistoryKind.KEEP_LAST
         durable_qos.history.depth = 1
         
-        # GraphTopologyV2 (durable) - consolidates GenesisGraphNode + GenesisGraphEdge
+        # GraphTopology (durable) - consolidates GenesisGraphNode + GenesisGraphEdge
         self.graph_topology_type = self.type_provider.type("genesis_lib", "GraphTopology")
-        topology_key = (participant_id, "GraphTopologyV2")
+        topology_key = (participant_id, "GraphTopology")
         
         if topology_key in _UNIFIED_TOPIC_REGISTRY:
             self.graph_topology_topic = _UNIFIED_TOPIC_REGISTRY[topology_key]
-            logger.debug("GraphMonitor: Reusing GraphTopologyV2 topic from registry")
+            logger.debug("GraphMonitor: Reusing GraphTopology topic from registry")
         else:
             self.graph_topology_topic = dds.DynamicData.Topic(
-                self.participant, "rti/connext/genesis/monitoring/GraphTopologyV2", self.graph_topology_type
+                self.participant, "rti/connext/genesis/monitoring/GraphTopology", self.graph_topology_type
             )
             _UNIFIED_TOPIC_REGISTRY[topology_key] = self.graph_topology_topic
-            logger.debug("GraphMonitor: Created and registered GraphTopologyV2 topic")
+            logger.debug("GraphMonitor: Created and registered GraphTopology topic")
         
         self.graph_topology_writer = dds.DynamicData.DataWriter(
             pub=self.publisher, topic=self.graph_topology_topic, qos=durable_qos
         )
         
-        # EventV2 (volatile) - consolidates ChainEvent + ComponentLifecycleEvent + MonitoringEvent
+        # Event (volatile) - consolidates ChainEvent + ComponentLifecycleEvent + MonitoringEvent
         self.monitoring_event_unified_type = self.type_provider.type("genesis_lib", "MonitoringEventUnified")
-        event_key = (participant_id, "EventV2")
+        event_key = (participant_id, "Event")
         
         if event_key in _UNIFIED_TOPIC_REGISTRY:
             self.monitoring_event_unified_topic = _UNIFIED_TOPIC_REGISTRY[event_key]
-            logger.debug("GraphMonitor: Reusing EventV2 topic from registry")
+            logger.debug("GraphMonitor: Reusing Event topic from registry")
         else:
             self.monitoring_event_unified_topic = dds.DynamicData.Topic(
-                self.participant, "rti/connext/genesis/monitoring/EventV2", self.monitoring_event_unified_type
+                self.participant, "rti/connext/genesis/monitoring/Event", self.monitoring_event_unified_type
             )
             _UNIFIED_TOPIC_REGISTRY[event_key] = self.monitoring_event_unified_topic
-            logger.debug("GraphMonitor: Created and registered EventV2 topic")
+            logger.debug("GraphMonitor: Created and registered Event topic")
         
         volatile_qos = dds.QosProvider.default.datawriter_qos
         volatile_qos.durability.kind = dds.DurabilityKind.VOLATILE
@@ -209,7 +209,7 @@ class GraphMonitor:
         self.dds.graph_topology_writer.write(topology)
         logger.info(f"GraphMonitor: Published NODE {component_id} type={node_type_str} state={state_str}")
 
-        # Publish to unified EventV2 topic (kind=LIFECYCLE)
+        # Publish to unified Event topic (kind=LIFECYCLE)
         unified_event = dds.DynamicData(self.dds.monitoring_event_unified_type)
         unified_event["event_id"] = str(uuid.uuid4())
         unified_event["kind"] = 1  # LIFECYCLE
@@ -258,7 +258,7 @@ class GraphMonitor:
         self.dds.graph_topology_writer.write(topology)
         logger.info(f"GraphMonitor: Published EDGE {source_id} -> {target_id} type={edge_type}")
 
-        # Publish to unified EventV2 topic (kind=LIFECYCLE for edge discovery)
+        # Publish to unified Event topic (kind=LIFECYCLE for edge discovery)
         unified_event = dds.DynamicData(self.dds.monitoring_event_unified_type)
         unified_event["event_id"] = str(uuid.uuid4())
         unified_event["kind"] = 1  # LIFECYCLE (edge discovery is a lifecycle event)

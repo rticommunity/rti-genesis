@@ -43,7 +43,7 @@ EXTRA_AGENT_CMDS=()
 export PYTHONPATH="${ROOT_DIR}:${PYTHONPATH:-}"
 
 # Enable V2 unified monitoring topics by default
-export USE_UNIFIED_MONITORING_V2=true
+# Using unified monitoring topics (GraphTopology, Event) by default
 
 # --------------------------- Arg Parsing --------------------------------- #
 usage() {

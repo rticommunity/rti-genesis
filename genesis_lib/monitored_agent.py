@@ -38,7 +38,7 @@ EVENT_TYPE_MAP = {
     "AGENT_STATUS": 3      # FUNCTION_STATUS enum value
 }
 
-# Reverse mapping: enum value -> enum name (for consistent EventV2 message field)
+# Reverse mapping: enum value -> enum name (for consistent Event message field)
 EVENT_TYPE_ENUM_NAMES = {
     0: "FUNCTION_DISCOVERY",
     1: "FUNCTION_CALL",
@@ -166,25 +166,25 @@ class MonitoredAgent(GenesisAgent):
                 qos=publisher_qos
             )
             
-            # Create unified monitoring event writer (EventV2)
+            # Create unified monitoring event writer (Event)
             # Use shared topic registry to avoid creating the same topic twice.
             from genesis_lib.graph_monitoring import _UNIFIED_TOPIC_REGISTRY
             
             self.unified_event_type = self.type_provider.type("genesis_lib", "MonitoringEventUnified")
             participant_id = id(self.app.participant)
-            event_key = (participant_id, "EventV2")
+            event_key = (participant_id, "Event")
             
             if event_key in _UNIFIED_TOPIC_REGISTRY:
                 self.unified_event_topic = _UNIFIED_TOPIC_REGISTRY[event_key]
-                logger.debug("MonitoredAgent: Reusing EventV2 topic from shared registry")
+                logger.debug("MonitoredAgent: Reusing Event topic from shared registry")
             else:
                 self.unified_event_topic = dds.DynamicData.Topic(
                     self.app.participant,
-                    "rti/connext/genesis/monitoring/EventV2",
+                    "rti/connext/genesis/monitoring/Event",
                     self.unified_event_type
                 )
                 _UNIFIED_TOPIC_REGISTRY[event_key] = self.unified_event_topic
-                logger.debug("MonitoredAgent: Created and registered EventV2 topic")
+                logger.debug("MonitoredAgent: Created and registered Event topic")
             
             volatile_qos = dds.QosProvider.default.datawriter_qos
             volatile_qos.durability.kind = dds.DurabilityKind.VOLATILE
@@ -195,7 +195,7 @@ class MonitoredAgent(GenesisAgent):
                 qos=volatile_qos
             )
             
-            logger.info("MonitoredAgent: EventV2 monitoring setup completed successfully")
+            logger.info("MonitoredAgent: Event monitoring setup completed successfully")
             
         except Exception as e:
             logger.error(f"MonitoredAgent: Error setting up monitoring: {str(e)}")
@@ -479,7 +479,7 @@ class MonitoredAgent(GenesisAgent):
 
     def _publish_agent_chain_event(self, chain_id: str, call_id: str, event_type: str,
                                    source_id: str, target_id: str, status: int = 0):
-        """Publish chain event for agent-to-agent interactions to EventV2"""
+        """Publish chain event for agent-to-agent interactions to Event"""
         if not hasattr(self, "unified_event_writer") or not self.unified_event_writer:
             return
         try:
@@ -512,23 +512,23 @@ class MonitoredAgent(GenesisAgent):
             pass
 
     def _publish_llm_call_start(self, chain_id: str, call_id: str, model_identifier: str):
-        """Publish a chain event for LLM call start (TODO: Implement for EventV2)"""
-        pass  # TODO: Implement for EventV2
+        """Publish a chain event for LLM call start (TODO: Implement for Event)"""
+        pass  # TODO: Implement for Event
 
     def _publish_llm_call_complete(self, chain_id: str, call_id: str, model_identifier: str):
         """Publish a chain event for LLM call completion"""
-        pass  # TODO: Implement for EventV2
+        pass  # TODO: Implement for Event
 
     def _publish_classification_result(self, chain_id: str, call_id: str, classified_function_name: str, classified_function_id: str):
         """Publish a chain event for function classification result"""
-        pass  # TODO: Implement for EventV2
+        pass  # TODO: Implement for Event
 
     def _publish_function_call_start(self, chain_id: str, call_id: str, function_name: str, function_id: str, target_provider_id: str = None):
         """Publish a chain event for function call start"""
-        pass  # TODO: Implement for EventV2
+        pass  # TODO: Implement for Event
 
     def _publish_function_call_complete(self, chain_id: str, call_id: str, function_name: str, function_id: str, source_provider_id: str = None):
-        """Publish a chain event for function call completion (TODO: Implement for EventV2)"""
+        """Publish a chain event for function call completion (TODO: Implement for Event)"""
         pass  # Temporarily disabled during Phase 7 cleanup
 
     async def execute_function_with_monitoring(self,
@@ -633,7 +633,7 @@ class MonitoredAgent(GenesisAgent):
                                status_data: Optional[Dict[str, Any]] = None,
                                request_info: Optional[Any] = None) -> None:
         """
-        Publish a monitoring event to EventV2 (Phase 7: V2 Only).
+        Publish a monitoring event to Event (Phase 7: V2 Only).
         
         Args:
             event_type: Type of event (AGENT_DISCOVERY, AGENT_REQUEST, etc.)
@@ -655,7 +655,7 @@ class MonitoredAgent(GenesisAgent):
             
             import rti.connextdds as dds
             
-            # Publish to unified EventV2 (kind=GENERAL)
+            # Publish to unified Event (kind=GENERAL)
             unified_event = dds.DynamicData(self.unified_event_type)
             unified_event["event_id"] = str(uuid.uuid4())
             unified_event["kind"] = 2  # GENERAL
@@ -678,7 +678,7 @@ class MonitoredAgent(GenesisAgent):
             unified_event["payload"] = json.dumps(general_payload)
             self.unified_event_writer.write(unified_event)
             self.unified_event_writer.flush()
-            logger.debug(f"Published monitoring event to EventV2: {event_type}")
+            logger.debug(f"Published monitoring event to Event: {event_type}")
             
         except Exception as e:
             logger.error(f"Error publishing monitoring event: {str(e)}")
