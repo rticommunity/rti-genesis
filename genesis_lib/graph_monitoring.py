@@ -35,6 +35,11 @@ if not logger.hasHandlers():
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
+# Shared topic registry for unified monitoring topics (V2)
+# Multiple components (GraphMonitor, MonitoredInterface, MonitoredAgent) in the same process
+# share the same participant and must reuse topic references. Key: (participant_id, topic_name)
+_UNIFIED_TOPIC_REGISTRY = {}
+
 # Enum constants for component types
 COMPONENT_TYPE = {
     "INTERFACE": 0,
@@ -115,23 +120,42 @@ class _DDSWriters:
         
         # NEW UNIFIED MONITORING TOPICS (Phase 2: Dual-publishing)
         # TRANSITION STRATEGY: Use versioned topic names (V2) during dual-publishing phase
-        # This avoids topic name collisions and makes the transition explicit.
-        # After validation and removing old topics, we'll rename these to remove the V2 suffix.
+        # IMPORTANT: Multiple components in the same process share the same participant.
+        # If topic already exists, find and reuse it (though GraphMonitor is usually first).
         
         # GraphTopologyV2 (durable) - consolidates GenesisGraphNode + GenesisGraphEdge
         self.graph_topology_type = self.type_provider.type("genesis_lib", "GraphTopology")
-        self.graph_topology_topic = dds.DynamicData.Topic(
-            self.participant, "rti/connext/genesis/monitoring/GraphTopologyV2", self.graph_topology_type
-        )
+        participant_id = id(self.participant)
+        topology_key = (participant_id, "GraphTopologyV2")
+        
+        if topology_key in _UNIFIED_TOPIC_REGISTRY:
+            self.graph_topology_topic = _UNIFIED_TOPIC_REGISTRY[topology_key]
+            logger.debug("GraphMonitor: Reusing GraphTopologyV2 topic from registry")
+        else:
+            self.graph_topology_topic = dds.DynamicData.Topic(
+                self.participant, "rti/connext/genesis/monitoring/GraphTopologyV2", self.graph_topology_type
+            )
+            _UNIFIED_TOPIC_REGISTRY[topology_key] = self.graph_topology_topic
+            logger.debug("GraphMonitor: Created and registered GraphTopologyV2 topic")
+        
         self.graph_topology_writer = dds.DynamicData.DataWriter(
             pub=self.publisher, topic=self.graph_topology_topic, qos=durable_qos
         )
         
         # EventV2 (volatile) - consolidates ChainEvent + ComponentLifecycleEvent + MonitoringEvent
         self.monitoring_event_unified_type = self.type_provider.type("genesis_lib", "MonitoringEventUnified")
-        self.monitoring_event_unified_topic = dds.DynamicData.Topic(
-            self.participant, "rti/connext/genesis/monitoring/EventV2", self.monitoring_event_unified_type
-        )
+        event_key = (participant_id, "EventV2")
+        
+        if event_key in _UNIFIED_TOPIC_REGISTRY:
+            self.monitoring_event_unified_topic = _UNIFIED_TOPIC_REGISTRY[event_key]
+            logger.debug("GraphMonitor: Reusing EventV2 topic from registry")
+        else:
+            self.monitoring_event_unified_topic = dds.DynamicData.Topic(
+                self.participant, "rti/connext/genesis/monitoring/EventV2", self.monitoring_event_unified_type
+            )
+            _UNIFIED_TOPIC_REGISTRY[event_key] = self.monitoring_event_unified_topic
+            logger.debug("GraphMonitor: Created and registered EventV2 topic")
+        
         volatile_qos = dds.QosProvider.default.datawriter_qos
         volatile_qos.durability.kind = dds.DurabilityKind.VOLATILE
         volatile_qos.reliability.kind = dds.ReliabilityKind.RELIABLE

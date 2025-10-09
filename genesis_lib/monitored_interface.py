@@ -97,12 +97,24 @@ class MonitoredInterface(GenesisInterface):
             
             # NEW: Create unified monitoring event writer (Phase 2: Dual-publishing)
             # TRANSITION STRATEGY: Use EventV2 topic name during dual-publishing phase
-            # This avoids collisions and supports shared participant architecture.
-            # After validation, we'll rename to remove the V2 suffix.
+            # IMPORTANT: Within the same process, multiple components share the same participant.
+            # Use shared topic registry to avoid creating the same topic twice.
+            from genesis_lib.graph_monitoring import _UNIFIED_TOPIC_REGISTRY
+            
             unified_type = provider.type("genesis_lib", "MonitoringEventUnified")
-            unified_topic = dds.DynamicData.Topic(
-                self.app.participant, "rti/connext/genesis/monitoring/EventV2", unified_type
-            )
+            participant_id = id(self.app.participant)
+            event_key = (participant_id, "EventV2")
+            
+            if event_key in _UNIFIED_TOPIC_REGISTRY:
+                unified_topic = _UNIFIED_TOPIC_REGISTRY[event_key]
+                print(f"✅ MonitoredInterface: Reusing EventV2 topic from shared registry")
+            else:
+                unified_topic = dds.DynamicData.Topic(
+                    self.app.participant, "rti/connext/genesis/monitoring/EventV2", unified_type
+                )
+                _UNIFIED_TOPIC_REGISTRY[event_key] = unified_topic
+                print(f"✅ MonitoredInterface: Created and registered EventV2 topic")
+            
             self._unified_event_type = unified_type
             self._unified_event_writer = dds.DynamicData.DataWriter(
                 pub=dds.Publisher(self.app.participant), topic=unified_topic, qos=writer_qos
@@ -141,9 +153,14 @@ class MonitoredInterface(GenesisInterface):
                 listener=_ReplyListener(self, asyncio.get_running_loop()),
                 mask=dds.StatusMask.DATA_AVAILABLE
             )
-        except Exception:
+            print(f"✅ MonitoredInterface: ChainEvent DDS setup successful (old + unified writers)")
+        except Exception as e:
             # Chain overlay is optional; continue without it if DDS setup fails
+            print(f"⚠️  MonitoredInterface: ChainEvent DDS setup FAILED: {e}")
+            import traceback
+            traceback.print_exc()
             self._chain_event_writer = None
+            self._unified_event_writer = None
             self._reply_reader = None
 
         # Announce interface node (discovery and ready)
@@ -265,6 +282,7 @@ class MonitoredInterface(GenesisInterface):
                 
                 # NEW: Publish to unified MonitoringEventUnified (kind=CHAIN)
                 if self._unified_event_writer is not None:
+                    print(f"🔵 MonitoredInterface: Publishing ChainEvent START to EventV2 unified topic")
                     unified_ev = dds.DynamicData(self._unified_event_type)
                     unified_ev["event_id"] = call_id
                     unified_ev["kind"] = 0  # CHAIN
@@ -288,7 +306,11 @@ class MonitoredInterface(GenesisInterface):
                     }
                     unified_ev["payload"] = json.dumps(chain_payload)
                     self._unified_event_writer.write(unified_ev)
+                    self._unified_event_writer.flush()
+                    print(f"✅ MonitoredInterface: ChainEvent START published to EventV2")
                     logger.debug("MonitoringEventUnified CHAIN START emitted")
+                else:
+                    print(f"⚠️  MonitoredInterface: unified_event_writer is None, skipping ChainEvent START")
                 
                 # Persist IDs for completion correlation
                 self._last_chain_id = chain_id
@@ -325,6 +347,7 @@ class MonitoredInterface(GenesisInterface):
                 
                 # NEW: Publish to unified MonitoringEventUnified (kind=CHAIN)
                 if self._unified_event_writer is not None:
+                    print(f"🔵 MonitoredInterface: Publishing ChainEvent COMPLETE to EventV2 unified topic")
                     unified_ev = dds.DynamicData(self._unified_event_type)
                     unified_ev["event_id"] = call_id
                     unified_ev["kind"] = 0  # CHAIN
@@ -348,7 +371,11 @@ class MonitoredInterface(GenesisInterface):
                     }
                     unified_ev["payload"] = json.dumps(chain_payload)
                     self._unified_event_writer.write(unified_ev)
+                    self._unified_event_writer.flush()
+                    print(f"✅ MonitoredInterface: ChainEvent COMPLETE published to EventV2")
                     logger.debug("MonitoringEventUnified CHAIN COMPLETE emitted")
+                else:
+                    print(f"⚠️  MonitoredInterface: unified_event_writer is None, skipping ChainEvent COMPLETE")
                 
                 # Clear persisted IDs
                 try:
