@@ -96,21 +96,13 @@ class MonitoredInterface(GenesisInterface):
             )
             
             # NEW: Create unified monitoring event writer (Phase 2: Dual-publishing)
+            # TRANSITION STRATEGY: Use EventV2 topic name during dual-publishing phase
+            # This avoids collisions and supports shared participant architecture.
+            # After validation, we'll rename to remove the V2 suffix.
             unified_type = provider.type("genesis_lib", "MonitoringEventUnified")
-            try:
-                # Try to create the topic (may already exist from other components)
-                unified_topic = dds.DynamicData.Topic(
-                    self.app.participant, "rti/connext/genesis/monitoring/Event", unified_type
-                )
-            except Exception as e:
-                # Topic already exists, find it
-                unified_topic = dds.Topic.find(
-                    self.app.participant, "rti/connext/genesis/monitoring/Event"
-                )
-                if unified_topic is None:
-                    logger.warning(f"Failed to create or find unified Event topic: {e}")
-                    self._unified_event_writer = None
-                    raise
+            unified_topic = dds.DynamicData.Topic(
+                self.app.participant, "rti/connext/genesis/monitoring/EventV2", unified_type
+            )
             self._unified_event_type = unified_type
             self._unified_event_writer = dds.DynamicData.DataWriter(
                 pub=dds.Publisher(self.app.participant), topic=unified_topic, qos=writer_qos

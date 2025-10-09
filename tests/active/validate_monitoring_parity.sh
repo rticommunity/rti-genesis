@@ -134,9 +134,9 @@ OLD_CHAIN_COUNT=$(count_topic_samples "$TEMP_DIR/spy_raw.log" "monitoring/ChainE
 OLD_LIFECYCLE_COUNT=$(count_topic_samples "$TEMP_DIR/spy_raw.log" "monitoring/ComponentLifecycleEvent")
 OLD_MONITORING_COUNT=$(count_topic_samples "$TEMP_DIR/spy_raw.log" "monitoring/MonitoringEvent")
 
-# New Topics
-NEW_TOPOLOGY_COUNT=$(count_topic_samples "$TEMP_DIR/spy_raw.log" "monitoring/GraphTopology")
-NEW_EVENT_COUNT=$(count_topic_samples "$TEMP_DIR/spy_raw.log" "monitoring/Event")
+# New Topics (V2 transition naming)
+NEW_TOPOLOGY_COUNT=$(count_topic_samples "$TEMP_DIR/spy_raw.log" "monitoring/GraphTopologyV2")
+NEW_EVENT_COUNT=$(count_topic_samples "$TEMP_DIR/spy_raw.log" "monitoring/EventV2")
 
 # Calculate expected parity
 EXPECTED_TOPOLOGY_COUNT=$((OLD_NODE_COUNT + OLD_EDGE_COUNT))
@@ -160,9 +160,9 @@ RESULTS_FILE="$TEMP_DIR/parity_results.txt"
     echo "  ---"
     echo "  Total:                      $((OLD_NODE_COUNT + OLD_EDGE_COUNT + OLD_CHAIN_COUNT + OLD_LIFECYCLE_COUNT + OLD_MONITORING_COUNT)) samples"
     echo ""
-    echo "NEW TOPICS (2):"
-    echo "  GraphTopology:              $NEW_TOPOLOGY_COUNT samples"
-    echo "  Event:                      $NEW_EVENT_COUNT samples"
+    echo "NEW TOPICS (2) - V2 Transition Naming:"
+    echo "  GraphTopologyV2:            $NEW_TOPOLOGY_COUNT samples"
+    echo "  EventV2:                    $NEW_EVENT_COUNT samples"
     echo "  ---"
     echo "  Total:                      $((NEW_TOPOLOGY_COUNT + NEW_EVENT_COUNT)) samples"
     echo ""

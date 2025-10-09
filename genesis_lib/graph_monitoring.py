@@ -114,32 +114,24 @@ class _DDSWriters:
         self.graph_edge_writer = dds.DynamicData.DataWriter(pub=self.publisher, topic=self.graph_edge_topic, qos=durable_qos)
         
         # NEW UNIFIED MONITORING TOPICS (Phase 2: Dual-publishing)
-        # GraphTopology (durable) - consolidates GenesisGraphNode + GenesisGraphEdge
+        # TRANSITION STRATEGY: Use versioned topic names (V2) during dual-publishing phase
+        # This avoids topic name collisions and makes the transition explicit.
+        # After validation and removing old topics, we'll rename these to remove the V2 suffix.
+        
+        # GraphTopologyV2 (durable) - consolidates GenesisGraphNode + GenesisGraphEdge
         self.graph_topology_type = self.type_provider.type("genesis_lib", "GraphTopology")
-        try:
-            self.graph_topology_topic = dds.DynamicData.Topic(
-                self.participant, "rti/connext/genesis/monitoring/GraphTopology", self.graph_topology_type
-            )
-        except Exception:
-            # Topic already exists, find it
-            self.graph_topology_topic = dds.Topic.find(
-                self.participant, "rti/connext/genesis/monitoring/GraphTopology"
-            )
+        self.graph_topology_topic = dds.DynamicData.Topic(
+            self.participant, "rti/connext/genesis/monitoring/GraphTopologyV2", self.graph_topology_type
+        )
         self.graph_topology_writer = dds.DynamicData.DataWriter(
             pub=self.publisher, topic=self.graph_topology_topic, qos=durable_qos
         )
         
-        # MonitoringEventUnified (volatile) - consolidates ChainEvent + ComponentLifecycleEvent + MonitoringEvent
+        # EventV2 (volatile) - consolidates ChainEvent + ComponentLifecycleEvent + MonitoringEvent
         self.monitoring_event_unified_type = self.type_provider.type("genesis_lib", "MonitoringEventUnified")
-        try:
-            self.monitoring_event_unified_topic = dds.DynamicData.Topic(
-                self.participant, "rti/connext/genesis/monitoring/Event", self.monitoring_event_unified_type
-            )
-        except Exception:
-            # Topic already exists, find it
-            self.monitoring_event_unified_topic = dds.Topic.find(
-                self.participant, "rti/connext/genesis/monitoring/Event"
-            )
+        self.monitoring_event_unified_topic = dds.DynamicData.Topic(
+            self.participant, "rti/connext/genesis/monitoring/EventV2", self.monitoring_event_unified_type
+        )
         volatile_qos = dds.QosProvider.default.datawriter_qos
         volatile_qos.durability.kind = dds.DurabilityKind.VOLATILE
         volatile_qos.reliability.kind = dds.ReliabilityKind.RELIABLE

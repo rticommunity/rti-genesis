@@ -192,18 +192,15 @@ class MonitoredAgent(GenesisAgent):
             )
             
             # NEW: Create unified monitoring event writer (Phase 2: Dual-publishing)
+            # TRANSITION STRATEGY: Use EventV2 topic name during dual-publishing phase
+            # This avoids collisions and supports shared participant architecture.
+            # After validation, we'll rename to remove the V2 suffix.
             self.unified_event_type = self.type_provider.type("genesis_lib", "MonitoringEventUnified")
-            try:
-                self.unified_event_topic = dds.DynamicData.Topic(
-                    self.app.participant,
-                    "rti/connext/genesis/monitoring/Event",
-                    self.unified_event_type
-                )
-            except Exception:
-                # Topic already exists, find it
-                self.unified_event_topic = dds.Topic.find(
-                    self.app.participant, "rti/connext/genesis/monitoring/Event"
-                )
+            self.unified_event_topic = dds.DynamicData.Topic(
+                self.app.participant,
+                "rti/connext/genesis/monitoring/EventV2",
+                self.unified_event_type
+            )
             volatile_qos = dds.QosProvider.default.datawriter_qos
             volatile_qos.durability.kind = dds.DurabilityKind.VOLATILE
             volatile_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
