@@ -42,6 +42,9 @@ EXTRA_AGENT_CMDS=()
 # Ensure project is importable (fixes ModuleNotFoundError: genesis_lib)
 export PYTHONPATH="${ROOT_DIR}:${PYTHONPATH:-}"
 
+# Enable V2 unified monitoring topics by default
+export USE_UNIFIED_MONITORING_V2=true
+
 # --------------------------- Arg Parsing --------------------------------- #
 usage() {
   cat <<EOF

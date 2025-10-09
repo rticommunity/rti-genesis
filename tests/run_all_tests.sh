@@ -107,6 +107,10 @@ if [ -z "${NDDSHOME:-}" ]; then
     exit 2
 fi
 
+# Enable V2 unified monitoring topics by default for all tests
+export USE_UNIFIED_MONITORING_V2=true
+echo "ℹ️  Using V2 unified monitoring topics (GraphTopologyV2, EventV2)"
+
 # Resolve rtiddsspy location with overrides
 # Priority: RTIDDSSPY_BIN -> RTI_BIN_DIR/rtiddsspy -> $NDDSHOME/bin/rtiddsspy
 if [ -n "${RTIDDSSPY_BIN:-}" ]; then

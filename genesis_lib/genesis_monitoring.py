@@ -430,6 +430,9 @@ class MonitoringSubscriber:
     """
     Subscribes to monitoring events via DDS to enable centralized monitoring
     of function calls, discoveries, and status updates.
+    
+    Supports both legacy MonitoringEvent topic and unified EventV2 topic
+    via USE_UNIFIED_MONITORING_V2 environment variable.
     """
     def __init__(self, participant=None, domain_id=0, callback=None):
         """
@@ -441,6 +444,7 @@ class MonitoringSubscriber:
             callback: Function to call when a monitoring event is received
         """
         self.callback = callback
+        self._use_v2_topics = os.environ.get('USE_UNIFIED_MONITORING_V2', 'false').lower() in ('true', '1', 'yes')
         
         # Create or use provided participant
         self.owns_participant = participant is None
@@ -450,9 +454,28 @@ class MonitoringSubscriber:
         else:
             self.participant = participant
         
-        # Get monitoring event type from XML
+        # Get types from XML
         config_path = get_datamodel_path()
         self.type_provider = dds.QosProvider(config_path)
+        
+        # Create subscriber
+        self.subscriber = dds.Subscriber(
+            self.participant,
+            qos=dds.QosProvider.default.subscriber_qos
+        )
+        
+        # Store events for querying
+        self.events = []
+        self.events_lock = threading.Lock()
+        
+        # Setup appropriate reader based on V2 flag
+        if self._use_v2_topics:
+            self._setup_v2_reader()
+        else:
+            self._setup_legacy_reader()
+    
+    def _setup_legacy_reader(self):
+        """Set up legacy MonitoringEvent reader."""
         self.event_type = self.type_provider.type("genesis_lib", "MonitoringEvent")
         
         # Create monitoring topic
@@ -460,12 +483,6 @@ class MonitoringSubscriber:
             self.participant,
             "rti/connext/genesis/monitoring/MonitoringEvent",
             self.event_type
-        )
-        
-        # Create subscriber
-        self.subscriber = dds.Subscriber(
-            self.participant,
-            qos=dds.QosProvider.default.subscriber_qos
         )
         
         # Configure reader QoS
@@ -483,12 +500,50 @@ class MonitoringSubscriber:
             listener=MonitoringListener(self._on_event_received)
         )
         
-        # Store events for querying
-        self.events = []
-        self.events_lock = threading.Lock()
+        logging.info("MonitoringSubscriber: Using legacy MonitoringEvent topic")
+    
+    def _setup_v2_reader(self):
+        """Set up unified EventV2 reader with content filtering for GENERAL events."""
+        try:
+            event_type = self.type_provider.type("genesis_lib", "MonitoringEventUnified")
+            event_topic = dds.DynamicData.Topic(
+                self.participant,
+                "rti/connext/genesis/monitoring/EventV2",
+                event_type
+            )
+            
+            # Content filter for GENERAL events only (kind = 2)
+            filtered_topic = dds.DynamicData.ContentFilteredTopic(
+                event_topic,
+                "EventV2_GeneralFilter",
+                dds.Filter("kind = %0", ["2"])  # GENERAL kind
+            )
+            
+            # Configure reader QoS (volatile for EventV2)
+            reader_qos = dds.QosProvider.default.datareader_qos
+            reader_qos.durability.kind = dds.DurabilityKind.VOLATILE
+            reader_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
+            reader_qos.history.kind = dds.HistoryKind.KEEP_LAST
+            reader_qos.history.depth = 1000
+            
+            # Create event reader with listener for V2
+            self.event_reader = dds.DynamicData.DataReader(
+                self.subscriber,
+                cft=filtered_topic,  # Use content-filtered topic
+                qos=reader_qos,
+                listener=MonitoringListener(self._on_v2_event_received)
+            )
+            
+            logging.info("✅ MonitoringSubscriber: Using EventV2 unified topic (content-filtered for kind=GENERAL)")
+        except Exception as e:
+            logging.error(f"Failed to set up EventV2 reader: {e}")
+            # Fallback to legacy
+            logging.warning("Falling back to legacy MonitoringEvent topic")
+            self._use_v2_topics = False
+            self._setup_legacy_reader()
     
     def _on_event_received(self, event_data):
-        """Process received monitoring event."""
+        """Process received legacy monitoring event."""
         try:
             # Convert DDS data to Python dict
             event = {
@@ -512,6 +567,41 @@ class MonitoringSubscriber:
                 self.callback(event)
         except Exception as e:
             sys.stderr.write(f"Error processing monitoring event: {e}\n")
+    
+    def _on_v2_event_received(self, event_data):
+        """Process received V2 unified monitoring event (kind=GENERAL)."""
+        try:
+            import json
+            
+            # Parse payload JSON
+            payload_json = str(event_data["payload"]) if event_data["payload"] else "{}"
+            try:
+                payload = json.loads(payload_json)
+            except Exception:
+                payload = {}
+            
+            # Convert V2 EventV2 to legacy MonitoringEvent format for backward compatibility
+            event = {
+                "event_id": str(event_data["event_id"]) or "",
+                "timestamp": int(event_data["timestamp"]) if event_data["timestamp"] else 0,
+                "event_type": str(event_data["message"]) or "",  # message contains event_type enum name
+                "entity_type": payload.get("entity_type", ""),
+                "entity_id": str(event_data["component_id"]) or "",
+                "metadata": payload.get("metadata", ""),
+                "call_data": payload.get("call_data", ""),
+                "result_data": payload.get("result_data", ""),
+                "status_data": payload.get("status_data", "")
+            }
+            
+            # Store event
+            with self.events_lock:
+                self.events.append(event)
+            
+            # Call callback if provided
+            if self.callback:
+                self.callback(event)
+        except Exception as e:
+            sys.stderr.write(f"Error processing V2 monitoring event: {e}\n")
     
     def get_events(self, max_count=None, event_type=None, entity_type=None):
         """

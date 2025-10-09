@@ -73,6 +73,9 @@ if [ -z "${NDDSHOME:-}" ]; then
   [ -n "$guess" ] && export NDDSHOME="$guess"
 fi
 
+# Enable V2 unified monitoring topics by default
+export USE_UNIFIED_MONITORING_V2=true
+
 resolve_rtiddsspy() {
   if [ -n "${RTIDDSSPY_BIN:-}" ]; then
     echo "$RTIDDSSPY_BIN"; return 0
