@@ -28,6 +28,53 @@ import os
 import json
 
 @idl.struct(
+    member_annotations={
+        'request_id': [idl.bound(64)],
+        'service_type': [idl.bound(128)],
+        'function_name': [idl.bound(128)],
+        # parameters_json intentionally unbounded
+        'target_service_guid': [idl.bound(128)],
+        # deadline_ms is plain int
+        'requester_guid': [idl.bound(128)],
+    }
+)
+class RPCRequestV2:
+    """
+    Unified RPC request for v2 RPC path.
+    """
+    request_id: str = ""
+    service_type: str = ""  # e.g., "CalculatorService"
+    function_name: str = ""
+    parameters_json: str = ""
+    target_service_guid: str = ""
+    deadline_ms: int = 3000
+    requester_guid: str = ""
+
+@idl.struct(
+    member_annotations={
+        'request_id': [idl.bound(64)],
+        'service_type': [idl.bound(128)],
+        # result_json intentionally unbounded
+        'error_code': [idl.bound(64)],
+        'error_message': [idl.bound(255)],
+        'replier_service_guid': [idl.bound(128)],
+        # latency_ms is plain int
+    }
+)
+class RPCReplyV2:
+    """
+    Unified RPC reply for v2 RPC path.
+    """
+    request_id: str = ""
+    service_type: str = ""
+    ok: bool = False
+    result_json: str = ""
+    error_code: str = ""
+    error_message: str = ""
+    replier_service_guid: str = ""
+    latency_ms: int = 0
+
+@idl.struct(
     member_annotations = {
         'name': [idl.bound(255)],
         'description': [idl.bound(255)],

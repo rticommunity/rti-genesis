@@ -15,6 +15,14 @@ PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 export PYTHONPATH="$PROJECT_ROOT:$PYTHONPATH"
 
 LOG_FILE="$LOG_DIR/test_agent_memory.log"
+SPY_LOG="$LOG_DIR/spy_run_test_agent_memory.log"
+
+# Start rtiddsspy to monitor DDS traffic
+if [ -n "$NDDSHOME" ] && [ -f "$NDDSHOME/bin/rtiddsspy" ]; then
+    RTIDDSSPY_PROFILEFILE="$PROJECT_ROOT/spy_transient.xml" "$NDDSHOME/bin/rtiddsspy" > "$SPY_LOG" 2>&1 &
+    SPY_PID=$!
+    [ "$DEBUG" = "true" ] && echo "Started rtiddsspy monitoring (PID: $SPY_PID, Log: $SPY_LOG)"
+fi
 
 # Function to display log content on failure
 show_log_on_failure() {
@@ -29,11 +37,13 @@ show_log_on_failure() {
     echo "=================================================="
 }
 
-# Function to cleanup processes (placeholder for future expansion)
+# Function to cleanup processes
 cleanup() {
     [ "$DEBUG" = "true" ] && echo "Cleaning up processes..."
-    # No background processes for this test, but placeholder for future
-    # Explicitly return 0 to avoid any issues with trap
+    # Kill spy if running
+    if [ -n "$SPY_PID" ] && kill -0 "$SPY_PID" 2>/dev/null; then
+        kill "$SPY_PID" 2>/dev/null || true
+    fi
     return 0
 }
 trap cleanup EXIT

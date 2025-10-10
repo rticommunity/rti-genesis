@@ -20,6 +20,15 @@ PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 # Set PYTHONPATH to include the project root
 export PYTHONPATH="$PROJECT_ROOT:$PYTHONPATH"
 
+SPY_LOG="$LOG_DIR/spy_run_test_agent_with_functions.log"
+
+# Start rtiddsspy to monitor DDS traffic
+if [ -n "$NDDSHOME" ] && [ -f "$NDDSHOME/bin/rtiddsspy" ]; then
+    RTIDDSSPY_PROFILEFILE="$PROJECT_ROOT/spy_transient.xml" "$NDDSHOME/bin/rtiddsspy" > "$SPY_LOG" 2>&1 &
+    SPY_PID=$!
+    [ "$DEBUG" = "true" ] && echo "Started rtiddsspy monitoring (PID: $SPY_PID, Log: $SPY_LOG)"
+fi
+
 # Initialize array to store PIDs
 declare -a pids=()
 
@@ -42,6 +51,10 @@ display_log_on_failure() {
 # Function to cleanup processes
 cleanup() {
     [ "$DEBUG" = "true" ] && echo "Cleaning up processes..."
+    # Kill spy if running
+    if [ -n "$SPY_PID" ] && kill -0 "$SPY_PID" 2>/dev/null; then
+        kill "$SPY_PID" 2>/dev/null || true
+    fi
     for pid in "${pids[@]}"; do
         if ps -p "$pid" > /dev/null; then
             kill "$pid" 2>/dev/null

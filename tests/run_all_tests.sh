@@ -471,6 +471,11 @@ else
     run_with_timeout "$(resolve_path test_monitoring.sh)" 90 || { echo "Test failed: test_monitoring.sh"; exit 1; }
 fi
 
+# Optional: RPC v2 parity check when enabled
+if [ "${USE_UNIFIED_RPC:-false}" = "true" ]; then
+    run_with_timeout "$(resolve_path validate_rpc_parity.sh)" 120 || { echo "Test failed: validate_rpc_parity.sh"; exit 1; }
+fi
+
 echo "=================================================="
 echo "All tests completed successfully!"
 [ "$DEBUG" = "true" ] && echo "Logs are available in $LOG_DIR"
