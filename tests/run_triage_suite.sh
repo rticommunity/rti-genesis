@@ -73,6 +73,8 @@ if [ -z "${NDDSHOME:-}" ]; then
   [ -n "$guess" ] && export NDDSHOME="$guess"
 fi
 
+# Using unified monitoring topics (GraphTopology, Event)
+
 resolve_rtiddsspy() {
   if [ -n "${RTIDDSSPY_BIN:-}" ]; then
     echo "$RTIDDSSPY_BIN"; return 0

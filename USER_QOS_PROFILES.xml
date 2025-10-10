@@ -1,0 +1,65 @@
+<?xml version="1.0"?>
+<!--
+  Genesis DDS QoS Configuration
+  
+  This configuration addresses macOS participant index exhaustion by:
+  1. Using explicit UDP4 discovery peers with expanded port range
+  2. Allowing DDS to auto-assign participant IDs
+  3. Increasing resource limits for local participants
+-->
+<dds xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+     xsi:noNamespaceSchemaLocation="http://community.rti.com/schema/7.3.0/rti_dds_qos_profiles.xsd">
+
+    <qos_library name="GenesisQosLibrary">
+        
+        <qos_profile name="GenesisDefaultProfile" is_default_qos="true">
+            
+            <domain_participant_qos>
+                <!-- Use only UDP4 transport -->
+                <transport_builtin>
+                    <mask>UDPv4</mask>
+                </transport_builtin>
+                
+                <discovery>
+                    <!-- Explicit UDP4 peers with expanded port range for more participants -->
+                    <initial_peers>
+                        <element>builtin.udpv4://localhost</element>
+                        <element>builtin.udpv4://127.0.0.1</element>
+                        <element>builtin.udpv4://127.0.0.1:7400-7499</element>
+                    </initial_peers>
+                    
+                    <!-- Accept unknown peers for dynamic discovery -->
+                    <accept_unknown_peers>true</accept_unknown_peers>
+                </discovery>
+                
+                <!-- Let DDS auto-assign participant IDs -->
+                <wire_protocol>
+                    <participant_id>-1</participant_id>
+                    <rtps_host_id>RTPS_AUTO_ID</rtps_host_id>
+                    <rtps_app_id>RTPS_AUTO_ID</rtps_app_id>
+                </wire_protocol>
+                
+                <!-- Increase resource limits for many participants -->
+                <resource_limits>
+                    <local_writer_allocation>
+                        <max_count>256</max_count>
+                    </local_writer_allocation>
+                    <local_reader_allocation>
+                        <max_count>256</max_count>
+                    </local_reader_allocation>
+                    <local_publisher_allocation>
+                        <max_count>128</max_count>
+                    </local_publisher_allocation>
+                    <local_subscriber_allocation>
+                        <max_count>128</max_count>
+                    </local_subscriber_allocation>
+                    <local_topic_allocation>
+                        <max_count>128</max_count>
+                    </local_topic_allocation>
+                </resource_limits>
+            </domain_participant_qos>
+            
+        </qos_profile>
+        
+    </qos_library>
+</dds>

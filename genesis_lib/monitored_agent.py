@@ -38,6 +38,14 @@ EVENT_TYPE_MAP = {
     "AGENT_STATUS": 3      # FUNCTION_STATUS enum value
 }
 
+# Reverse mapping: enum value -> enum name (for consistent Event message field)
+EVENT_TYPE_ENUM_NAMES = {
+    0: "FUNCTION_DISCOVERY",
+    1: "FUNCTION_CALL",
+    2: "FUNCTION_RESULT",
+    3: "FUNCTION_STATUS"
+}
+
 # Agent type mapping
 AGENT_TYPE_MAP = {
     "AGENT": 1,            # PRIMARY_AGENT
@@ -140,7 +148,7 @@ class MonitoredAgent(GenesisAgent):
     
     def _setup_monitoring(self) -> None:
         """
-        Set up monitoring resources and initialize state.
+        Set up monitoring resources (Phase 7: V2 Only).
         """
         try:
             from genesis_lib.utils import get_datamodel_path
@@ -150,16 +158,6 @@ class MonitoredAgent(GenesisAgent):
             config_path = get_datamodel_path()
             self.type_provider = dds.QosProvider(config_path)
             
-            # Get monitoring type from XML
-            self.monitoring_type = self.type_provider.type("genesis_lib", "MonitoringEvent")
-            
-            # Create monitoring topic
-            self.monitoring_topic = dds.DynamicData.Topic(
-                self.app.participant,
-                "rti/connext/genesis/monitoring/MonitoringEvent",
-                self.monitoring_type
-            )
-            
             # Create monitoring publisher with QoS
             publisher_qos = dds.QosProvider.default.publisher_qos
             publisher_qos.partition.name = [""]  # Default partition
@@ -168,39 +166,43 @@ class MonitoredAgent(GenesisAgent):
                 qos=publisher_qos
             )
             
-            # Create monitoring writer with QoS
-            writer_qos = dds.QosProvider.default.datawriter_qos
-            writer_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
-            writer_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
-            self.monitoring_writer = dds.DynamicData.DataWriter(
+            # Create unified monitoring event writer (Event)
+            # Use shared topic registry to avoid creating the same topic twice.
+            from genesis_lib.graph_monitoring import _UNIFIED_TOPIC_REGISTRY
+            
+            self.unified_event_type = self.type_provider.type("genesis_lib", "MonitoringEventUnified")
+            participant_id = id(self.app.participant)
+            event_key = (participant_id, "Event")
+            
+            if event_key in _UNIFIED_TOPIC_REGISTRY:
+                self.unified_event_topic = _UNIFIED_TOPIC_REGISTRY[event_key]
+                logger.debug("MonitoredAgent: Reusing Event topic from shared registry")
+            else:
+                self.unified_event_topic = dds.DynamicData.Topic(
+                    self.app.participant,
+                    "rti/connext/genesis/monitoring/Event",
+                    self.unified_event_type
+                )
+                _UNIFIED_TOPIC_REGISTRY[event_key] = self.unified_event_topic
+                logger.debug("MonitoredAgent: Created and registered Event topic")
+            
+            volatile_qos = dds.QosProvider.default.datawriter_qos
+            volatile_qos.durability.kind = dds.DurabilityKind.VOLATILE
+            volatile_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
+            self.unified_event_writer = dds.DynamicData.DataWriter(
                 pub=self.monitoring_publisher,
-                topic=self.monitoring_topic,
-                qos=writer_qos
-            )
-
-            # Set up enhanced monitoring (ChainEvent)
-            self.chain_event_type = self.type_provider.type("genesis_lib", "ChainEvent")
-            self.chain_event_topic = dds.DynamicData.Topic(
-                self.app.participant,
-                "rti/connext/genesis/monitoring/ChainEvent",
-                self.chain_event_type
-            )
-            self.chain_event_writer = dds.DynamicData.DataWriter(
-                pub=self.monitoring_publisher,
-                topic=self.chain_event_topic,
-                qos=writer_qos
+                topic=self.unified_event_topic,
+                qos=volatile_qos
             )
             
-            logger.debug("Monitoring setup completed successfully")
+            logger.info("MonitoredAgent: Event monitoring setup completed successfully")
             
         except Exception as e:
-            logger.error(f"Error setting up monitoring: {str(e)}")
+            logger.error(f"MonitoredAgent: Error setting up monitoring: {str(e)}")
             logger.error(traceback.format_exc())
             # Set monitoring attributes to None so the publish methods can handle gracefully
-            self.monitoring_writer = None
-            self.monitoring_type = None
-            self.chain_event_writer = None
-            self.chain_event_type = None
+            self.unified_event_writer = None
+            self.unified_event_type = None
 
     async def process_request(self, request: Any) -> Dict[str, Any]:
         print(f"MonitoredAgent.process_request called for {self.agent_type} ({self.app.agent_id}) with request: {request}")
@@ -477,198 +479,250 @@ class MonitoredAgent(GenesisAgent):
 
     def _publish_agent_chain_event(self, chain_id: str, call_id: str, event_type: str,
                                    source_id: str, target_id: str, status: int = 0):
-        """Publish chain event for agent-to-agent interactions"""
-        if not hasattr(self, "chain_event_writer"):
+        """Publish chain event for agent-to-agent interactions to Event"""
+        if not hasattr(self, "unified_event_writer") or not self.unified_event_writer:
             return
-        import rti.connextdds as dds
-        chain_event = dds.DynamicData(self.chain_event_type)
-        chain_event["chain_id"] = chain_id
-        chain_event["call_id"] = call_id
-        chain_event["interface_id"] = str(self.app.participant.instance_handle)
-        chain_event["primary_agent_id"] = self.app.agent_id
-        chain_event["specialized_agent_ids"] = target_id if target_id != self.app.agent_id else ""
-        chain_event["function_id"] = "agent_communication"
-        chain_event["query_id"] = call_id
-        chain_event["timestamp"] = int(time.time() * 1000)
-        chain_event["event_type"] = event_type
-        chain_event["source_id"] = source_id
-        chain_event["target_id"] = target_id
-        chain_event["status"] = status
-        self.chain_event_writer.write(chain_event)
-        self.chain_event_writer.flush()
-
-    def _publish_llm_call_start(self, chain_id: str, call_id: str, model_identifier: str):
-        """Publish a chain event for LLM call start"""
-        if not hasattr(self, "chain_event_writer"):
-            return
-        import rti.connextdds as dds
-        chain_event = dds.DynamicData(self.chain_event_type)
-        chain_event["chain_id"] = chain_id
-        chain_event["call_id"] = call_id
-        chain_event["interface_id"] = str(self.app.participant.instance_handle)
-        chain_event["primary_agent_id"] = self.app.agent_id
-        chain_event["specialized_agent_ids"] = ""
-        chain_event["function_id"] = model_identifier
-        chain_event["query_id"] = str(uuid.uuid4())
-        chain_event["timestamp"] = int(time.time() * 1000)
-        chain_event["event_type"] = "LLM_CALL_START"
-        chain_event["source_id"] = str(self.app.participant.instance_handle)
-        chain_event["target_id"] = "OpenAI"
-        chain_event["status"] = 0
-        self.chain_event_writer.write(chain_event)
-        self.chain_event_writer.flush()
-
-    def _publish_llm_call_complete(self, chain_id: str, call_id: str, model_identifier: str):
-        """Publish a chain event for LLM call completion"""
-        if not hasattr(self, "chain_event_writer"):
-            return
-        import rti.connextdds as dds
-        chain_event = dds.DynamicData(self.chain_event_type)
-        chain_event["chain_id"] = chain_id
-        chain_event["call_id"] = call_id
-        chain_event["interface_id"] = str(self.app.participant.instance_handle)
-        chain_event["primary_agent_id"] = self.app.agent_id
-        chain_event["specialized_agent_ids"] = ""
-        chain_event["function_id"] = model_identifier
-        chain_event["query_id"] = str(uuid.uuid4())
-        chain_event["timestamp"] = int(time.time() * 1000)
-        chain_event["event_type"] = "LLM_CALL_COMPLETE"
-        chain_event["source_id"] = "OpenAI"
-        chain_event["target_id"] = str(self.app.participant.instance_handle)
-        chain_event["status"] = 0
-        self.chain_event_writer.write(chain_event)
-        self.chain_event_writer.flush()
-
-    def _publish_classification_result(self, chain_id: str, call_id: str, classified_function_name: str, classified_function_id: str):
-        """Publish a chain event for function classification result"""
-        if not hasattr(self, "chain_event_writer"):
-            return
-        import rti.connextdds as dds
-        chain_event = dds.DynamicData(self.chain_event_type)
-        chain_event["chain_id"] = chain_id
-        chain_event["call_id"] = call_id
-        chain_event["interface_id"] = str(self.app.participant.instance_handle)
-        chain_event["primary_agent_id"] = self.app.agent_id
-        chain_event["specialized_agent_ids"] = ""
-        chain_event["function_id"] = classified_function_id
-        chain_event["query_id"] = str(uuid.uuid4())
-        chain_event["timestamp"] = int(time.time() * 1000)
-        chain_event["event_type"] = "CLASSIFICATION_RESULT"
-        chain_event["source_id"] = str(self.app.participant.instance_handle)
-        # Use function UUID for target_id so activity maps to graph function node
-        chain_event["target_id"] = classified_function_id
-        chain_event["status"] = 0
-        self.chain_event_writer.write(chain_event)
-        self.chain_event_writer.flush()
-
-    def _publish_function_call_start(self, chain_id: str, call_id: str, function_name: str, function_id: str, target_provider_id: str = None):
-        """Publish a chain event for function call start"""
-        if not hasattr(self, "chain_event_writer"):
-            return
-        import rti.connextdds as dds
-        chain_event = dds.DynamicData(self.chain_event_type)
-        chain_event["chain_id"] = chain_id
-        chain_event["call_id"] = call_id
-        chain_event["interface_id"] = str(self.app.participant.instance_handle)
-        chain_event["primary_agent_id"] = ""
-        chain_event["specialized_agent_ids"] = ""
-        chain_event["function_id"] = function_id
-        chain_event["query_id"] = str(uuid.uuid4())
-        chain_event["timestamp"] = int(time.time() * 1000)
-        chain_event["event_type"] = "FUNCTION_CALL_START"
-        chain_event["source_id"] = str(self.app.participant.instance_handle)
-        # Always target the function UUID; provider id can be inferred from topology
-        chain_event["target_id"] = function_id
-        chain_event["status"] = 0
-        self.chain_event_writer.write(chain_event)
-        self.chain_event_writer.flush()
-
-        # Additionally, emit an explicit AGENT->SERVICE activation so the agent-service edge pulses in the UI
-        if target_provider_id:
-            chain_event2 = dds.DynamicData(self.chain_event_type)
-            chain_event2["chain_id"] = chain_id
-            chain_event2["call_id"] = call_id
-            chain_event2["interface_id"] = str(self.app.participant.instance_handle)
-            chain_event2["primary_agent_id"] = self.app.agent_id
-            chain_event2["specialized_agent_ids"] = ""
-            chain_event2["function_id"] = function_id
-            chain_event2["query_id"] = str(uuid.uuid4())
-            chain_event2["timestamp"] = int(time.time() * 1000)
-            chain_event2["event_type"] = "AGENT_TO_SERVICE_START"
-            # Use graph node IDs for direct edge mapping
-            chain_event2["source_id"] = self.app.agent_id
-            chain_event2["target_id"] = target_provider_id
-            chain_event2["status"] = 0
-            self.chain_event_writer.write(chain_event2)
-            self.chain_event_writer.flush()
-            try:
-                logger.info(
-                    f"CHAIN AGENT_TO_SERVICE_START chain={chain_id[:8]} call={call_id[:8]} "
-                    f"agent={self.app.agent_id} -> service={target_provider_id} function_id={function_id}"
-                )
-            except Exception:
-                pass
-        else:
-            try:
-                logger.warning(
-                    f"CHAIN A2S SKIP (no provider_id) chain={chain_id[:8]} call={call_id[:8]} agent={self.app.agent_id} function_id={function_id}"
-                )
-            except Exception:
-                pass
-
-    def _publish_function_call_complete(self, chain_id: str, call_id: str, function_name: str, function_id: str, source_provider_id: str = None):
-        """Publish a chain event for function call completion"""
-        if not hasattr(self, "chain_event_writer"):
-            return
-        import rti.connextdds as dds
-        chain_event = dds.DynamicData(self.chain_event_type)
-        chain_event["chain_id"] = chain_id
-        chain_event["call_id"] = call_id
-        chain_event["interface_id"] = str(self.app.participant.instance_handle)
-        chain_event["primary_agent_id"] = ""
-        chain_event["specialized_agent_ids"] = ""
-        chain_event["function_id"] = function_id
-        chain_event["query_id"] = str(uuid.uuid4())
-        chain_event["timestamp"] = int(time.time() * 1000)
-        chain_event["event_type"] = "FUNCTION_CALL_COMPLETE"
-        # Use function UUID as the source of the completion to mirror SERVICE->FUNCTION edge direction
-        chain_event["source_id"] = function_id
-        chain_event["target_id"] = str(self.app.participant.instance_handle)
-        chain_event["status"] = 0
-        self.chain_event_writer.write(chain_event)
-        self.chain_event_writer.flush()
         try:
-            logger.info(
-                f"CHAIN FUNCTION_CALL_COMPLETE chain={chain_id[:8]} call={call_id[:8]} "
-                f"function_id={function_id} service={self.app.participant.instance_handle}"
-            )
+            import rti.connextdds as dds
+            unified_event = dds.DynamicData(self.unified_event_type)
+            unified_event["event_id"] = call_id
+            unified_event["kind"] = 0  # CHAIN
+            unified_event["timestamp"] = int(time.time() * 1000)
+            unified_event["component_id"] = source_id
+            unified_event["severity"] = "INFO"
+            unified_event["message"] = f"Agent chain event: {event_type}"
+            # Pack ChainEvent data into payload
+            chain_payload = {
+                "chain_id": chain_id,
+                "call_id": call_id,
+                "interface_id": str(self.app.participant.instance_handle),
+                "primary_agent_id": self.app.agent_id,
+                "specialized_agent_ids": target_id if target_id != self.app.agent_id else "",
+                "function_id": "agent_communication",
+                "query_id": call_id,
+                "event_type": event_type,
+                "source_id": source_id,
+                "target_id": target_id,
+                "status": status
+            }
+            unified_event["payload"] = json.dumps(chain_payload)
+            self.unified_event_writer.write(unified_event)
+            self.unified_event_writer.flush()
         except Exception:
             pass
 
-        # Emit explicit SERVICE->AGENT completion event (reply)
-        if source_provider_id:
-            chain_event2 = dds.DynamicData(self.chain_event_type)
-            chain_event2["chain_id"] = chain_id
-            chain_event2["call_id"] = call_id
-            chain_event2["interface_id"] = str(self.app.participant.instance_handle)
-            chain_event2["primary_agent_id"] = self.app.agent_id
-            chain_event2["specialized_agent_ids"] = ""
-            chain_event2["function_id"] = function_id
-            chain_event2["query_id"] = str(uuid.uuid4())
-            chain_event2["timestamp"] = int(time.time() * 1000)
-            chain_event2["event_type"] = "SERVICE_TO_AGENT_COMPLETE"
-            chain_event2["source_id"] = source_provider_id
-            chain_event2["target_id"] = self.app.agent_id
-            chain_event2["status"] = 0
-            self.chain_event_writer.write(chain_event2)
-            self.chain_event_writer.flush()
-            try:
-                logger.info(
-                    f"CHAIN SERVICE_TO_AGENT_COMPLETE chain={chain_id[:8]} call={call_id[:8]} "
-                    f"service={source_provider_id} -> agent={self.app.agent_id} function_id={function_id}"
-                )
-            except Exception:
-                pass
+    def _publish_llm_call_start(self, chain_id: str, call_id: str, model_identifier: str):
+        """Publish chain event for LLM call start to Event"""
+        if not hasattr(self, "unified_event_writer") or not self.unified_event_writer:
+            return
+        try:
+            import rti.connextdds as dds
+            unified_event = dds.DynamicData(self.unified_event_type)
+            unified_event["event_id"] = call_id
+            unified_event["kind"] = 0  # CHAIN
+            unified_event["timestamp"] = int(time.time() * 1000)
+            unified_event["component_id"] = str(self.app.participant.instance_handle)
+            unified_event["severity"] = "INFO"
+            unified_event["message"] = "LLM_CALL_START"
+            chain_payload = {
+                "chain_id": chain_id,
+                "call_id": call_id,
+                "interface_id": str(self.app.participant.instance_handle),
+                "primary_agent_id": self.app.agent_id,
+                "specialized_agent_ids": "",
+                "function_id": model_identifier,
+                "query_id": str(uuid.uuid4()),
+                "event_type": "LLM_CALL_START",
+                "source_id": str(self.app.participant.instance_handle),
+                "target_id": "OpenAI",
+                "status": 0
+            }
+            unified_event["payload"] = json.dumps(chain_payload)
+            self.unified_event_writer.write(unified_event)
+            self.unified_event_writer.flush()
+        except Exception:
+            pass
+
+    def _publish_llm_call_complete(self, chain_id: str, call_id: str, model_identifier: str):
+        """Publish chain event for LLM call completion to Event"""
+        if not hasattr(self, "unified_event_writer") or not self.unified_event_writer:
+            return
+        try:
+            import rti.connextdds as dds
+            unified_event = dds.DynamicData(self.unified_event_type)
+            unified_event["event_id"] = call_id
+            unified_event["kind"] = 0  # CHAIN
+            unified_event["timestamp"] = int(time.time() * 1000)
+            unified_event["component_id"] = "OpenAI"
+            unified_event["severity"] = "INFO"
+            unified_event["message"] = "LLM_CALL_COMPLETE"
+            chain_payload = {
+                "chain_id": chain_id,
+                "call_id": call_id,
+                "interface_id": str(self.app.participant.instance_handle),
+                "primary_agent_id": self.app.agent_id,
+                "specialized_agent_ids": "",
+                "function_id": model_identifier,
+                "query_id": str(uuid.uuid4()),
+                "event_type": "LLM_CALL_COMPLETE",
+                "source_id": "OpenAI",
+                "target_id": str(self.app.participant.instance_handle),
+                "status": 0
+            }
+            unified_event["payload"] = json.dumps(chain_payload)
+            self.unified_event_writer.write(unified_event)
+            self.unified_event_writer.flush()
+        except Exception:
+            pass
+
+    def _publish_classification_result(self, chain_id: str, call_id: str, classified_function_name: str, classified_function_id: str):
+        """Publish chain event for function classification result to Event"""
+        if not hasattr(self, "unified_event_writer") or not self.unified_event_writer:
+            return
+        try:
+            import rti.connextdds as dds
+            unified_event = dds.DynamicData(self.unified_event_type)
+            unified_event["event_id"] = call_id
+            unified_event["kind"] = 0  # CHAIN
+            unified_event["timestamp"] = int(time.time() * 1000)
+            unified_event["component_id"] = str(self.app.participant.instance_handle)
+            unified_event["severity"] = "INFO"
+            unified_event["message"] = "CLASSIFICATION_RESULT"
+            chain_payload = {
+                "chain_id": chain_id,
+                "call_id": call_id,
+                "interface_id": str(self.app.participant.instance_handle),
+                "primary_agent_id": self.app.agent_id,
+                "specialized_agent_ids": "",
+                "function_id": classified_function_id,
+                "query_id": str(uuid.uuid4()),
+                "event_type": "CLASSIFICATION_RESULT",
+                "source_id": str(self.app.participant.instance_handle),
+                "target_id": classified_function_id,
+                "status": 0
+            }
+            unified_event["payload"] = json.dumps(chain_payload)
+            self.unified_event_writer.write(unified_event)
+            self.unified_event_writer.flush()
+        except Exception:
+            pass
+
+    def _publish_function_call_start(self, chain_id: str, call_id: str, function_name: str, function_id: str, target_provider_id: str = None):
+        """Publish chain event for function call start to Event"""
+        if not hasattr(self, "unified_event_writer") or not self.unified_event_writer:
+            return
+        try:
+            import rti.connextdds as dds
+            unified_event = dds.DynamicData(self.unified_event_type)
+            unified_event["event_id"] = call_id
+            unified_event["kind"] = 0  # CHAIN
+            unified_event["timestamp"] = int(time.time() * 1000)
+            unified_event["component_id"] = str(self.app.participant.instance_handle)
+            unified_event["severity"] = "INFO"
+            unified_event["message"] = "FUNCTION_CALL_START"
+            chain_payload = {
+                "chain_id": chain_id,
+                "call_id": call_id,
+                "interface_id": str(self.app.participant.instance_handle),
+                "primary_agent_id": "",
+                "specialized_agent_ids": "",
+                "function_id": function_id,
+                "query_id": str(uuid.uuid4()),
+                "event_type": "FUNCTION_CALL_START",
+                "source_id": str(self.app.participant.instance_handle),
+                "target_id": function_id,
+                "status": 0
+            }
+            unified_event["payload"] = json.dumps(chain_payload)
+            self.unified_event_writer.write(unified_event)
+            self.unified_event_writer.flush()
+            
+            # Also emit AGENT->SERVICE activation if provider known
+            if target_provider_id:
+                unified_event2 = dds.DynamicData(self.unified_event_type)
+                unified_event2["event_id"] = call_id
+                unified_event2["kind"] = 0  # CHAIN
+                unified_event2["timestamp"] = int(time.time() * 1000)
+                unified_event2["component_id"] = self.app.agent_id
+                unified_event2["severity"] = "INFO"
+                unified_event2["message"] = "AGENT_TO_SERVICE_START"
+                chain_payload2 = {
+                    "chain_id": chain_id,
+                    "call_id": call_id,
+                    "interface_id": str(self.app.participant.instance_handle),
+                    "primary_agent_id": self.app.agent_id,
+                    "specialized_agent_ids": "",
+                    "function_id": function_id,
+                    "query_id": str(uuid.uuid4()),
+                    "event_type": "AGENT_TO_SERVICE_START",
+                    "source_id": self.app.agent_id,
+                    "target_id": target_provider_id,
+                    "status": 0
+                }
+                unified_event2["payload"] = json.dumps(chain_payload2)
+                self.unified_event_writer.write(unified_event2)
+                self.unified_event_writer.flush()
+        except Exception as e:
+            logger.debug(f"Error publishing function call start event: {e}")
+            pass
+
+    def _publish_function_call_complete(self, chain_id: str, call_id: str, function_name: str, function_id: str, source_provider_id: str = None):
+        """Publish chain event for function call completion to Event"""
+        if not hasattr(self, "unified_event_writer") or not self.unified_event_writer:
+            return
+        try:
+            import rti.connextdds as dds
+            unified_event = dds.DynamicData(self.unified_event_type)
+            unified_event["event_id"] = call_id
+            unified_event["kind"] = 0  # CHAIN
+            unified_event["timestamp"] = int(time.time() * 1000)
+            unified_event["component_id"] = function_id
+            unified_event["severity"] = "INFO"
+            unified_event["message"] = "FUNCTION_CALL_COMPLETE"
+            chain_payload = {
+                "chain_id": chain_id,
+                "call_id": call_id,
+                "interface_id": str(self.app.participant.instance_handle),
+                "primary_agent_id": "",
+                "specialized_agent_ids": "",
+                "function_id": function_id,
+                "query_id": str(uuid.uuid4()),
+                "event_type": "FUNCTION_CALL_COMPLETE",
+                "source_id": function_id,
+                "target_id": str(self.app.participant.instance_handle),
+                "status": 0
+            }
+            unified_event["payload"] = json.dumps(chain_payload)
+            self.unified_event_writer.write(unified_event)
+            self.unified_event_writer.flush()
+            
+            # Also emit SERVICE->AGENT completion if provider known
+            if source_provider_id:
+                unified_event2 = dds.DynamicData(self.unified_event_type)
+                unified_event2["event_id"] = call_id
+                unified_event2["kind"] = 0  # CHAIN
+                unified_event2["timestamp"] = int(time.time() * 1000)
+                unified_event2["component_id"] = source_provider_id
+                unified_event2["severity"] = "INFO"
+                unified_event2["message"] = "SERVICE_TO_AGENT_COMPLETE"
+                chain_payload2 = {
+                    "chain_id": chain_id,
+                    "call_id": call_id,
+                    "interface_id": str(self.app.participant.instance_handle),
+                    "primary_agent_id": self.app.agent_id,
+                    "specialized_agent_ids": "",
+                    "function_id": function_id,
+                    "query_id": str(uuid.uuid4()),
+                    "event_type": "SERVICE_TO_AGENT_COMPLETE",
+                    "source_id": source_provider_id,
+                    "target_id": self.app.agent_id,
+                    "status": 0
+                }
+                unified_event2["payload"] = json.dumps(chain_payload2)
+                self.unified_event_writer.write(unified_event2)
+                self.unified_event_writer.flush()
+        except Exception:
+            pass
 
     async def execute_function_with_monitoring(self,
                                                function_name: str,
@@ -678,10 +732,10 @@ class MonitoredAgent(GenesisAgent):
                                                chain_id: str,
                                                call_id: str):
         """Centralized function execution + ChainEvent emission.
-
+        
         All subclasses should call this instead of emitting ChainEvents directly.
         """
-        # Start events
+        # Start events (currently disabled in Phase 7)
         self._publish_function_call_start(
             chain_id=chain_id,
             call_id=call_id,
@@ -691,7 +745,7 @@ class MonitoredAgent(GenesisAgent):
         )
         # Execute underlying function via subclass implementation
         result = await self._call_function(function_name, **tool_args)
-        # Complete events
+        # Complete events (currently disabled in Phase 7)
         self._publish_function_call_complete(
             chain_id=chain_id,
             call_id=call_id,
@@ -772,7 +826,7 @@ class MonitoredAgent(GenesisAgent):
                                status_data: Optional[Dict[str, Any]] = None,
                                request_info: Optional[Any] = None) -> None:
         """
-        Publish a monitoring event.
+        Publish a monitoring event to Event (Phase 7: V2 Only).
         
         Args:
             event_type: Type of event (AGENT_DISCOVERY, AGENT_REQUEST, etc.)
@@ -784,38 +838,40 @@ class MonitoredAgent(GenesisAgent):
         """
         try:
             # Check if monitoring is set up
-            if not hasattr(self, 'monitoring_writer') or not self.monitoring_writer:
-                logger.debug(f"Monitoring writer not initialized, skipping event: {event_type}")
+            if not hasattr(self, 'unified_event_writer') or not self.unified_event_writer:
+                logger.debug(f"Unified event writer not initialized, skipping event: {event_type}")
                 return
                 
-            if not hasattr(self, 'monitoring_type') or not self.monitoring_type:
-                logger.debug(f"Monitoring type not initialized, skipping event: {event_type}")
+            if not hasattr(self, 'unified_event_type') or not self.unified_event_type:
+                logger.debug(f"Unified event type not initialized, skipping event: {event_type}")
                 return
             
             import rti.connextdds as dds
-            event = dds.DynamicData(self.monitoring_type)
             
-            # Set basic fields
-            event["event_id"] = str(uuid.uuid4())
-            event["timestamp"] = int(time.time() * 1000)
-            event["event_type"] = EVENT_TYPE_MAP.get(event_type, 0)
-            event["entity_type"] = AGENT_TYPE_MAP.get(self.agent_type, 1)  # Default to PRIMARY_AGENT if type not found
-            event["entity_id"] = self.agent_name
-            
-            # Set optional fields
-            if metadata:
-                event["metadata"] = json.dumps(metadata)
-            if call_data:
-                event["call_data"] = json.dumps(call_data)
-            if result_data:
-                event["result_data"] = json.dumps(result_data)
-            if status_data:
-                event["status_data"] = json.dumps(status_data)
-            
-            # Write the event
-            self.monitoring_writer.write(event)
-            self.monitoring_writer.flush()
-            logger.debug(f"Published monitoring event: {event_type}")
+            # Publish to unified Event (kind=GENERAL)
+            unified_event = dds.DynamicData(self.unified_event_type)
+            unified_event["event_id"] = str(uuid.uuid4())
+            unified_event["kind"] = 2  # GENERAL
+            unified_event["timestamp"] = int(time.time() * 1000)
+            unified_event["component_id"] = self.agent_name
+            unified_event["severity"] = "INFO"
+            # Use enum name for consistency with old MonitoringEvent
+            enum_value = EVENT_TYPE_MAP.get(event_type, 0)
+            unified_event["message"] = EVENT_TYPE_ENUM_NAMES.get(enum_value, event_type)
+            # Pack all monitoring data into payload
+            general_payload = {
+                "event_type": event_type,
+                "entity_type": self.agent_type,
+                "entity_id": self.agent_name,
+                "metadata": metadata or {},
+                "call_data": call_data or {},
+                "result_data": result_data or {},
+                "status_data": status_data or {}
+            }
+            unified_event["payload"] = json.dumps(general_payload)
+            self.unified_event_writer.write(unified_event)
+            self.unified_event_writer.flush()
+            logger.debug(f"Published monitoring event to Event: {event_type}")
             
         except Exception as e:
             logger.error(f"Error publishing monitoring event: {str(e)}")

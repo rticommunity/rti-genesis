@@ -503,6 +503,15 @@ class FunctionRegistry:
                 try:
                     self.advertisement_listener = GenesisAdvertisementListener(self)
                     
+                    # Create content-filtered topic to only receive FUNCTION advertisements (kind=0)
+                    # This filters at DDS layer - much more efficient than in-code filtering!
+                    logger.debug("🔍 FunctionRegistry: Creating content-filtered topic for FUNCTION advertisements...")
+                    filtered_topic = dds.DynamicData.ContentFilteredTopic(
+                        self.advertisement_topic,
+                        "FunctionAdvertisementFilter",
+                        dds.Filter("kind = %0", ["0"])  # FUNCTION kind enum value
+                    )
+                    
                     # CRITICAL: Create separate QoS for Advertisement reader that matches AdvertisementBus writer QoS
                     # The writer doesn't use liveliness settings, so reader must not either (or match defaults)
                     ad_reader_qos = dds.QosProvider.default.datareader_qos
@@ -513,7 +522,7 @@ class FunctionRegistry:
                     # Do NOT set liveliness - must match AdvertisementBus writer (default AUTOMATIC/INFINITE)
                     
                     self.advertisement_reader = dds.DynamicData.DataReader(
-                        topic=self.advertisement_topic,
+                        cft=filtered_topic,  # Use content-filtered topic instead of base topic
                         qos=ad_reader_qos,
                         listener=self.advertisement_listener,
                         subscriber=self.subscriber,
@@ -749,15 +758,7 @@ class FunctionRegistry:
     def handle_advertisement(self, ad: dds.DynamicData, info: dds.SampleInfo):
         """Handle received GenesisAdvertisement for FUNCTION kind."""
         try:
-            # Attempt to filter to FUNCTION kind (0) when possible
-            try:
-                kind_val = ad["kind"]
-                kind_str = str(kind_val) if kind_val is not None else ""
-                if kind_str and "FUNCTION" not in kind_str and str(kind_val) not in ("0",):
-                    return
-            except Exception:
-                pass
-
+            # Content filter ensures only FUNCTION ads are delivered - no in-code filtering needed
             function_id = ad.get_string("advertisement_id") or ""
             name = ad.get_string("name") or ""
             description = ad.get_string("description") or ""

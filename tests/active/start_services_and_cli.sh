@@ -11,6 +11,18 @@ PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 # Add the project root to PYTHONPATH
 export PYTHONPATH=$PYTHONPATH:$PROJECT_ROOT
 
+# Set up log directory
+LOG_DIR="$PROJECT_ROOT/logs"
+mkdir -p "$LOG_DIR"
+SPY_LOG="$LOG_DIR/spy_start_services_and_cli.log"
+
+# Start rtiddsspy to monitor DDS traffic
+if [ -n "$NDDSHOME" ] && [ -f "$NDDSHOME/bin/rtiddsspy" ]; then
+    RTIDDSSPY_PROFILEFILE="$PROJECT_ROOT/spy_transient.xml" "$NDDSHOME/bin/rtiddsspy" > "$SPY_LOG" 2>&1 &
+    SPY_PID=$!
+    echo "Started rtiddsspy monitoring (PID: $SPY_PID, Log: $SPY_LOG)"
+fi
+
 # Start the calculator service
 echo "===== Starting Calculator Service ====="
 python3 "$PROJECT_ROOT/test_functions/services/calculator_service.py" &
@@ -36,6 +48,10 @@ sleep 5
 
 # Clean up on exit
 echo "===== Cleaning Up ====="
+# Kill spy if running
+if [ -n "$SPY_PID" ] && kill -0 "$SPY_PID" 2>/dev/null; then
+    kill "$SPY_PID" 2>/dev/null || true
+fi
 kill $CALCULATOR_PID 2>/dev/null || true
 kill $LETTER_COUNTER_PID 2>/dev/null || true
 kill $TEXT_PROCESSOR_PID 2>/dev/null || true

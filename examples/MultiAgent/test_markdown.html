@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Markdown & Math Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; }
+        .test-case { border: 1px solid #ddd; margin: 10px 0; padding: 15px; }
+        .test-title { font-weight: bold; color: #333; margin-bottom: 10px; }
+        .original { background: #f5f5f5; padding: 10px; margin: 5px 0; font-family: monospace; font-size: 0.9em; }
+        .rendered { 
+            background: #e8f4fd; 
+            padding: 10px; 
+            margin: 5px 0; 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+            line-height: 1.5;
+        }
+        
+        /* Same styling as GUI */
+        .rendered strong, .rendered b {
+            font-weight: 700 !important;
+            color: #1a1a1a;
+        }
+        
+        .rendered em, .rendered i {
+            font-style: italic;
+            color: #2c3e50;
+        }
+        
+        .rendered ul, .rendered ol {
+            margin: 8px 0;
+            padding-left: 20px;
+        }
+        
+        .rendered li {
+            margin: 4px 0;
+            line-height: 1.6;
+        }
+        
+        .rendered ul li {
+            list-style-type: disc;
+        }
+        
+        .rendered ol li {
+            list-style-type: decimal;
+        }
+        
+        .rendered code {
+            background: rgba(0, 0, 0, 0.1);
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <h1>Genesis GUI Markdown & Math Rendering Test</h1>
+    
+    <div class="test-case">
+        <div class="test-title">Test 1: Math Expression (as seen in GUI)</div>
+        <div class="original">Original: The result of multiplying \(1.43542245\) by \(234.2\) is approximately \(336.1759377\).</div>
+        <div class="rendered" id="test1"></div>
+    </div>
+    
+    <div class="test-case">
+        <div class="test-title">Test 2: Weather Response with Formatting</div>
+        <div class="original">Original: The current weather in **Monument, Colorado** is clear. The temperature is `13.7°C` with a humidity of 76%.</div>
+        <div class="rendered" id="test2"></div>
+    </div>
+    
+    <div class="test-case">
+        <div class="test-title">Test 3: Complex Math Expression</div>
+        <div class="original">Original: For the calculation: \[ result = 1.43542245 \times 234.2 = 336.1759377 \]</div>
+        <div class="rendered" id="test3"></div>
+    </div>
+    
+    <div class="test-case">
+        <div class="test-title">Test 4: Complex Bulleted List (User's Example)</div>
+        <div class="original">Original: Complex nested list with bold headers and bullet points</div>
+        <div class="rendered" id="test4"></div>
+    </div>
+
+    <script>
+        // MathJax configuration (same as GUI)
+        window.MathJax = {
+            tex: {
+                inlineMath: [['\\(', '\\)']],
+                displayMath: [['\\[', '\\]']],
+                processEscapes: true,
+                processEnvironments: true
+            },
+            options: {
+                skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre'],
+                ignoreHtmlClass: 'no-mathjax'
+            }
+        };
+
+        // Test cases
+        const tests = [
+            {
+                id: 'test1',
+                text: 'The result of multiplying \\(1.43542245\\) by \\(234.2\\) is approximately \\(336.1759377\\).'
+            },
+            {
+                id: 'test2', 
+                text: 'The current weather in **Monument, Colorado** is clear. The temperature is `13.7°C` with a humidity of 76%.'
+            },
+            {
+                id: 'test3',
+                text: 'For the calculation:\n\\[\nresult = 1.43542245 \\times 234.2 = 336.1759377\n\\]'
+            },
+            {
+                id: 'test4',
+                text: `Here is a bulleted list in markdown format of five uses for a multi-agent self-configuring mesh network:
+
+- **Disaster Recovery and Emergency Services**
+  - Quickly deployable and reconfigurable communication networks in disaster-stricken areas to support emergency response teams and coordinate relief efforts
+
+- **Military and Defense Applications**
+  - Provides robust and resilient communication among soldiers on the battlefield, allowing for decentralized and efficient coordination without relying on existing infrastructure
+
+- **Rural and remote connectivity**
+  - Establishes network connectivity in rural or remote locations where traditional broadband infrastructure is not feasible or cost-effective, aiding in bringing internet access to underserved areas
+
+- **Smart City Infrastructure**
+  - Supports interconnected devices and sensors in a smart city environment, enabling real-time data exchange and management of city resources such as traffic flow, energy consumption, and public safety
+
+- **Industrial IoT and Automation**
+  - Facilitates communication and data transmission in industrial environments, enhancing automation and monitoring of machines and processes across large-scale manufacturing facilities`
+            }
+        ];
+
+        // Configure marked for better rendering
+        marked.setOptions({
+            breaks: true,        // Convert line breaks to <br>
+            gfm: true,          // GitHub Flavored Markdown
+            sanitize: false,    // Allow HTML
+            smartLists: true,   // Better list formatting
+            smartypants: true   // Smart quotes and dashes
+        });
+
+        // Process and render tests
+        tests.forEach(test => {
+            const element = document.getElementById(test.id);
+            try {
+                const html = marked.parse(test.text);
+                console.log(`Test ${test.id}:`, { original: test.text, parsed: html });
+                element.innerHTML = html;
+                
+                // Render math if MathJax is available
+                if (window.MathJax) {
+                    MathJax.typesetPromise([element]).catch(err => {
+                        console.error('MathJax error:', err);
+                    });
+                }
+            } catch (e) {
+                element.innerHTML = `Error: ${e.message}`;
+                console.error(`Test ${test.id} failed:`, e);
+            }
+        });
+    </script>
+</body>
+</html> 

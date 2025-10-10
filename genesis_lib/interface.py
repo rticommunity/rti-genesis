@@ -193,16 +193,7 @@ class GenesisInterface(ABC):
                             if data is None:
                                 logger.debug("⏭️ INTERFACE: Skipping None data")
                                 continue
-                            # Filter to AGENT ads
-                            try:
-                                k = data["kind"]
-                                logger.debug(f"🔍 INTERFACE: Advertisement kind={k}, str(k)={str(k)}")
-                                if str(k) not in ("1",) and "AGENT" not in str(k):
-                                    logger.debug(f"⏭️ INTERFACE: Skipping non-AGENT advertisement (kind={k})")
-                                    continue
-                            except Exception as filter_err:
-                                logger.warning(f"⚠️ INTERFACE: Error checking advertisement kind: {filter_err}")
-                                pass
+                            # Content filter ensures only AGENT ads are delivered - no in-code filtering needed
                             agent_id = data.get_string("advertisement_id") or ""
                             if not agent_id:
                                 continue
@@ -236,11 +227,20 @@ class GenesisInterface(ABC):
                     except Exception as e:
                         logger.error(f"❌ TRACE: Error in AdvertisementListener.on_data_available: {e}")
 
-            # Create advertisement reader
-            logger.debug("📡 TRACE: Creating advertisement reader...")
+            # Create content-filtered topic to only receive AGENT advertisements (kind=1)
+            # This filters at the DDS layer, not in code - much more efficient!
+            logger.debug("🔍 TRACE: Creating content-filtered topic for AGENT advertisements...")
+            filtered_topic = dds.DynamicData.ContentFilteredTopic(
+                ad_topic,
+                "AgentAdvertisementFilter",
+                dds.Filter("kind = %0", ["1"])  # AGENT kind enum value
+            )
+            
+            # Create advertisement reader with content filter
+            logger.debug("📡 TRACE: Creating advertisement reader with content filter...")
             self.advertisement_reader = dds.DynamicData.DataReader(
                 subscriber=self.app.subscriber,
-                topic=ad_topic,
+                cft=filtered_topic,  # Use 'cft' parameter for ContentFilteredTopic
                 qos=reader_qos,
                 listener=AdvertisementListener(self),
                 mask=dds.StatusMask.DATA_AVAILABLE

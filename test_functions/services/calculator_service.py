@@ -45,11 +45,12 @@
 #   - Maintenance of Docstrings: Requires discipline to keep docstrings detailed,
 #     correctly formatted for parsing, and in sync with the code logic.
 # --------------------------------------------------------------------------- #
-import logging, asyncio, sys
+import logging, asyncio, sys, os
 from typing import Dict, Any
 from datetime import datetime
 from genesis_lib.decorators import genesis_function
 from genesis_lib.enhanced_service_base import EnhancedServiceBase
+from genesis_lib.rpc_service_v2 import GenesisRPCServiceV2
 
 # --------------------------------------------------------------------------- #
 # Exceptions                                                                  #
@@ -91,6 +92,20 @@ class CalculatorService(EnhancedServiceBase):
         self._advertise_functions()
         logger.info("===== DDS TRACE: _advertise_functions called. =====")
         logger.info("CalculatorService initialized")
+
+        # Unified RPC v2 (opt-in via env flag)
+        self._rpc_v2 = None
+        use_unified = os.getenv('USE_UNIFIED_RPC', 'false').lower() == 'true'
+        if use_unified:
+            try:
+                self._rpc_v2 = GenesisRPCServiceV2(service_type=self.service_name, participant=self.participant)
+                for func_name, meta in self.functions.items():
+                    impl = meta.get("implementation")
+                    if impl:
+                        self._rpc_v2.register_function(func_name, impl)
+                logger.info("Unified RPC v2 enabled for CalculatorService")
+            except Exception:
+                logger.exception("Failed to initialize RPC v2; continuing with legacy path only")
 
     @genesis_function()
     async def add(self, x: float, y: float, request_info=None) -> Dict[str, Any]:
@@ -229,7 +244,12 @@ def main():
     logger.info("SERVICE: Starting calculator service")
     try:
         service = CalculatorService()
-        asyncio.run(service.run())
+        async def _run():
+            if getattr(service, "_rpc_v2", None) is not None:
+                await asyncio.gather(service.run(), service._rpc_v2.run())
+            else:
+                await service.run()
+        asyncio.run(_run())
     except KeyboardInterrupt:
         logger.info("SERVICE: Shutting down calculator service")
 

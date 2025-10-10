@@ -107,6 +107,9 @@ if [ -z "${NDDSHOME:-}" ]; then
     exit 2
 fi
 
+# Using unified monitoring topics (GraphTopology, Event)
+echo "ℹ️  Using unified monitoring topics (GraphTopology, Event)"
+
 # Resolve rtiddsspy location with overrides
 # Priority: RTIDDSSPY_BIN -> RTI_BIN_DIR/rtiddsspy -> $NDDSHOME/bin/rtiddsspy
 if [ -n "${RTIDDSSPY_BIN:-}" ]; then
@@ -420,7 +423,7 @@ run_with_timeout "$(resolve_path test_agent_to_agent_communication.py)" 120 || {
 
 # Cleanup after agent-to-agent test
 pkill -f "personal_assistant_service\|weather_agent_service" || true
-sleep 3
+sleep 8  # Extended delay to ensure durable advertisements are fully purged from DDS
 
 # Interface -> Agent -> Service Pipeline Test (Moved to be second after agent-to-agent)
 run_with_timeout "$(resolve_path run_interface_agent_service_test.sh)" 75 || { echo "Test failed: run_interface_agent_service_test.sh"; exit 1; }
@@ -466,6 +469,11 @@ if [ -z "${OPENAI_API_KEY:-}" ]; then
     echo "⚠️  Skipping test_monitoring.sh: OPENAI_API_KEY not set."
 else
     run_with_timeout "$(resolve_path test_monitoring.sh)" 90 || { echo "Test failed: test_monitoring.sh"; exit 1; }
+fi
+
+# Optional: RPC v2 parity check when enabled
+if [ "${USE_UNIFIED_RPC:-false}" = "true" ]; then
+    run_with_timeout "$(resolve_path validate_rpc_parity.sh)" 120 || { echo "Test failed: validate_rpc_parity.sh"; exit 1; }
 fi
 
 echo "=================================================="

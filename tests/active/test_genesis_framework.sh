@@ -20,6 +20,14 @@ mkdir -p "${PROJECT_ROOT}/logs"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 MAIN_LOG_FILE="${PROJECT_ROOT}/logs/genesis_framework_test_${TIMESTAMP}.log"
 SERVICES_LOG_FILE="${PROJECT_ROOT}/logs/services_test_${TIMESTAMP}.log"
+SPY_LOG="${PROJECT_ROOT}/logs/spy_test_genesis_framework.log"
+
+# Start rtiddsspy to monitor DDS traffic
+if [ -n "$NDDSHOME" ] && [ -f "$NDDSHOME/bin/rtiddsspy" ]; then
+    RTIDDSSPY_PROFILEFILE="${PROJECT_ROOT}/spy_transient.xml" "$NDDSHOME/bin/rtiddsspy" > "$SPY_LOG" 2>&1 &
+    SPY_PID=$!
+    echo "Started rtiddsspy monitoring (PID: $SPY_PID, Log: $SPY_LOG)"
+fi
 
 echo "===== Starting Genesis Framework Test Suite ====="
 echo "Date: $(date)"
@@ -30,6 +38,15 @@ echo "Services log file: ${SERVICES_LOG_FILE}"
 log_message() {
     echo "$1" | tee -a ${MAIN_LOG_FILE}
 }
+
+# Cleanup function
+cleanup() {
+    # Kill spy if running
+    if [ -n "$SPY_PID" ] && kill -0 "$SPY_PID" 2>/dev/null; then
+        kill "$SPY_PID" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
 
 # Function to check if a process is running
 check_process() {

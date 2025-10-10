@@ -8,7 +8,13 @@
 # source ../setup.sh
 
 # Add the project root to PYTHONPATH
-export PYTHONPATH=$PYTHONPATH:$(dirname $(dirname $(realpath $0)))
+PROJECT_ROOT="$(dirname $(dirname $(realpath $0)))"
+export PYTHONPATH=$PYTHONPATH:$PROJECT_ROOT
+
+# Set up log directory
+LOG_DIR="$PROJECT_ROOT/logs"
+mkdir -p "$LOG_DIR"
+SPY_LOG="$LOG_DIR/spy_run_simple_agent.log"
 
 # Initialize array to store PIDs
 declare -a pids=()
@@ -16,6 +22,10 @@ declare -a pids=()
 # Function to cleanup processes
 cleanup() {
     echo "Cleaning up processes..."
+    # Kill spy if running
+    if [ -n "$SPY_PID" ] && kill -0 "$SPY_PID" 2>/dev/null; then
+        kill "$SPY_PID" 2>/dev/null || true
+    fi
     for pid in "${pids[@]}"; do
         if ps -p "$pid" > /dev/null; then
             kill "$pid" 2>/dev/null
@@ -26,6 +36,14 @@ cleanup() {
 
 # Set up trap for cleanup on script termination
 trap cleanup SIGINT SIGTERM EXIT
+
+# Start rtiddsspy to monitor DDS traffic
+if [ -n "$NDDSHOME" ] && [ -f "$NDDSHOME/bin/rtiddsspy" ]; then
+    RTIDDSSPY_PROFILEFILE="$PROJECT_ROOT/spy_transient.xml" "$NDDSHOME/bin/rtiddsspy" > "$SPY_LOG" 2>&1 &
+    SPY_PID=$!
+    pids+=("$SPY_PID")
+    echo "Started rtiddsspy monitoring (PID: $SPY_PID, Log: $SPY_LOG)"
+fi
 
 # Start the calculator service in the background
 echo "Starting calculator service..."

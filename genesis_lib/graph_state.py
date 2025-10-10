@@ -97,36 +97,8 @@ class GenesisNetworkGraph:
             }
 
 
-class _LifecycleListener(dds.DynamicData.NoOpDataReaderListener):
-    def __init__(self, on_event: Callable[[Dict[str, Any]], None]) -> None:
-        super().__init__()
-        self._on_event = on_event
-
-    def on_data_available(self, reader) -> None:  # type: ignore[override]
-        try:
-            for sample in reader.take():
-                if sample.info.valid:
-                    data = sample.data
-                    self._on_event({
-                        "component_id": str(data["component_id"]) if data["component_id"] else "",
-                        "component_type": int(data["component_type"]),
-                        "previous_state": int(data["previous_state"]),
-                        "new_state": int(data["new_state"]),
-                        "timestamp": int(data["timestamp"]),
-                        "reason": str(data["reason"]) if data["reason"] else "",
-                        "capabilities": str(data["capabilities"]) if data["capabilities"] else "",
-                        "event_category": int(data["event_category"]),
-                        "source_id": str(data["source_id"]) if data["source_id"] else "",
-                        "target_id": str(data["target_id"]) if data["target_id"] else "",
-                        "connection_type": str(data["connection_type"]) if data["connection_type"] else "",
-                    })
-        except Exception:
-            # Avoid raising in DDS callback
-            pass
-
-
 class GraphSubscriber:
-    """DDS subscriber focused on ComponentLifecycleEvent for topology graph."""
+    """DDS subscriber focused on unified monitoring topics (GraphTopology, Event)."""
 
     # Mappings for enums
     _COMPONENT_TYPES = ["INTERFACE", "PRIMARY_AGENT", "SPECIALIZED_AGENT", "FUNCTION", "SERVICE"]
@@ -139,10 +111,12 @@ class GraphSubscriber:
         self._on_activity = on_activity
         self._participant: Optional[dds.DomainParticipant] = None
         self._subscriber: Optional[dds.Subscriber] = None
-        self._lifecycle_reader: Optional[dds.DynamicData.DataReader] = None
         self._graph_node_reader = None
         self._graph_edge_reader = None
         self._chain_reader = None
+        # V2 unified topic readers
+        self._topology_v2_reader = None
+        self._event_v2_chain_reader = None
         # Track instance handles to ids for removal on NOT_ALIVE states
         self._node_handle_to_id: Dict[Any, str] = {}
         self._edge_handle_to_key: Dict[Any, Tuple[str, str, str]] = {}
@@ -186,24 +160,13 @@ class GraphSubscriber:
         else:
             self._logger.info("Durable topology readers enabled (GenesisGraphNode/Edge)")
 
-        lifecycle_type = provider.type("genesis_lib", "ComponentLifecycleEvent")
-        lifecycle_topic = dds.DynamicData.Topic(self._participant, "rti/connext/genesis/monitoring/ComponentLifecycleEvent", lifecycle_type)
-
-        reader_qos = dds.QosProvider.default.datareader_qos
-        # Lifecycle is transient activity; subscribe VOLATILE
-        reader_qos.durability.kind = dds.DurabilityKind.VOLATILE
-        reader_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
-        reader_qos.history.kind = dds.HistoryKind.KEEP_ALL
-
-        listener = _LifecycleListener(self._handle_lifecycle_event)
-        self._lifecycle_reader = dds.DynamicData.DataReader(
-            subscriber=self._subscriber,
-            topic=lifecycle_topic,
-            qos=reader_qos,
-            listener=listener,
-            mask=dds.StatusMask.DATA_AVAILABLE,
-        )
-        self._logger.info("Lifecycle reader started (ComponentLifecycleEvent)")
+        # ==============================================================
+        # UNIFIED MONITORING TOPICS (GraphTopology, Event)
+        # ComponentLifecycleEvent is now replaced by Event (kind=LIFECYCLE)
+        # ==============================================================
+        self._logger.info("Using unified monitoring topics (GraphTopology, Event)")
+        self._setup_v2_topology_reader(provider)
+        self._setup_v2_event_reader(provider)
 
         # Built-in topics to detect ungraceful participant loss
         try:
@@ -283,223 +246,188 @@ class GraphSubscriber:
         except Exception:
             self._logger.debug("Built-in subscriber not available")
 
-        # Durable topology readers
-        if graph_node_type is not None and graph_edge_type is not None:
-            node_topic = dds.DynamicData.Topic(self._participant, "rti/connext/genesis/monitoring/GenesisGraphNode", graph_node_type)
-            edge_topic = dds.DynamicData.Topic(self._participant, "rti/connext/genesis/monitoring/GenesisGraphEdge", graph_edge_type)
+    def _setup_v2_topology_reader(self, provider: dds.QosProvider) -> None:
+        """Set up GraphTopology reader for unified node and edge data."""
+        try:
+            topology_type = provider.type("genesis_lib", "GraphTopology")
+            topology_topic = dds.DynamicData.Topic(
+                self._participant, 
+                "rti/connext/genesis/monitoring/GraphTopology", 
+                topology_type
+            )
+            
+            # Durable QoS for topology
             durable_qos = dds.QosProvider.default.datareader_qos
             durable_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
             durable_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
-            # Keep all to ensure instance-state transitions (NOT_ALIVE) are delivered
             durable_qos.history.kind = dds.HistoryKind.KEEP_ALL
-
-            class _NodeListener(dds.DynamicData.NoOpDataReaderListener):
+            
+            class _TopologyV2Listener(dds.DynamicData.NoOpDataReaderListener):
                 def __init__(self, outer):
                     super().__init__()
                     self._outer = outer
+                
                 def on_data_available(self, reader):  # type: ignore[override]
                     try:
                         for data, info in reader.take():
-                            # Valid data → update mapping and forward update
                             if info.valid:
-                                node_id = str(data["node_id"]) if data["node_id"] else ""
-                                if node_id:
-                                    # Remember handle→id to support removal when instance goes NOT_ALIVE
+                                kind = int(data["kind"]) if data["kind"] is not None else -1
+                                element_id = str(data["element_id"]) or ""
+                                metadata_json = str(data["metadata"]) or "{}"
+                                
+                                try:
+                                    metadata = json.loads(metadata_json)
+                                except Exception:
+                                    metadata = {}
+                                
+                                if kind == 0:  # NODE
+                                    # Extract node fields from metadata
+                                    node_id = element_id
+                                    node_type = metadata.get("node_type", "UNKNOWN")
+                                    node_name = metadata.get("node_name", node_id)
+                                    node_state = metadata.get("node_state", "UNKNOWN")
+                                    caps = metadata.get("capabilities", {})
+                                    
+                                    # Track handle for removals
                                     try:
                                         self._outer._node_handle_to_id[info.instance_handle] = node_id
                                     except Exception:
                                         pass
-                                    # Try to associate this node with a participant via publication handle mapping
-                                    try:
-                                        pub_h = getattr(info, 'publication_handle', None)
-                                        if pub_h is not None:
-                                            part_key = self._outer._pub_handle_to_participant.get(pub_h)
-                                            if part_key:
-                                                s = self._outer._participant_to_nodes.get(part_key)
-                                                if s is None:
-                                                    s = set()
-                                                    self._outer._participant_to_nodes[part_key] = s
-                                                s.add(node_id)
-                                    except Exception:
-                                        pass
-                                node_type = str(data["node_type"]) or "UNKNOWN"
-                                node_state = str(data["node_state"]) or "UNKNOWN"
-                                node_name = str(data["node_name"]) or node_id
-                                md = str(data["metadata"]) or "{}"
-                                try:
-                                    caps = json.loads(md)
-                                except Exception:
-                                    caps = {}
-                                try:
-                                    self._outer._logger.debug(f"node_update {node_id} type={node_type} state={node_state} name=\"{node_name}\"")
-                                except Exception:
-                                    pass
-                                self._outer._on_graph_update("node_update", {"node": NodeInfo(node_id, node_type, node_name, node_state, caps)})
+                                    
+                                    self._outer._logger.debug(f"V2_node_update {node_id} type={node_type} state={node_state}")
+                                    self._outer._on_graph_update("node_update", {
+                                        "node": NodeInfo(node_id, node_type, node_name, node_state, caps)
+                                    })
+                                
+                                elif kind == 1:  # EDGE
+                                    # element_id format: "source|target|edge_type"
+                                    parts = element_id.split("|")
+                                    if len(parts) == 3:
+                                        source_id, target_id, edge_type = parts
+                                        edge_metadata = metadata.get("edge_metadata", {})
+                                        
+                                        # Track handle for removals
+                                        try:
+                                            self._outer._edge_handle_to_key[info.instance_handle] = (source_id, target_id, edge_type)
+                                        except Exception:
+                                            pass
+                                        
+                                        self._outer._logger.debug(f"V2_edge_update {source_id}->{target_id}:{edge_type}")
+                                        self._outer._on_graph_update("edge_update", {
+                                            "edge": EdgeInfo(source_id, target_id, edge_type, edge_metadata)
+                                        })
                             else:
-                                # Handle instance transitions to NOT_ALIVE to trigger node removal
+                                # Handle NOT_ALIVE for removals
                                 try:
                                     st = info.state.instance_state
                                 except Exception:
                                     st = None
+                                
                                 if st in (dds.InstanceState.NOT_ALIVE_DISPOSED, dds.InstanceState.NOT_ALIVE_NO_WRITERS):
-                                    try:
-                                        ih = getattr(info, 'instance_handle', None)
-                                        self._outer._logger.debug(f"node_instance_not_alive state={st} handle={ih}")
-                                    except Exception:
-                                        pass
+                                    # Try node removal first
                                     node_id = self._outer._node_handle_to_id.pop(info.instance_handle, "")
                                     if node_id:
-                                        try:
-                                            self._outer._logger.info(f"node_remove due to {st}: id={node_id}")
-                                        except Exception:
-                                            pass
-                                        try:
-                                            self._outer._on_graph_update("node_remove", {"node_id": node_id})
-                                        except Exception:
-                                            pass
+                                        self._outer._logger.info(f"V2_node_remove due to {st}: id={node_id}")
+                                        self._outer._on_graph_update("node_remove", {"node_id": node_id})
                                     else:
-                                        try:
-                                            self._outer._logger.debug(f"NOT_ALIVE for unknown node handle={info.instance_handle}; no removal emitted")
-                                        except Exception:
-                                            pass
-                    except Exception:
-                        pass
-
-            class _EdgeListener(dds.DynamicData.NoOpDataReaderListener):
-                def __init__(self, outer):
-                    super().__init__()
-                    self._outer = outer
-                def on_data_available(self, reader):  # type: ignore[override]
-                    try:
-                        for data, info in reader.take():
-                            if info.valid:
-                                src = str(data["source_id"]) or ""
-                                tgt = str(data["target_id"]) or ""
-                                et = str(data["edge_type"]) or ""
-                                if src and tgt:
-                                    try:
-                                        self._outer._edge_handle_to_key[info.instance_handle] = (src, tgt, et)
-                                    except Exception:
-                                        pass
-                                md = str(data["metadata"]) or "{}"
-                                try:
-                                    caps = json.loads(md)
-                                except Exception:
-                                    caps = {}
-                                try:
-                                    self._outer._logger.debug(f"edge_update {src}->{tgt}:{et}")
-                                except Exception:
-                                    pass
-                                self._outer._on_graph_update("edge_update", {"edge": EdgeInfo(src, tgt, et, caps)})
-                            else:
-                                try:
-                                    st = info.state.instance_state
-                                except Exception:
-                                    st = None
-                                if st in (dds.InstanceState.NOT_ALIVE_DISPOSED, dds.InstanceState.NOT_ALIVE_NO_WRITERS):
-                                    key = self._outer._edge_handle_to_key.pop(info.instance_handle, None)
-                                    if key is not None:
-                                        src, tgt, et = key
-                                        try:
-                                            self._outer._logger.info(f"edge_remove due to {st}: {src}->{tgt}:{et}")
-                                        except Exception:
-                                            pass
-                                        try:
-                                            self._outer._on_graph_update("edge_remove", {"edge": {"source_id": src, "target_id": tgt, "edge_type": et}})
-                                        except Exception:
-                                            pass
-                                    else:
-                                        try:
-                                            self._outer._logger.debug(f"NOT_ALIVE for unknown edge handle={info.instance_handle}; no removal emitted")
-                                        except Exception:
-                                            pass
-                    except Exception:
-                        pass
-
-            self._graph_node_reader = dds.DynamicData.DataReader(
+                                        # Try edge removal
+                                        edge_key = self._outer._edge_handle_to_key.pop(info.instance_handle, None)
+                                        if edge_key is not None:
+                                            src, tgt, et = edge_key
+                                            self._outer._logger.info(f"V2_edge_remove due to {st}: {src}->{tgt}:{et}")
+                                            self._outer._on_graph_update("edge_remove", {
+                                                "edge": {"source_id": src, "target_id": tgt, "edge_type": et}
+                                            })
+                    except Exception as e:
+                        self._outer._logger.error(f"Error in V2 topology listener: {e}")
+            
+            self._topology_v2_reader = dds.DynamicData.DataReader(
                 subscriber=self._subscriber,
-                topic=node_topic,
+                topic=topology_topic,
                 qos=durable_qos,
-                listener=_NodeListener(self),
+                listener=_TopologyV2Listener(self),
                 mask=dds.StatusMask.DATA_AVAILABLE,
             )
-            self._graph_edge_reader = dds.DynamicData.DataReader(
-                subscriber=self._subscriber,
-                topic=edge_topic,
-                qos=durable_qos,
-                listener=_EdgeListener(self),
-                mask=dds.StatusMask.DATA_AVAILABLE,
-            )
-            self._logger.info("Durable Node/Edge readers started")
+            self._logger.info("✅ GraphTopology reader started (durable, unified node+edge)")
+        except Exception as e:
+            self._logger.warning(f"Failed to set up GraphTopology reader: {e}")
 
-        # Activity (ChainEvent) - volatile
+    def _setup_v2_event_reader(self, provider: dds.QosProvider) -> None:
+        """Set up Event reader with content filtering for CHAIN events."""
+        if self._on_activity is None:
+            self._logger.debug("Skipping Event reader (no activity callback)")
+            return
+        
         try:
-            chain_type = provider.type("genesis_lib", "ChainEvent")
-            chain_topic = dds.DynamicData.Topic(self._participant, "rti/connext/genesis/monitoring/ChainEvent", chain_type)
-            chain_qos = dds.QosProvider.default.datareader_qos
-            chain_qos.durability.kind = dds.DurabilityKind.VOLATILE
-            chain_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
-            # Keep all ChainEvent samples to avoid dropping bursts of activity
-            chain_qos.history.kind = dds.HistoryKind.KEEP_ALL
-
-            class _ChainListener(dds.DynamicData.NoOpDataReaderListener):
+            event_type = provider.type("genesis_lib", "MonitoringEventUnified")
+            event_topic = dds.DynamicData.Topic(
+                self._participant,
+                "rti/connext/genesis/monitoring/Event",
+                event_type
+            )
+            
+            # Content filter for CHAIN events only (kind = 0)
+            filtered_topic = dds.DynamicData.ContentFilteredTopic(
+                event_topic,
+                "Event_ChainFilter",
+                dds.Filter("kind = %0", ["0"])  # CHAIN kind
+            )
+            
+            # Volatile QoS for events
+            event_qos = dds.QosProvider.default.datareader_qos
+            event_qos.durability.kind = dds.DurabilityKind.VOLATILE
+            event_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
+            event_qos.history.kind = dds.HistoryKind.KEEP_ALL
+            
+            class _EventChainListener(dds.DynamicData.NoOpDataReaderListener):
                 def __init__(self, cb):
                     super().__init__()
                     self._cb = cb
+                
                 def on_data_available(self, reader):  # type: ignore[override]
-                    if self._cb is None:
-                        return
                     try:
                         for data, info in reader.take():
                             if info.valid:
-                                # Build event dict with defensive access for optional fields
-                                def _get_opt(key: str) -> str:
-                                    try:
-                                        val = data[key]
-                                        return str(val) if val else ""
-                                    except Exception:
-                                        return ""
-                                def _get_opt_int(key: str) -> int:
-                                    try:
-                                        val = data[key]
-                                        return int(val) if val else 0
-                                    except Exception:
-                                        return 0
-
+                                # Parse payload JSON for chain event fields
+                                payload_json = str(data["payload"]) or "{}"
+                                try:
+                                    payload = json.loads(payload_json)
+                                except Exception:
+                                    payload = {}
+                                
+                                # Build chain event dict matching old ChainEvent format
                                 evt = {
-                                    "chain_id": _get_opt("chain_id"),
-                                    "call_id": _get_opt("call_id"),
-                                    "source_id": _get_opt("source_id"),
-                                    "target_id": _get_opt("target_id"),
-                                    # Optional context fields (present in some schemas)
-                                    "function_id": _get_opt("function_id"),
-                                    "interface_id": _get_opt("interface_id"),
-                                    "primary_agent_id": _get_opt("primary_agent_id"),
-                                    "specialized_agent_ids": _get_opt("specialized_agent_ids"),
-                                    "query_id": _get_opt("query_id"),
-                                    "event_type": _get_opt("event_type"),
-                                    "status": _get_opt_int("status"),
-                                    "timestamp": _get_opt_int("timestamp"),
+                                    "chain_id": payload.get("chain_id", ""),
+                                    "call_id": payload.get("call_id", ""),
+                                    "source_id": payload.get("source_id", ""),
+                                    "target_id": payload.get("target_id", ""),
+                                    "function_id": payload.get("function_id", ""),
+                                    "interface_id": payload.get("interface_id", ""),
+                                    "primary_agent_id": payload.get("primary_agent_id", ""),
+                                    "specialized_agent_ids": payload.get("specialized_agent_ids", ""),
+                                    "query_id": payload.get("query_id", ""),
+                                    "event_type": payload.get("event_type", ""),
+                                    "status": payload.get("status", 0),
+                                    "timestamp": payload.get("timestamp", 0),
                                 }
+                                
                                 try:
                                     self._cb(evt)
                                 except Exception:
                                     pass
                     except Exception:
                         pass
-
-            if self._on_activity is not None:
-                self._chain_reader = dds.DynamicData.DataReader(
-                    subscriber=self._subscriber,
-                    topic=chain_topic,
-                    qos=chain_qos,
-                    listener=_ChainListener(self._on_activity),
-                    mask=dds.StatusMask.DATA_AVAILABLE,
-                )
-                self._logger.info("ChainEvent reader started (volatile)")
-        except Exception:
-            # ChainEvent may not exist yet; ignore
-            pass
+            
+            self._event_v2_chain_reader = dds.DynamicData.DataReader(
+                subscriber=self._subscriber,
+                cft=filtered_topic,  # Use content-filtered topic
+                qos=event_qos,
+                listener=_EventChainListener(self._on_activity),
+                mask=dds.StatusMask.DATA_AVAILABLE,
+            )
+            self._logger.info("✅ Event CHAIN reader started (volatile, content-filtered for kind=CHAIN)")
+        except Exception as e:
+            self._logger.warning(f"Failed to set up Event reader: {e}")
 
     def stop(self) -> None:
         try:
@@ -508,16 +436,18 @@ class GraphSubscriber:
                 self._graph_edge_reader.close()
             if self._graph_node_reader:
                 self._graph_node_reader.close()
-            if self._lifecycle_reader:
-                self._lifecycle_reader.close()
             if self._chain_reader:
                 self._chain_reader.close()
+            # Close V2 readers if present
+            if self._topology_v2_reader:
+                self._topology_v2_reader.close()
+            if self._event_v2_chain_reader:
+                self._event_v2_chain_reader.close()
             if self._subscriber:
                 self._subscriber.close()
             if self._participant:
                 self._participant.close()
         finally:
-            self._lifecycle_reader = None
             self._subscriber = None
             self._participant = None
             self._graph_edge_reader = None
@@ -535,86 +465,8 @@ class GraphSubscriber:
             return caps.get("service_name") or caps.get("service") or f"Service_{node_id[:8]}"
         return f"{ctype}_{node_id[:8]}"
 
-    def _handle_lifecycle_event(self, evt: Dict[str, Any]) -> None:
-        cat_idx = evt.get("event_category", -1)
-        category = self._EVENT_CATEGORIES[cat_idx] if 0 <= cat_idx < len(self._EVENT_CATEGORIES) else "UNKNOWN"
-
-        if category == "NODE_DISCOVERY":
-            ctype_idx = evt.get("component_type", -1)
-            ctype = self._COMPONENT_TYPES[ctype_idx] if 0 <= ctype_idx < len(self._COMPONENT_TYPES) else "UNKNOWN"
-            node_id = evt.get("component_id", "")
-            try:
-                caps = json.loads(evt.get("capabilities") or "{}")
-            except Exception:
-                caps = {}
-            node_name = self._select_node_name(ctype, node_id, caps)
-            state_idx = evt.get("new_state", 0)
-            state = self._STATES[state_idx] if 0 <= state_idx < len(self._STATES) else "UNKNOWN"
-            try:
-                self._logger.debug(f"lifecycle NODE_DISCOVERY id={node_id} type={ctype} state={state} name=\"{node_name}\"")
-            except Exception:
-                pass
-            self._on_graph_update("node_update", {
-                "node": NodeInfo(node_id=node_id, node_type=ctype, node_name=node_name, node_state=state, metadata=caps)
-            })
-
-        elif category == "EDGE_DISCOVERY":
-            src = evt.get("source_id", "")
-            tgt = evt.get("target_id", "")
-            etype = evt.get("connection_type", "")
-            try:
-                caps = json.loads(evt.get("capabilities") or "{}")
-            except Exception:
-                caps = {}
-            try:
-                self._logger.debug(f"lifecycle EDGE_DISCOVERY {src}->{tgt}:{etype}")
-            except Exception:
-                pass
-            self._on_graph_update("edge_update", {
-                "edge": EdgeInfo(source_id=src, target_id=tgt, edge_type=etype, metadata=caps)
-            })
-
-        elif category == "STATE_CHANGE":
-            # Forward node update and synthesize activity for interface request start/complete
-            node_id = evt.get("component_id", "")
-            ctype_idx = evt.get("component_type", -1)
-            ctype = self._COMPONENT_TYPES[ctype_idx] if 0 <= ctype_idx < len(self._COMPONENT_TYPES) else "UNKNOWN"
-            state_idx = evt.get("new_state", 0)
-            state = self._STATES[state_idx] if 0 <= state_idx < len(self._STATES) else "UNKNOWN"
-            reason = evt.get("reason", "") or ""
-            try:
-                caps = json.loads(evt.get("capabilities") or "{}")
-            except Exception:
-                caps = {}
-            # Emit node update for state change
-            node_name = self._select_node_name(ctype, node_id, caps)
-            self._on_graph_update("node_update", {
-                "node": NodeInfo(node_id=node_id, node_type=ctype, node_name=node_name, node_state=state, metadata=caps)
-            })
-            # Synthesize INTERFACE_* activities so the viewer can pulse/log interface requests
-            try:
-                if self._on_activity is not None and ctype == "INTERFACE":
-                    evt_ts = int(evt.get("timestamp", 0))
-                    src = node_id
-                    tgt = evt.get("target_id", "") or caps.get("target_id", "")
-                    if state == "BUSY" and reason.lower().startswith("interface request"):
-                        self._on_activity({
-                            "event_type": "INTERFACE_REQUEST_START",
-                            "source_id": src,
-                            "target_id": tgt,
-                            "status": 0,
-                            "timestamp": evt_ts,
-                        })
-                    elif state == "READY" and ("response" in reason.lower() or reason.lower().startswith("interface response")):
-                        self._on_activity({
-                            "event_type": "INTERFACE_REQUEST_COMPLETE",
-                            "source_id": src,
-                            "target_id": tgt,
-                            "status": 0,
-                            "timestamp": evt_ts,
-                        })
-            except Exception:
-                pass
+    # Legacy _handle_lifecycle_event method removed - ComponentLifecycleEvent
+    # is now replaced by unified Event topic (kind=LIFECYCLE)
 
 
 class GraphService:

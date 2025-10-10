@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Genesis Graph Viewer</title>
+  <style>
+    html, body { height: 100%; margin: 0; background: #0b0f14; color: #eee; font-family: system-ui, sans-serif; }
+    #toolbar { padding: 8px 12px; background: #111722; border-bottom: 1px solid #222; display: flex; gap: 12px; align-items: center; }
+    #cy { position: absolute; top: 42px; left: 0; right: 0; bottom: 0; }
+    .btn { background: #1e2a3a; color: #eee; border: 1px solid #2c3e50; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+    .toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; opacity: 0.9; }
+    select { background: #172235; color: #eee; border: 1px solid #2c3e50; padding: 4px 8px; border-radius: 6px; }
+    /* Debug panel for live activations */
+    #debugPanel { position: absolute; left: 0; right: 0; bottom: 0; height: 220px; background: #0f1522; border-top: 1px solid #222; padding: 6px 8px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+    #debugPanel.hidden { display: none; }
+    #debugHeader { display: flex; gap: 12px; align-items: center; font-size: 12px; color: #9ab; margin-bottom: 4px; }
+    #debugHeader .metric { background: #0b111d; border: 1px solid #1a273b; padding: 2px 6px; border-radius: 4px; }
+    #debugPanel .line { white-space: pre; }
+    #debugPanel .ts { color: #8aa; }
+    #debugPanel .start { color: #e74c3c; }
+    #debugPanel .complete { color: #2ecc71; }
+    #debugPanel .other { color: #ccc; }
+    /* Node glow variants */
+    .glow-llm { border-width: 6 !important; border-color: #ff9f43 !important; }
+    .glow-classifier { border-width: 6 !important; border-color: #6c5ce7 !important; }
+    /* Enhanced neon glow using cytoscape shadow props */
+    .glow { border-width: 6 !important; border-color: #ff6b6b !important; shadow-blur: 30; shadow-opacity: 0.95; shadow-color: #ff6b6b; background-blacken: -0.1; }
+    .glow-llm { shadow-color: #ff9f43; }
+    .glow-classifier { shadow-color: #6c5ce7; }
+  </style>
+  <script>
+    // simple cache-buster
+    window.__cb = 'v20250812q';
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js?cb=v20250812q"></script>
+  <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js?cb=v20250812q"></script>
+  <script src="https://unpkg.com/layout-base@2.0.2/layout-base.min.js?cb=v20250812q"></script>
+  <script src="https://unpkg.com/cose-base@2.2.0/cose-base.min.js?cb=v20250812q"></script>
+  <script src="https://unpkg.com/cytoscape-fcose@2.2.0/cytoscape-fcose.min.js?cb=v20250812q"></script>
+</head>
+<body>
+  <div id="toolbar">
+    <button id="refresh" class="btn">Refresh</button>
+    <button id="loadSnapshot" class="btn">Load Snapshot</button>
+    <label class="toggle"><input type="checkbox" id="edgeLabelsToggle"> Edge labels</label>
+    <label class="toggle"><input type="checkbox" id="debugToggle"> Debug log</label>
+    <label class="toggle">Layout
+      <select id="layoutMode">
+        <option value="force">Force (fCoSE/CoSE)</option>
+        <option value="layered" selected>Layered (Interfaces → Agents → Services → Functions)</option>
+        <option value="radial">Radial (by type)</option>
+      </select>
+    </label>
+    <span id="status">Disconnected</span>
+  </div>
+  <div id="cy"></div>
+  <div id="debugPanel" class="hidden">
+    <div id="debugHeader">
+      <span class="metric" id="mActive">Active: 0</span>
+      <span class="metric" id="mStarts">Starts: 0</span>
+      <span class="metric" id="mCompletes">Completes: 0</span>
+      <span class="metric" id="mUnmatched">Unmatched starts: 0</span>
+    </div>
+  </div>
+  <script>
+    (function registerFcose() {
+      try {
+        const plugin = window.cytoscapeFcose || window.fcose || window["cytoscape-fcose"] || (window.cytoscapeFcose && window.cytoscapeFcose.default);
+        if (typeof plugin === 'function' && typeof window.cytoscape?.use === 'function') {
+          window.cytoscape.use(plugin);
+          window.__hasFcose = true;
+        } else { window.__hasFcose = false; }
+      } catch (e) { window.__hasFcose = false; }
+    })();
+
+    const statusEl = document.getElementById('status');
+    const layoutSelect = document.getElementById('layoutMode');
+    const debugPanel = document.getElementById('debugPanel');
+    const debugToggle = document.getElementById('debugToggle');
+    const mActive = document.getElementById('mActive');
+    const mStarts = document.getElementById('mStarts');
+    const mCompletes = document.getElementById('mCompletes');
+    const mUnmatched = document.getElementById('mUnmatched');
+
+    const cy = cytoscape({
+      container: document.getElementById('cy'),
+      style: [
+        { selector: 'node', style: { 'label': 'data(label)', 'font-size': 10, 'color': '#eee', 'text-background-opacity': 0.4, 'text-background-color': '#000', 'text-background-padding': 2, 'background-color': (ele)=>{
+          const t = ele.data('type');
+          return t === 'INTERFACE' ? '#3498db' : (t === 'PRIMARY_AGENT' || t === 'AGENT_PRIMARY') ? '#2ecc71' : t === 'SERVICE' ? '#f1c40f' : '#e67e22';
+        }, 'border-width': 1, 'border-color': '#333', 'transition-property': 'border-width, shadow-blur, shadow-opacity, background-blacken', 'transition-duration': 200 } },
+        { selector: 'edge', style: { 'curve-style': 'bezier', 'line-color': '#888', 'width': 3, 'target-arrow-shape': 'triangle', 'target-arrow-color': '#888', 'label': 'data(type)', 'text-opacity': 0, 'font-size': 8, 'text-rotation': 'autorotate', 'color': '#ccc', 'transition-property': 'line-color, line-dash-offset, width', 'transition-duration': 150 } },
+        { selector: '.pulse-start', style: { 'line-color': '#e74c3c', 'target-arrow-color': '#e74c3c', 'width': 4 } },
+        { selector: '.pulse-complete', style: { 'line-color': '#2ecc71', 'target-arrow-color': '#2ecc71', 'width': 4 } },
+        { selector: '.glow', style: { 'border-width': 6, 'border-color': '#ff6b6b' } },
+        { selector: '.edge-flow', style: { 'line-style': 'dashed', 'line-dash-pattern': [8, 8], 'width': 5, 'line-gradient-stop-colors': '#e74c3c #ffffff #e74c3c', 'line-gradient-stop-positions': '0 0.5 1' } },
+        { selector: '.edge-flow-green', style: { 'line-style': 'dashed', 'line-dash-pattern': [8, 8], 'width': 5, 'line-gradient-stop-colors': '#2ecc71 #ffffff #2ecc71', 'line-gradient-stop-positions': '0 0.5 1' } }
+      ]
+    });
+
+    function nodeLabel(id){
+      if (!id) return '';
+      const n = cy.$id(String(id));
+      if (n.nonempty()) return n.data('label') || n.id();
+      return String(id);
+    }
+
+    function levelForType(t){ if (t==='INTERFACE') return 0; if (t==='PRIMARY_AGENT'||t==='AGENT_PRIMARY'||t==='SPECIALIZED_AGENT') return 1; if (t==='SERVICE') return 2; return 3; }
+    function hashId(id){ let h=0; for(let i=0;i<id.length;i++){ h=(h*31 + id.charCodeAt(i))>>>0; } return h; }
+
+    function runLayeredPreset(){
+      const container = cy.container();
+      const w = container.clientWidth || window.innerWidth || 1200;
+      const h = container.clientHeight || window.innerHeight || 800;
+      const topPad = 80, bottomPad = 80; const usableH = Math.max(h - topPad - bottomPad, 200);
+      const bands = 4; const bandGap = usableH / (bands - 1);
+      const jitterY = 24;            // default jitter for most bands
+      const agentJitterY = 45;       // more separation in agent band
+      const agentStaggerAmp = Math.min(60, bandGap * 0.18); // deterministic vertical stagger amplitude
+
+      const interfaces = cy.nodes().filter(n=>n.data('type')==='INTERFACE');
+      const agents = cy.nodes().filter(n=>['PRIMARY_AGENT','AGENT_PRIMARY','SPECIALIZED_AGENT'].includes(n.data('type')));
+      const services = cy.nodes().filter(n=>n.data('type')==='SERVICE');
+      const functions = cy.nodes().filter(n=>!['INTERFACE','PRIMARY_AGENT','AGENT_PRIMARY','SPECIALIZED_AGENT','SERVICE'].includes(n.data('type')));
+
+      function spreadHoriz(collection, yBase, customJitter){
+        const arr = collection.sort((a,b)=> hashId(a.id()) - hashId(b.id())).toArray();
+        const count = Math.max(arr.length, 1); const xStep = w / (count + 1);
+        arr.forEach((n, i)=>{ const jitter = ((hashId(n.id()) % 200)/200 - 0.5) * 2 * (customJitter ?? jitterY); n.position({ x: (i+1)*xStep, y: yBase + jitter }); });
+      }
+
+      // Place interfaces band
+      spreadHoriz(interfaces, topPad + 0*bandGap, jitterY);
+
+      // Agents band with visible stagger
+      (function placeAgents(){
+        const yBase = topPad + 1*bandGap;
+        const arr = agents.sort((a,b)=> hashId(a.id()) - hashId(b.id())).toArray();
+        const count = Math.max(arr.length, 1); const xStep = w / (count + 1);
+        const mid = (count - 1) / 2;
+        arr.forEach((n, i)=>{
+          const norm = count === 1 ? 0 : (i - mid) / mid; // -1 .. 1
+          const stagger = agentStaggerAmp * norm;         // deterministic vertical offset
+          const jitter = ((hashId(n.id()) % 200)/200 - 0.5) * 2 * agentJitterY;
+          n.position({ x: (i+1)*xStep, y: yBase + stagger + jitter });
+        });
+      })();
+
+      // Services band
+      spreadHoriz(services, topPad + 2*bandGap, jitterY);
+
+      // Build service X map AFTER positioning services
+      const serviceX = new Map();
+      services.forEach(s=> serviceX.set(s.id(), s.position('x')));
+
+      // Map services → functions via outgoing edges to FUNCTION nodes
+      const svcToFuncs = new Map();
+      services.forEach(s => {
+        const fnNodes = s.outgoers('edge').targets().filter(n => n.data('type') === 'FUNCTION');
+        if (fnNodes.nonempty()) svcToFuncs.set(s.id(), fnNodes.map(n => n.id()));
+      });
+
+      const placedFuncs = new Set();
+      const funcY = topPad + 3*bandGap;
+      const clusterSpacing = 60;
+
+      services.forEach(s=>{
+        const sid = s.id(); const fx = serviceX.get(sid);
+        const ids = (svcToFuncs.get(sid) || []).slice();
+        const count = ids.length; if (count === 0) return;
+        ids.sort((a,b)=>{
+          const la = (cy.$(`#${a}`).data('label')||'').toString();
+          const lb = (cy.$(`#${b}`).data('label')||'').toString();
+          return la.localeCompare(lb);
+        });
+        const width = (count - 1) * clusterSpacing;
+        ids.forEach((fid, idx)=>{
+          const fNode = cy.$(`#${fid}`); if (fNode.empty()) return;
+          const jitter = ((hashId(fid) % 200)/200 - 0.5) * 2 * jitterY;
+          fNode.position({ x: fx - width/2 + idx*clusterSpacing, y: funcY + jitter });
+          placedFuncs.add(fid);
+        });
+      });
+
+      const remaining = functions.filter(n=> !placedFuncs.has(n.id()));
+      if (remaining.nonempty()) spreadHoriz(remaining, funcY, jitterY);
+
+      cy.layout({ name: 'preset', fit: true }).run();
+      cy.fit(cy.elements(), 40); cy.resize();
+    }
+
+    function runLayout(mode){
+      if (mode === 'layered'){
+        runLayeredPreset();
+      } else if (mode === 'radial'){
+        cy.layout({ name: 'concentric', concentric: n => 10 - levelForType(n.data('type')), levelWidth: () => 1, minNodeSpacing: 50, startAngle: Math.PI/2, sweep: Math.PI*2, padding: 50, animate: false, fit: true }).run();
+        cy.fit(cy.elements(), 40); cy.resize();
+      } else {
+        const opts = window.__hasFcose ? { name: 'fcose', quality: 'default', randomize: true, idealEdgeLength: 120, nodeSeparation: 60, nodeRepulsion: 4500, edgeElasticity: 0.25, gravity: 0.8, animate: false, fit: true } : { name: 'cose', idealEdgeLength: 120, nodeRepulsion: 8000, nodeOverlap: 10, refresh: 20, gravity: 1, animate: false, fit: true };
+        cy.layout(opts).run(); cy.fit(cy.elements(), 40); cy.resize();
+      }
+    }
+
+    function setEdgeLabels(enabled) { cy.style().selector('edge').style('text-opacity', enabled ? 1 : 0).update(); }
+
+    function setDebugVisible(visible){
+      if (visible) {
+        debugPanel.classList.remove('hidden');
+        document.getElementById('cy').style.bottom = (debugPanel.offsetHeight || 180) + 'px';
+        cy.resize();
+      } else {
+        debugPanel.classList.add('hidden');
+        document.getElementById('cy').style.bottom = '0';
+        cy.resize();
+      }
+    }
+
+    function tsStrLocal(){ const d = new Date(); return d.toTimeString().slice(0,8); }
+    function tsStrFromMs(ms){ try { const d = new Date(ms>1e12?ms:ms*1000); return d.toTimeString().slice(0,8); } catch(_) { return ''; } }
+
+    function appendDebugLine(html){
+      const line = document.createElement('div');
+      line.className = 'line';
+      line.innerHTML = html;
+      debugPanel.appendChild(line);
+      // Trim to last 500 lines
+      while (debugPanel.childElementCount > 500) debugPanel.removeChild(debugPanel.firstElementChild);
+      debugPanel.scrollTop = debugPanel.scrollHeight;
+    }
+
+    // Pairing stats
+    const activeByCall = new Map();
+    let totalStarts = 0, totalCompletes = 0;
+    function updateMetrics(){
+      let active = 0; activeByCall.forEach(v => { if (v>0) active += v; });
+      const unmatched = Array.from(activeByCall.values()).reduce((a,b)=> a + (b>0?b:0), 0);
+      mActive.textContent = `Active: ${active}`;
+      mStarts.textContent = `Starts: ${totalStarts}`;
+      mCompletes.textContent = `Completes: ${totalCompletes}`;
+      mUnmatched.textContent = `Unmatched starts: ${unmatched}`;
+    }
+
+    function applyElements(elements) {
+      cy.startBatch(); cy.elements().remove();
+      if (elements && Array.isArray(elements.nodes)) cy.add(elements.nodes);
+      if (elements && Array.isArray(elements.edges)) cy.add(elements.edges);
+      cy.endBatch(); runLayout(layoutSelect.value);
+    }
+
+    function fetchGraph(source='live') { const url = source === 'snapshot' ? '/api/graph?source=snapshot' : '/api/graph'; return fetch(url).then(r => r.json()); }
+
+    function refreshSnapshot() {
+      fetchGraph('live').then(data => { const nodes = data?.elements?.nodes?.length || 0; const edges = data?.elements?.edges?.length || 0; if (nodes === 0 && edges === 0) return fetchGraph('snapshot'); return data; })
+        .then(data => { if (data) applyElements(data.elements || {nodes: [], edges: []}); }).catch(console.error);
+    }
+
+    document.getElementById('refresh').onclick = refreshSnapshot;
+    document.getElementById('loadSnapshot').onclick = () => fetchGraph('snapshot').then(data => applyElements(data.elements || {nodes: [], edges: []}));
+    document.getElementById('edgeLabelsToggle').addEventListener('change', (e)=> setEdgeLabels(e.target.checked));
+    debugToggle.addEventListener('change', (e)=> setDebugVisible(e.target.checked));
+    layoutSelect.addEventListener('change', ()=> runLayout(layoutSelect.value));
+
+    const ioUrl = `${window.location.protocol}//${window.location.host}`;
+    const __verboseActivations = new URLSearchParams(location.search).has('trace');
+    const socket = io(ioUrl, { transports: ['websocket', 'polling'] });
+    socket.on('connect', () => { statusEl.innerText = window.__hasFcose ? 'Connected (layout: fcose)' : 'Connected (layout: cose fallback)'; socket.emit('graph_snapshot'); });
+    socket.on('disconnect', () => { statusEl.innerText = 'Disconnected'; });
+    socket.on('graph_snapshot', (data) => { applyElements(data.elements); });
+
+    socket.on('graph_updated', (info) => { console.debug('graph_updated received', info); });
+
+    socket.on('node_update', (payload) => {
+      const n = payload.node || payload; const id = n.component_id || n.node_id || n.id; const type = n.component_type || n.node_type; const state = n.state || n.node_state; const label = (n.attrs && (n.attrs.prefered_name || n.attrs.service_name || n.attrs.function_name)) || n.node_name || id; if (!id) return;
+      if (cy.$id(id).empty()) { cy.add({ group: 'nodes', data: { id, label, type, state } }); } else { cy.$id(id).data({ label, type, state }); }
+      runLayout(layoutSelect.value);
+    });
+
+    socket.on('edge_update', (payload) => {
+      const e = payload.edge || payload; const sid = e.source_id || e.source; const tid = e.target_id || e.target; const et = e.edge_type || e.type; if (!sid || !tid) return; const id = `${sid}->${tid}:${et || ''}`;
+      if (cy.$id(id).empty()) { cy.add({ group: 'edges', data: { id, source: sid, target: tid, type: et } }); }
+      runLayout(layoutSelect.value);
+    });
+
+    // Keep edge highlighted from START until COMPLETE using call_id as key
+    const activeCalls = new Map(); // call_id -> { sid, tid, timer, flow }
+
+    // Animated edge flow helpers
+    const FLOW_STEP = 3;            // dash offset step per frame
+    const FLOW_INTERVAL_MS = 40;    // frame interval
+    const MIN_LINGER_MS = 600;      // minimum time a flow stays visible after complete
+
+    function startEdgeFlow(edges, color, callId){
+      if (!edges || edges.empty()) return;
+      try {
+        edges.addClass('edge-flow');
+        edges.removeClass('edge-flow-green');
+        edges.style({ 'line-color': color, 'target-arrow-color': color, 'line-gradient-stop-colors': `${color} #ffffff ${color}`, 'line-dash-offset': 0 });
+        const startedAt = Date.now();
+        let off = 0;
+        const handle = setInterval(()=>{
+          off = (off - FLOW_STEP);
+          edges.style('line-dash-offset', off);
+        }, FLOW_INTERVAL_MS);
+        const rec = activeCalls.get(callId) || {};
+        rec.flow = { handle, startedAt };
+        activeCalls.set(callId, rec);
+      } catch(e) { /* noop */ }
+    }
+
+    function stopEdgeFlow(edges, callId, toGreen=true){
+      const rec = activeCalls.get(callId);
+      const startedAt = rec?.flow?.startedAt || Date.now();
+      const elapsed = Date.now() - startedAt;
+      const wait = Math.max(0, MIN_LINGER_MS - elapsed);
+      setTimeout(()=>{
+        try {
+          if (rec?.flow?.handle) clearInterval(rec.flow.handle);
+          if (toGreen) {
+            edges.removeClass('edge-flow');
+            edges.addClass('edge-flow-green');
+            edges.style({ 'line-dash-offset': 0 });
+            setTimeout(()=> { edges.removeClass('edge-flow-green'); }, 700);
+          } else {
+            edges.removeClass('edge-flow');
+          }
+        } catch(e) { /* noop */ }
+      }, wait);
+    }
+
+    function findNodeIdByLabel(label, preferredType) {
+      if (!label) return null;
+      const nodes = cy.nodes().filter(n => (n.data('label')||'').toString() === String(label));
+      if (nodes.nonempty()) {
+        if (preferredType) {
+          const typed = nodes.filter(n => n.data('type') === preferredType);
+          if (typed.nonempty()) return typed[0].id();
+        }
+        return nodes[0].id();
+      }
+      return null;
+    }
+
+    function glowAgentNode(agentId, durationMs) {
+      if (!agentId) return false;
+      const node = cy.$id(String(agentId));
+      if (node.nonempty()) {
+        node.addClass('glow');
+        setTimeout(()=> node.removeClass('glow'), durationMs);
+        return true;
+      }
+      // Retry shortly in case nodes arrive after activity
+      setTimeout(()=> { const n = cy.$id(String(agentId)); if (n.nonempty()) { n.addClass('glow'); setTimeout(()=> n.removeClass('glow'), durationMs); } }, 500);
+      setTimeout(()=> { const n = cy.$id(String(agentId)); if (n.nonempty()) { n.addClass('glow'); setTimeout(()=> n.removeClass('glow'), durationMs); } }, 1500);
+      return false;
+    }
+
+    function glowNodeWithClass(nodeId, className, durationMs){
+      if (!nodeId) return false;
+      const node = cy.$id(String(nodeId));
+      if (node.nonempty()) {
+        node.addClass(className);
+        setTimeout(()=> node.removeClass(className), durationMs);
+        return true;
+      }
+      setTimeout(()=> { const n = cy.$id(String(nodeId)); if (n.nonempty()) { n.addClass(className); setTimeout(()=> n.removeClass(className), durationMs); } }, 500);
+      setTimeout(()=> { const n = cy.$id(String(nodeId)); if (n.nonempty()) { n.addClass(className); setTimeout(()=> n.removeClass(className), durationMs); } }, 1500);
+      return false;
+    }
+
+    socket.on('activity', (act) => {
+      if (!window.__printedNodeIdsAtFirstActivation) {
+        try {
+          const ids = cy.nodes().toArray().map(n => n.id());
+          console.log('[GRAPH NODES AT FIRST ACTIVATION]', 'node_count=', ids.length, 'node_ids=', ids);
+        } catch (e) { /* ignore */ }
+        window.__printedNodeIdsAtFirstActivation = true;
+      }
+      const sid = act.source_id, tid = act.target_id;
+      // Console trace for every activation (edge pulse)
+      // Example: [ACTIVATION] <source> -> <target> event=CALL status=1 call=<uuid> chain=<uuid> ts=<raw>
+      if (__verboseActivations) {
+        try {
+          console.log('[ACTIVATION]', `${sid||'?' } -> ${tid||'?' }`, `event=${act.event_type}`, `status=${act.status}`, `call=${act.call_id}`, `chain=${act.chain_id}`, `fn=${act.function_id||''}`, `agent=${act.primary_agent_id||''}`, `ts=${act.timestamp}`);
+        } catch (e) { /* ignore console issues */ }
+      }
+
+      // Determine start/complete events
+      const ev = String(act.event_type||'');
+      const isStart = ev.endsWith('_START');
+      const isComplete = ev.endsWith('_COMPLETE') || ev.endsWith('RECEIVED');
+      const callId = act.call_id || `${sid}->${tid}:${ev}:${act.timestamp}`;
+
+      // Debug panel line (show local receipt time and event timestamp)
+      try {
+        const cls = isStart ? 'start' : (isComplete ? 'complete' : 'other');
+        const src = nodeLabel(sid) || sid || '?';
+        const dst = nodeLabel(tid) || tid || '?';
+        const callShort = (callId||'').toString().slice(0,8);
+        const tLocal = tsStrLocal();
+        const tEvent = tsStrFromMs(act.timestamp||0);
+        const tss = `<span class="ts">[local:${tLocal}${tEvent?` evt:${tEvent}`:''}]</span>`;
+        const model = act.function_id ? String(act.function_id) : '';
+        const phase = ev === 'CLASSIFICATION_RESULT' ? 'classifier' : (ev.startsWith('LLM_CALL_') ? (model.endsWith('.classifier') ? 'classifier' : 'llm') : (ev.startsWith('FUNCTION_CALL_') ? 'function' : (ev.startsWith('AGENT_') ? 'agent' : '')));
+        const chainShort = (act.chain_id||'').toString().slice(0,8);
+        let extra = [];
+        if (phase) extra.push(`phase=${phase}`);
+        if (model) extra.push(`model=${model}`);
+        if (chainShort) extra.push(`chain=${chainShort}`);
+        // Add function label for classification results when resolvable
+        if (ev === 'CLASSIFICATION_RESULT') {
+          const fnLabel = act.function_id ? (nodeLabel(act.function_id) || act.target_id || '') : '';
+          if (fnLabel) extra.push(`function=${fnLabel}`);
+        }
+        const meta = extra.join(' ');
+        appendDebugLine(`${tss} <span class="${cls}">${ev}</span> ${src} → ${dst}  call=${callShort} ${meta} status=${act.status||0}`);
+      } catch(_) { /* ignore */ }
+
+      // Update pairing metrics
+      if (isStart) { activeByCall.set(callId, (activeByCall.get(callId)||0) + 1); totalStarts++; }
+      if (isComplete) { const cur = activeByCall.get(callId)||0; activeByCall.set(callId, Math.max(0, cur-1)); totalCompletes++; }
+      updateMetrics();
+
+      // Track call correlation windows to suppress duplicates for the same call edge
+      window.__activeCallEdges = window.__activeCallEdges || new Map();
+      const edgeKey = `${sid||''}->${tid||''}:${ev.replace('_COMPLETE','_START').replace('_RECEIVED','_START')}`;
+      if (isStart) {
+        window.__activeCallEdges.set(edgeKey, (window.__activeCallEdges.get(edgeKey)||0) + 1);
+      } else if (isComplete) {
+        const cur = window.__activeCallEdges.get(edgeKey) || 0;
+        if (cur > 0) window.__activeCallEdges.set(edgeKey, cur - 1);
+      }
+
+      // Special-case LLM calls: glow the agent node
+      if (ev.startsWith('LLM_CALL_')) {
+        const agentId = act.primary_agent_id || (sid === 'OpenAI' ? tid : sid);
+        const isClassifier = (act.function_id && String(act.function_id).endsWith('.classifier')) || ev === 'CLASSIFICATION_RESULT';
+        const glowClass = isClassifier ? 'glow-classifier' : 'glow-llm';
+        if (glowNodeWithClass(agentId, glowClass, isComplete ? 600 : 2000)) return;
+      }
+
+      // Try direct edge match first (source_id -> target_id)
+      let matchedAny = false;
+      if (sid && tid) {
+        const direct = cy.edges().filter(edge => edge.data('source')===sid && edge.data('target')===tid);
+        if (direct.nonempty()) {
+          matchedAny = true;
+          if (isStart) {
+            direct.addClass('pulse-start');
+            startEdgeFlow(direct, '#e74c3c', callId);
+            const timer = setTimeout(()=> { try { direct.removeClass('pulse-start'); } catch(_){} }, 20000);
+            activeCalls.set(callId, { sid, tid, timer });
+          } else if (isComplete) {
+            const rec = activeCalls.get(callId); if (rec && rec.timer) { clearTimeout(rec.timer); activeCalls.delete(callId); }
+            stopEdgeFlow(direct, callId, true);
+            direct.addClass('pulse-complete'); setTimeout(()=> direct.removeClass('pulse-complete'), 800);
+          } else {
+            direct.addClass('pulse-start'); setTimeout(()=> direct.removeClass('pulse-start'), 800);
+          }
+          // Applied log for direct match
+          try { console.info('[APPLIED]', `${nodeLabel(sid)} -> ${nodeLabel(tid)}`, `event=${ev}`); } catch(e) {}
+        }
+      }
+
+      // Explicit support for INTERFACE_REQUEST_* → pulse interface→agent edge
+      if (!matchedAny && (ev === 'INTERFACE_REQUEST_START' || ev === 'INTERFACE_REQUEST_COMPLETE')) {
+        const ie = cy.edges().filter(edge => edge.data('type')==='INTERFACE_TO_AGENT' && edge.data('source')===sid && edge.data('target')===tid);
+        if (ie.nonempty()) {
+          matchedAny = true;
+          if (ev.endsWith('_START')) { ie.addClass('pulse-start'); startEdgeFlow(ie, '#e74c3c', callId); setTimeout(()=> ie.removeClass('pulse-start'), 20000); }
+          else { stopEdgeFlow(ie, callId, true); ie.addClass('pulse-complete'); setTimeout(()=> ie.removeClass('pulse-complete'), 800); }
+          try { console.info('[APPLIED]', `${nodeLabel(sid)} -> ${nodeLabel(tid)}`, `event=${ev}`); } catch(e) {}
+        }
+      }
+
+      // Explicit support for AGENT_TO_SERVICE_* → pulse agent→service edge
+      if (!matchedAny && (ev === 'AGENT_TO_SERVICE_START' || ev === 'AGENT_TO_SERVICE_COMPLETE')) {
+        const a2s = cy.edges().filter(edge => edge.data('type')==='AGENT_TO_SERVICE' && edge.data('source')===sid && edge.data('target')===tid);
+        if (a2s.nonempty()) {
+          matchedAny = true;
+          if (ev.endsWith('_START')) { a2s.addClass('pulse-start'); startEdgeFlow(a2s, '#e74c3c', callId); setTimeout(()=> a2s.removeClass('pulse-start'), 20000); }
+          else { stopEdgeFlow(a2s, callId, true); a2s.addClass('pulse-complete'); setTimeout(()=> a2s.removeClass('pulse-complete'), 800); }
+          try { console.info('[APPLIED]', `${nodeLabel(sid)} -> ${nodeLabel(tid)}`, `event=${ev}`); } catch(e) {}
+        }
+      }
+
+      // If not matched, try function-based mapping (function_id or function label like 'add')
+      if (!matchedAny) {
+        let svcToFn = cy.collection();
+        if (act.function_id) {
+          const fnId = String(act.function_id);
+          svcToFn = cy.edges().filter(edge => edge.data('target')===fnId);
+        } else {
+          // Try function label from target, then from source (e.g., 'add')
+          const candidateLabelA = (tid && String(tid).toLowerCase() !== 'openai') ? String(tid) : '';
+          const candidateLabelB = (sid && String(sid).toLowerCase() !== 'openai') ? String(sid) : '';
+          let fnNodeId = findNodeIdByLabel(candidateLabelA, 'FUNCTION');
+          if (!fnNodeId) fnNodeId = findNodeIdByLabel(candidateLabelB, 'FUNCTION');
+          if (fnNodeId) svcToFn = cy.edges().filter(edge => edge.data('target')===fnNodeId);
+        }
+        if (svcToFn.nonempty()) {
+          matchedAny = true;
+          if (isStart) {
+            svcToFn.addClass('pulse-start');
+            startEdgeFlow(svcToFn, '#e74c3c', callId);
+            const timer = setTimeout(()=> { svcToFn.removeClass('pulse-start'); }, 20000);
+          } else {
+            stopEdgeFlow(svcToFn, callId, true);
+            svcToFn.addClass('pulse-complete'); setTimeout(()=> svcToFn.removeClass('pulse-complete'), 800);
+          }
+          try {
+            // Log each mapped service->function edge applied
+            svcToFn.forEach(e => {
+              const s = e.data('source'); const t = e.data('target');
+              console.info('[APPLIED]', `${nodeLabel(s)} -> ${nodeLabel(t)}`, `event=${ev}`);
+            });
+          } catch(e) {}
+          // Highlight agent->service if agent id known
+          if (act.primary_agent_id) {
+            try {
+              const serviceIds = new Set(svcToFn.map(e => e.data('source')));
+              const a2s = cy.edges().filter(edge => edge.data('source')===String(act.primary_agent_id) && serviceIds.has(edge.data('target')));
+              if (a2s.nonempty()) {
+                if (isStart) { a2s.addClass('pulse-start'); startEdgeFlow(a2s, '#e74c3c', callId); setTimeout(()=> a2s.removeClass('pulse-start'), 20000); }
+                else { stopEdgeFlow(a2s, callId, true); a2s.addClass('pulse-complete'); setTimeout(()=> a2s.removeClass('pulse-complete'), 800); }
+                // Applied log for agent->service inferred
+                a2s.forEach(e => { try { console.info('[APPLIED]', `${nodeLabel(e.data('source'))} -> ${nodeLabel(e.data('target'))}`, 'event=AGENT_TO_SERVICE_INFERRED'); } catch(_) {} });
+              }
+            } catch (e) { /* ignore */ }
+          }
+        }
+      }
+
+      // Glow nodes for local processing overlays
+      // LLM calls already glow the agent node above; add classification glow and function-node glow
+      if (ev === 'CLASSIFICATION_RESULT') {
+        // Glow the primary agent if available; else glow the source
+        const agentId = act.primary_agent_id || sid;
+        glowNodeWithClass(agentId, 'glow-classifier', 1200);
+        // Also glow the resolved function node if present via function_id
+        if (act.function_id) {
+          const fn = cy.$id(String(act.function_id)); if (fn.nonempty()) { fn.addClass('glow'); setTimeout(()=> fn.removeClass('glow'), 1200); }
+        }
+        try {
+          const fLabel = act.function_id ? nodeLabel(act.function_id) : (act.target_id || '');
+          console.info('[LOCAL]', 'CLASSIFICATION', `agent=${nodeLabel(agentId)}`, `function=${fLabel}`);
+        } catch(e) {}
+      }
+
+      if (!matchedAny && !ev.startsWith('LLM_CALL_')) {
+        // Diagnostic: explain why it didn't match
+        const sExists = !!(sid && cy.$id(String(sid)).nonempty());
+        const tExists = !!(tid && cy.$id(String(tid)).nonempty());
+        const directCount = (sid && tid) ? cy.edges().filter(e=>e.data('source')===sid && e.data('target')===tid).length : 0;
+        // Function mapping checks
+        const fnIdOpt = act.function_id ? String(act.function_id) : '';
+        const fnLabelA = (tid && String(tid).toLowerCase()!=='openai') ? String(tid) : '';
+        const fnLabelB = (sid && String(sid).toLowerCase()!=='openai') ? String(sid) : '';
+        const fnNodeIdA = fnLabelA ? (cy.nodes().filter(n=> (n.data('label')||'')===fnLabelA && n.data('type')==='FUNCTION')[0]?.id()||'' ) : '';
+        const fnNodeIdB = !fnNodeIdA && fnLabelB ? (cy.nodes().filter(n=> (n.data('label')||'')===fnLabelB && n.data('type')==='FUNCTION')[0]?.id()||'' ) : '';
+        const fnNodeId = fnIdOpt || fnNodeIdA || fnNodeIdB || '';
+        const svcToFnCount = fnNodeId ? cy.edges().filter(e=> e.data('target')===fnNodeId).length : 0;
+        console.warn('[ACTIVATION:UNMATCHED]', {
+          event: ev, sid, tid, call: callId,
+          sourceNodeExists: sExists,
+          targetNodeExists: tExists,
+          directEdgeCount: directCount,
+          functionId: fnIdOpt,
+          functionLabelA: fnLabelA,
+          functionLabelB: fnLabelB,
+          resolvedFunctionNodeId: fnNodeId,
+          serviceToFunctionEdgeCount: svcToFnCount
+        });
+        // Retry mapping shortly in case graph updates arrive after activity
+        setTimeout(()=> socket.emit('graph_snapshot'), 250);
+        setTimeout(()=> socket.emit('graph_snapshot'), 1000);
+      }
+
+      // No further action if nothing matched
+    });
+
+    window.addEventListener('resize', () => { cy.resize(); cy.fit(cy.elements(), 40); });
+
+    setEdgeLabels(false); refreshSnapshot();
+  </script>
+</body>
+</html>

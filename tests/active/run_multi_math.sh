@@ -9,6 +9,12 @@
 # Add the project root to PYTHONPATH
 export PYTHONPATH=$PYTHONPATH:$(dirname $(dirname $(realpath $0)))
 
+# Set up log directory
+PROJECT_ROOT="$(dirname $(dirname $(realpath $0)))"
+LOG_DIR="$PROJECT_ROOT/logs"
+mkdir -p "$LOG_DIR"
+SPY_LOG="$LOG_DIR/spy_run_multi_math.log"
+
 # Initialize array to store PIDs
 declare -a pids=()
 
@@ -25,6 +31,14 @@ cleanup() {
 
 # Set up trap for cleanup on script termination
 trap cleanup SIGINT SIGTERM EXIT
+
+# Start rtiddsspy to monitor DDS traffic
+if [ -n "$NDDSHOME" ] && [ -f "$NDDSHOME/bin/rtiddsspy" ]; then
+    RTIDDSSPY_PROFILEFILE="$PROJECT_ROOT/spy_transient.xml" "$NDDSHOME/bin/rtiddsspy" > "$SPY_LOG" 2>&1 &
+    SPY_PID=$!
+    pids+=("$SPY_PID")
+    echo "Started rtiddsspy monitoring (PID: $SPY_PID, Log: $SPY_LOG)"
+fi
 
 # Start multiple calculator services in the background
 echo "Starting calculator services..."

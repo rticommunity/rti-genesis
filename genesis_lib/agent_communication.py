@@ -232,8 +232,19 @@ class AgentCommunicationMixin:
                 print("🏗️ PRINT: Creating advertisement listener instance...")
                 logger.info("🏗️ TRACE: Creating advertisement listener instance...")
                 ad_listener = _AdvertisementListener(self)
-                print("🏗️ PRINT: Creating advertisement DataReader...")
-                logger.info("🏗️ TRACE: Creating advertisement DataReader...")
+                print("🏗️ PRINT: Creating content-filtered topic for AGENT advertisements...")
+                logger.info("🏗️ TRACE: Creating content-filtered topic for AGENT advertisements...")
+                
+                # Create content-filtered topic to only receive AGENT advertisements (kind=1)
+                # This filters at DDS layer - much more efficient than in-code filtering!
+                filtered_topic = dds.DynamicData.ContentFilteredTopic(
+                    ad_topic,
+                    f"AgentDiscoveryFilter_{self.agent_name}",  # Unique name per agent
+                    dds.Filter("kind = %0", ["1"])  # AGENT kind enum value
+                )
+                
+                print("🏗️ PRINT: Creating advertisement DataReader with content filter...")
+                logger.info("🏗️ TRACE: Creating advertisement DataReader with content filter...")
                 
                 # Create reader with EXACTLY the same QoS pattern as AdvertisementBus writer
                 # Match advertisement_bus.py lines 44-48 exactly
@@ -245,10 +256,10 @@ class AgentCommunicationMixin:
                 print(f"📊 PRINT: Reader QoS: durability={ad_reader_qos.durability.kind}, reliability={ad_reader_qos.reliability.kind}, history_depth={ad_reader_qos.history.depth}")
                 
                 # CRITICAL: Set listener BEFORE creating reader to receive TRANSIENT_LOCAL historical data
-                print("🏗️ PRINT: Creating DataReader with listener attached from creation...")
+                print("🏗️ PRINT: Creating DataReader with listener and content filter attached from creation...")
                 self.advertisement_reader = dds.DynamicData.DataReader(
                     self.app.participant,
-                    ad_topic,
+                    filtered_topic,  # Use content-filtered topic instead of base topic
                     ad_reader_qos,
                     ad_listener,  # Attach listener during creation, not after!
                     dds.StatusMask.DATA_AVAILABLE  # Listen for data available events
@@ -273,17 +284,7 @@ class AgentCommunicationMixin:
         """Handle discovered unified agent advertisement"""
         print(f"🎯 PRINT: _on_agent_advertisement_received() called")
         try:
-            # Filter to AGENT kind if possible
-            try:
-                kind = ad_sample["kind"]
-                kind_str = str(kind) if kind is not None else ""
-                print(f"🔍 PRINT: Advertisement kind={kind_str}")
-                if kind_str and "AGENT" not in kind_str and kind_str not in ("1",):
-                    print(f"⏭️ PRINT: Skipping non-AGENT advertisement (kind={kind_str})")
-                    return
-            except Exception as e:
-                print(f"⚠️ PRINT: Error checking kind: {e}")
-                pass
+            # Content filter ensures only AGENT ads are delivered - no in-code filtering needed
             agent_id = ad_sample.get_string("advertisement_id") or ""
             name = ad_sample.get_string("name") or ""
             description = ad_sample.get_string("description") or ""

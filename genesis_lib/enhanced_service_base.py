@@ -62,25 +62,6 @@ class EnhancedServiceBase(GenesisRPCService):
         # Unified graph monitor
         self.graph = GraphMonitor(self.participant)
 
-        # Optional ChainEvent writer for activation tracing
-        self._chain_event_writer = None
-        try:
-            import rti.connextdds as dds  # type: ignore
-            from genesis_lib.utils import get_datamodel_path  # type: ignore
-            provider = dds.QosProvider(get_datamodel_path())
-            self._chain_event_type = provider.type("genesis_lib", "ChainEvent")
-            chain_topic = dds.DynamicData.Topic(self.participant, "rti/connext/genesis/monitoring/ChainEvent", self._chain_event_type)
-            writer_qos = dds.QosProvider.default.datawriter_qos
-            writer_qos.durability.kind = dds.DurabilityKind.VOLATILE
-            writer_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
-            self._chain_event_writer = dds.DynamicData.DataWriter(
-                pub=dds.Publisher(self.participant), topic=chain_topic, qos=writer_qos
-            )
-            self.logger.info("Activation tracing enabled (ChainEvent writer ready)")
-        except Exception as e:
-            self._chain_event_writer = None
-            self.logger.debug(f"ChainEvent setup skipped: {e}")
-
         # Auto-register decorated functions
         self._auto_register_decorated_functions()
 
@@ -278,43 +259,8 @@ class EnhancedServiceBase(GenesisRPCService):
         def decorator(func):
             def wrapper(*args, **kwargs):
                 function_uuid = self._get_function_id(func_name)
-                # Emit activation start (optional)
-                if self._chain_event_writer is not None:
-                    try:
-                        import rti.connextdds as dds  # type: ignore
-                        # Reuse incoming request identifiers when available for correlation
-                        incoming_call_id = None
-                        incoming_chain_id = None
-                        req_info = kwargs.get('request_info') if isinstance(kwargs, dict) else None
-                        try:
-                            if req_info and hasattr(req_info, 'publication_handle'):
-                                incoming_call_id = str(req_info.publication_handle)
-                        except Exception:
-                            incoming_call_id = None
-                        # Derive chain_id from call_id when possible for stable correlation
-                        chain_id_val = incoming_chain_id or incoming_call_id or str(uuid.uuid4())
-                        call_id_val = incoming_call_id or str(uuid.uuid4())
-
-                        ev = dds.DynamicData(self._chain_event_type)
-                        ev["chain_id"] = chain_id_val
-                        ev["call_id"] = call_id_val
-                        ev["interface_id"] = ""  # unknown at service layer
-                        ev["primary_agent_id"] = ""
-                        ev["specialized_agent_ids"] = ""
-                        # function_id must be the UUID assigned during advertisement
-                        ev["function_id"] = function_uuid
-                        ev["query_id"] = str(uuid.uuid4())
-                        ev["timestamp"] = int(__import__('time').time() * 1000)
-                        ev["event_type"] = "FUNCTION_CALL_START"
-                        # source is the service UUID; target is the function UUID
-                        ev["source_id"] = self.app_guid
-                        ev["target_id"] = function_uuid
-                        ev["status"] = 0
-                        self._chain_event_writer.write(ev)
-                        self._chain_event_writer.flush()
-                        self.logger.info(f"ACTIVATION START: service={self.service_name} function={func_name}")
-                    except Exception:
-                        pass
+                # Note: Activation events (FUNCTION_CALL_START/COMPLETE) are now published
+                # by the agent via MonitoredAgent._publish_function_call_start/complete
                 # Node update: service busy
                 self.graph.publish_node(
                     component_id=self.app_guid,
@@ -328,41 +274,6 @@ class EnhancedServiceBase(GenesisRPCService):
                 )
                 try:
                     result = func(*args, **kwargs)
-                    # Emit activation complete (optional)
-                    if self._chain_event_writer is not None:
-                        try:
-                            import rti.connextdds as dds  # type: ignore
-                            # Reuse the same identifiers used for START when possible
-                            incoming_call_id = None
-                            incoming_chain_id = None
-                            req_info = kwargs.get('request_info') if isinstance(kwargs, dict) else None
-                            try:
-                                if req_info and hasattr(req_info, 'publication_handle'):
-                                    incoming_call_id = str(req_info.publication_handle)
-                            except Exception:
-                                incoming_call_id = None
-                            chain_id_val = incoming_chain_id or incoming_call_id or str(uuid.uuid4())
-                            call_id_val = incoming_call_id or str(uuid.uuid4())
-
-                            ev = dds.DynamicData(self._chain_event_type)
-                            ev["chain_id"] = chain_id_val
-                            ev["call_id"] = call_id_val
-                            ev["interface_id"] = ""
-                            ev["primary_agent_id"] = ""
-                            ev["specialized_agent_ids"] = ""
-                            ev["function_id"] = function_uuid
-                            ev["query_id"] = str(uuid.uuid4())
-                            ev["timestamp"] = int(__import__('time').time() * 1000)
-                            ev["event_type"] = "FUNCTION_CALL_COMPLETE"
-                            # source is the function UUID; target returns to service UUID
-                            ev["source_id"] = function_uuid
-                            ev["target_id"] = self.app_guid
-                            ev["status"] = 0
-                            self._chain_event_writer.write(ev)
-                            self._chain_event_writer.flush()
-                            self.logger.info(f"ACTIVATION COMPLETE: service={self.service_name} function={func_name}")
-                        except Exception:
-                            pass
                     # Node update: service ready
                     self.graph.publish_node(
                         component_id=self.app_guid,

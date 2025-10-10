@@ -1,0 +1,47 @@
+2025-07-16 16:23:14,395 - graph_monitoring - INFO - GraphMonitor: Published NODE 421913bc-7c5d-486c-9dd1-2247ee5acf94 type=1 state=1
+2025-07-16 16:23:14,395 - graph_monitoring - INFO - GraphMonitor: Published NODE 421913bc-7c5d-486c-9dd1-2247ee5acf94 type=1 state=2
+2025-07-16 16:23:14,400 - graph_monitoring - INFO - GraphMonitor: Published NODE 421913bc-7c5d-486c-9dd1-2247ee5acf94 type=1 state=2
+2025-07-16 16:23:14,400 - graph_monitoring - INFO - GraphMonitor: Published NODE 421913bc-7c5d-486c-9dd1-2247ee5acf94 type=1 state=2
+2025-07-16 16:23:20,514 - graph_monitoring - INFO - GraphMonitor: Published NODE c76825d5-de14-4dee-bbd0-0234e3ce7216 type=1 state=1
+2025-07-16 16:23:20,514 - graph_monitoring - INFO - GraphMonitor: Published NODE c76825d5-de14-4dee-bbd0-0234e3ce7216 type=1 state=2
+2025-07-16 16:23:20,519 - graph_monitoring - INFO - GraphMonitor: Published NODE c76825d5-de14-4dee-bbd0-0234e3ce7216 type=1 state=2
+2025-07-16 16:23:20,519 - graph_monitoring - INFO - GraphMonitor: Published NODE c76825d5-de14-4dee-bbd0-0234e3ce7216 type=1 state=2
+2025-07-16 16:23:26,831 - graph_monitoring - INFO - GraphMonitor: Published NODE 65007a79-3889-4d2a-8af7-9a3db2dcdbb5 type=1 state=1
+2025-07-16 16:23:26,831 - graph_monitoring - INFO - GraphMonitor: Published NODE 65007a79-3889-4d2a-8af7-9a3db2dcdbb5 type=1 state=2
+2025-07-16 16:23:26,835 - graph_monitoring - INFO - GraphMonitor: Published NODE 65007a79-3889-4d2a-8af7-9a3db2dcdbb5 type=1 state=2
+2025-07-17 08:38:01,227 - graph_monitoring - INFO - GraphMonitor: Published EDGE 65007a79-3889-4d2a-8af7-9a3db2dcdbb5 -> 0101e44d14458c87e8a40bbf80000002 type=AGENT_TO_SERVICE
+2025-07-17 08:38:01,228 - graph_monitoring - INFO - GraphMonitor: Published EDGE 65007a79-3889-4d2a-8af7-9a3db2dcdbb5 -> 0101e44d14458c87e8a40bbf80000002 type=AGENT_TO_SERVICE
+2025-07-17 08:38:01,229 - graph_monitoring - INFO - GraphMonitor: Published EDGE 65007a79-3889-4d2a-8af7-9a3db2dcdbb5 -> 0101e44d14458c87e8a40bbf80000002 type=AGENT_TO_SERVICE
+2025-07-17 08:38:01,230 - graph_monitoring - INFO - GraphMonitor: Published EDGE 65007a79-3889-4d2a-8af7-9a3db2dcdbb5 -> 0101e44d14458c87e8a40bbf80000002 type=AGENT_TO_SERVICE
+2025-07-17 08:38:55,830 - function_discovery - WARNING - ===== DDS TRACE: Could not retrieve function_id (key) for disposed/unregistered instance handle fdcca6bfb5c468a15e5c622c83abe931. Cannot remove. =====
+2025-07-17 08:38:55,830 - function_discovery - ERROR - Error handling capability advertisement for function_id unknown_id: 'NoneType' object has no attribute 'get_string'
+2025-07-17 08:38:55,832 - function_discovery - ERROR - Traceback (most recent call last):
+  File "/Users/jason/Documents/Genesis_LIB/examples/linchpin_demo/../MultiAgent/agents/../../../genesis_lib/function_discovery.py", line 732, in handle_capability_advertisement
+    function_id_str = capability.get_string("function_id") # Get ID for logging early
+AttributeError: 'NoneType' object has no attribute 'get_string'
+
+2025-07-17 08:38:55,832 - function_discovery - WARNING - ===== DDS TRACE: Could not retrieve function_id (key) for disposed/unregistered instance handle fdcca6bfb5c468a15e5c622c83abe931. Cannot remove. =====
+2025-07-17 08:38:55,832 - function_discovery - WARNING - ===== DDS TRACE: Could not retrieve function_id (key) for disposed/unregistered instance handle 88d7108e647ced9ef16155873cf25e27. Cannot remove. =====
+2025-07-17 08:38:55,832 - function_discovery - ERROR - Error handling capability advertisement for function_id unknown_id: 'NoneType' object has no attribute 'get_string'
+2025-07-17 08:38:55,833 - function_discovery - ERROR - Traceback (most recent call last):
+  File "/Users/jason/Documents/Genesis_LIB/examples/linchpin_demo/../MultiAgent/agents/../../../genesis_lib/function_discovery.py", line 732, in handle_capability_advertisement
+    function_id_str = capability.get_string("function_id") # Get ID for logging early
+AttributeError: 'NoneType' object has no attribute 'get_string'
+
+2025-07-17 08:38:55,833 - function_discovery - WARNING - ===== DDS TRACE: Could not retrieve function_id (key) for disposed/unregistered instance handle 88d7108e647ced9ef16155873cf25e27. Cannot remove. =====
+2025-07-17 08:38:55,833 - function_discovery - WARNING - ===== DDS TRACE: Could not retrieve function_id (key) for disposed/unregistered instance handle b2db298be01db4dbd5d97cb6eef3e194. Cannot remove. =====
+2025-07-17 08:38:55,833 - function_discovery - ERROR - Error handling capability advertisement for function_id unknown_id: 'NoneType' object has no attribute 'get_string'
+2025-07-17 08:38:55,834 - function_discovery - ERROR - Traceback (most recent call last):
+  File "/Users/jason/Documents/Genesis_LIB/examples/linchpin_demo/../MultiAgent/agents/../../../genesis_lib/function_discovery.py", line 732, in handle_capability_advertisement
+    function_id_str = capability.get_string("function_id") # Get ID for logging early
+AttributeError: 'NoneType' object has no attribute 'get_string'
+
+2025-07-17 08:38:55,834 - function_discovery - WARNING - ===== DDS TRACE: Could not retrieve function_id (key) for disposed/unregistered instance handle b2db298be01db4dbd5d97cb6eef3e194. Cannot remove. =====
+2025-07-17 08:38:55,834 - function_discovery - WARNING - ===== DDS TRACE: Could not retrieve function_id (key) for disposed/unregistered instance handle 03e52d3e6046862d4bc29ecb8a764096. Cannot remove. =====
+2025-07-17 08:38:55,834 - function_discovery - ERROR - Error handling capability advertisement for function_id unknown_id: 'NoneType' object has no attribute 'get_string'
+2025-07-17 08:38:55,835 - function_discovery - ERROR - Traceback (most recent call last):
+  File "/Users/jason/Documents/Genesis_LIB/examples/linchpin_demo/../MultiAgent/agents/../../../genesis_lib/function_discovery.py", line 732, in handle_capability_advertisement
+    function_id_str = capability.get_string("function_id") # Get ID for logging early
+AttributeError: 'NoneType' object has no attribute 'get_string'
+
+2025-07-17 08:38:55,835 - function_discovery - WARNING - ===== DDS TRACE: Could not retrieve function_id (key) for disposed/unregistered instance handle 03e52d3e6046862d4bc29ecb8a764096. Cannot remove. =====

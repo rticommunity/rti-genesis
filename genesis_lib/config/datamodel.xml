@@ -231,6 +231,51 @@
       <member name="health_metrics" type="string" stringMaxLength="1024"/>
     </struct>
 
+    <!-- ========================================= -->
+    <!-- UNIFIED MONITORING TYPES (Phase 1)        -->
+    <!-- Consolidates 5 topics → 2 topics          -->
+    <!-- ========================================= -->
+
+    <!-- Graph Topology (Durable) - Consolidates GenesisGraphNode + GenesisGraphEdge -->
+    <enum name="GraphElementKind">
+      <enumerator name="NODE" value="0"/>
+      <enumerator name="EDGE" value="1"/>
+    </enum>
+
+    <struct name="GraphTopology">
+      <member name="element_id" type="string" key="true" stringMaxLength="256"/>
+      <member name="kind" type="nonBasic" nonBasicTypeName="GraphElementKind"/>
+      <member name="timestamp" type="int64"/>
+      <member name="component_name" type="string" stringMaxLength="256"/>
+      <member name="component_type" type="string" stringMaxLength="128"/>
+      <member name="state" type="string" stringMaxLength="64"/>
+      <!-- JSON payload for extensibility -->
+      <!-- NODE: metadata contains node_type, node_state, capabilities -->
+      <!-- EDGE: metadata contains source_id, target_id, edge_type -->
+      <member name="metadata" type="string" stringMaxLength="8192"/>
+    </struct>
+
+    <!-- Monitoring Event (Volatile) - Consolidates ChainEvent + ComponentLifecycleEvent + MonitoringEvent -->
+    <enum name="EventKind">
+      <enumerator name="CHAIN" value="0"/>
+      <enumerator name="LIFECYCLE" value="1"/>
+      <enumerator name="GENERAL" value="2"/>
+    </enum>
+
+    <struct name="MonitoringEventUnified">
+      <member name="event_id" type="string" stringMaxLength="128"/>
+      <member name="kind" type="nonBasic" nonBasicTypeName="EventKind"/>
+      <member name="timestamp" type="int64"/>
+      <member name="component_id" type="string" stringMaxLength="256"/>
+      <member name="severity" type="string" stringMaxLength="32"/>
+      <member name="message" type="string" stringMaxLength="2048"/>
+      <!-- JSON payload for event-specific data -->
+      <!-- CHAIN: chain_id, hop_number, latency, source_id, target_id, status -->
+      <!-- LIFECYCLE: previous_state, new_state, reason, capabilities -->
+      <!-- GENERAL: arbitrary event data -->
+      <member name="payload" type="string" stringMaxLength="8192"/>
+    </struct>
+
   </type_library>
 
 </dds>

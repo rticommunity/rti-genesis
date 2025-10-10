@@ -78,20 +78,38 @@ class MonitoredInterface(GenesisInterface):
         self._agent_found_event = asyncio.Event()
         self._connected_agent_id: Optional[str] = None
         self._last_complete_event: Optional[asyncio.Event] = None
-        # Optional ChainEvent writer for activity overlay
-        self._chain_event_writer = None
+        # Unified monitoring event writer for ChainEvents (Phase 7: V2 Only)
+        self._unified_event_writer = None
         try:
             import rti.connextdds as dds  # type: ignore
             from genesis_lib.utils import get_datamodel_path  # type: ignore
             provider = dds.QosProvider(get_datamodel_path())
-            chain_type = provider.type("genesis_lib", "ChainEvent")
-            chain_topic = dds.DynamicData.Topic(self.app.participant, "rti/connext/genesis/monitoring/ChainEvent", chain_type)
+            
+            # Create unified monitoring event writer (Event)
+            # Use shared topic registry to avoid creating the same topic twice.
+            from genesis_lib.graph_monitoring import _UNIFIED_TOPIC_REGISTRY
+            
             writer_qos = dds.QosProvider.default.datawriter_qos
             writer_qos.durability.kind = dds.DurabilityKind.VOLATILE
             writer_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
-            self._chain_event_type = chain_type
-            self._chain_event_writer = dds.DynamicData.DataWriter(
-                pub=dds.Publisher(self.app.participant), topic=chain_topic, qos=writer_qos
+            
+            unified_type = provider.type("genesis_lib", "MonitoringEventUnified")
+            participant_id = id(self.app.participant)
+            event_key = (participant_id, "Event")
+            
+            if event_key in _UNIFIED_TOPIC_REGISTRY:
+                unified_topic = _UNIFIED_TOPIC_REGISTRY[event_key]
+                logger.debug("MonitoredInterface: Reusing Event topic from shared registry")
+            else:
+                unified_topic = dds.DynamicData.Topic(
+                    self.app.participant, "rti/connext/genesis/monitoring/Event", unified_type
+                )
+                _UNIFIED_TOPIC_REGISTRY[event_key] = unified_topic
+                logger.debug("MonitoredInterface: Created and registered Event topic")
+            
+            self._unified_event_type = unified_type
+            self._unified_event_writer = dds.DynamicData.DataWriter(
+                pub=dds.Publisher(self.app.participant), topic=unified_topic, qos=writer_qos
             )
             # Prepare a reader for InterfaceAgentReply so we can align COMPLETE with the final reply
             self._reply_type = provider.type("genesis_lib", "InterfaceAgentReply")
@@ -127,9 +145,13 @@ class MonitoredInterface(GenesisInterface):
                 listener=_ReplyListener(self, asyncio.get_running_loop()),
                 mask=dds.StatusMask.DATA_AVAILABLE
             )
-        except Exception:
+            logger.info("MonitoredInterface: Event ChainEvent monitoring setup successful")
+        except Exception as e:
             # Chain overlay is optional; continue without it if DDS setup fails
-            self._chain_event_writer = None
+            logger.warning(f"MonitoredInterface: Event setup FAILED: {e}")
+            import traceback
+            traceback.print_exc()
+            self._unified_event_writer = None
             self._reply_reader = None
 
         # Announce interface node (discovery and ready)
@@ -220,34 +242,46 @@ class MonitoredInterface(GenesisInterface):
 
     @monitor_method("INTERFACE_REQUEST")
     async def send_request(self, request_data: Dict[str, Any], timeout_seconds: float = 10.0) -> Optional[Dict[str, Any]]:
-        # Emit ChainEvent start (optional)
+        # Emit ChainEvent start to Event (optional)
         # Prepare completion event for strict sequencing
         try:
             self._last_complete_event = asyncio.Event()
         except Exception:
             self._last_complete_event = None
-        if self._chain_event_writer is not None:
+        
+        if self._unified_event_writer is not None:
             try:
                 import rti.connextdds as dds  # type: ignore
                 chain_id = str(_uuid.uuid4())
                 call_id = str(_uuid.uuid4())
-                ev = dds.DynamicData(self._chain_event_type)
-                ev["chain_id"] = chain_id
-                ev["call_id"] = call_id
-                ev["interface_id"] = str(self.app.participant.instance_handle)
-                ev["primary_agent_id"] = ""
-                ev["specialized_agent_ids"] = ""
-                ev["function_id"] = ""
-                ev["query_id"] = call_id
-                ev["timestamp"] = int(time.time() * 1000)
-                ev["event_type"] = "INTERFACE_REQUEST_START"
-                ev["source_id"] = str(self.app.participant.instance_handle)
-                # Use connected agent GUID for target_id (already a GUID), leave blank if unknown
-                ev["target_id"] = self._connected_agent_id or ""
-                ev["status"] = 0
-                self._chain_event_writer.write(ev)
-                self._chain_event_writer.flush()
-                logger.debug("ChainEvent INTERFACE_REQUEST_START emitted")
+                
+                # Publish to unified Event (kind=CHAIN)
+                unified_ev = dds.DynamicData(self._unified_event_type)
+                unified_ev["event_id"] = call_id
+                unified_ev["kind"] = 0  # CHAIN
+                unified_ev["timestamp"] = int(time.time() * 1000)
+                unified_ev["component_id"] = str(self.app.participant.instance_handle)
+                unified_ev["severity"] = "INFO"
+                unified_ev["message"] = "INTERFACE_REQUEST_START"
+                # Pack ChainEvent data into payload
+                chain_payload = {
+                    "chain_id": chain_id,
+                    "call_id": call_id,
+                    "interface_id": str(self.app.participant.instance_handle),
+                    "primary_agent_id": "",
+                    "specialized_agent_ids": "",
+                    "function_id": "",
+                    "query_id": call_id,
+                    "event_type": "INTERFACE_REQUEST_START",
+                    "source_id": str(self.app.participant.instance_handle),
+                    "target_id": self._connected_agent_id or "",
+                    "status": 0
+                }
+                unified_ev["payload"] = json.dumps(chain_payload)
+                self._unified_event_writer.write(unified_ev)
+                self._unified_event_writer.flush()
+                logger.debug("ChainEvent START published to Event")
+                
                 # Persist IDs for completion correlation
                 self._last_chain_id = chain_id
                 self._last_call_id = call_id
@@ -257,29 +291,41 @@ class MonitoredInterface(GenesisInterface):
         # Wait for the final reply (GenesisInterface drains any extra replies briefly)
         result = await super().send_request(request_data, timeout_seconds)
 
-        # Emit ChainEvent complete (optional) at the precise return point (final reply observed)
-        if self._chain_event_writer is not None:
+        # Emit ChainEvent complete to Event (optional) at the precise return point
+        if self._unified_event_writer is not None:
             try:
                 import rti.connextdds as dds  # type: ignore
-                ev = dds.DynamicData(self._chain_event_type)
                 # Reuse IDs from START when available
                 chain_id = getattr(self, "_last_chain_id", None) or str(_uuid.uuid4())
                 call_id = getattr(self, "_last_call_id", None) or str(_uuid.uuid4())
-                ev["chain_id"] = chain_id
-                ev["call_id"] = call_id
-                ev["interface_id"] = str(self.app.participant.instance_handle)
-                ev["primary_agent_id"] = ""
-                ev["specialized_agent_ids"] = ""
-                ev["function_id"] = ""
-                ev["query_id"] = call_id
-                ev["timestamp"] = int(time.time() * 1000)
-                ev["event_type"] = "INTERFACE_REQUEST_COMPLETE"
-                ev["source_id"] = self._connected_agent_id or ""
-                ev["target_id"] = str(self.app.participant.instance_handle)
-                ev["status"] = 0
-                self._chain_event_writer.write(ev)
-                self._chain_event_writer.flush()
-                logger.debug("ChainEvent INTERFACE_REQUEST_COMPLETE emitted")
+                
+                # Publish to unified Event (kind=CHAIN)
+                unified_ev = dds.DynamicData(self._unified_event_type)
+                unified_ev["event_id"] = call_id
+                unified_ev["kind"] = 0  # CHAIN
+                unified_ev["timestamp"] = int(time.time() * 1000)
+                unified_ev["component_id"] = self._connected_agent_id or str(self.app.participant.instance_handle)
+                unified_ev["severity"] = "INFO"
+                unified_ev["message"] = "INTERFACE_REQUEST_COMPLETE"
+                # Pack ChainEvent data into payload
+                chain_payload = {
+                    "chain_id": chain_id,
+                    "call_id": call_id,
+                    "interface_id": str(self.app.participant.instance_handle),
+                    "primary_agent_id": "",
+                    "specialized_agent_ids": "",
+                    "function_id": "",
+                    "query_id": call_id,
+                    "event_type": "INTERFACE_REQUEST_COMPLETE",
+                    "source_id": self._connected_agent_id or "",
+                    "target_id": str(self.app.participant.instance_handle),
+                    "status": 0
+                }
+                unified_ev["payload"] = json.dumps(chain_payload)
+                self._unified_event_writer.write(unified_ev)
+                self._unified_event_writer.flush()
+                logger.debug("ChainEvent COMPLETE published to Event")
+                
                 # Clear persisted IDs
                 try:
                     del self._last_chain_id
