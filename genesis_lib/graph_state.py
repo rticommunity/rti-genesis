@@ -97,36 +97,8 @@ class GenesisNetworkGraph:
             }
 
 
-class _LifecycleListener(dds.DynamicData.NoOpDataReaderListener):
-    def __init__(self, on_event: Callable[[Dict[str, Any]], None]) -> None:
-        super().__init__()
-        self._on_event = on_event
-
-    def on_data_available(self, reader) -> None:  # type: ignore[override]
-        try:
-            for sample in reader.take():
-                if sample.info.valid:
-                    data = sample.data
-                    self._on_event({
-                        "component_id": str(data["component_id"]) if data["component_id"] else "",
-                        "component_type": int(data["component_type"]),
-                        "previous_state": int(data["previous_state"]),
-                        "new_state": int(data["new_state"]),
-                        "timestamp": int(data["timestamp"]),
-                        "reason": str(data["reason"]) if data["reason"] else "",
-                        "capabilities": str(data["capabilities"]) if data["capabilities"] else "",
-                        "event_category": int(data["event_category"]),
-                        "source_id": str(data["source_id"]) if data["source_id"] else "",
-                        "target_id": str(data["target_id"]) if data["target_id"] else "",
-                        "connection_type": str(data["connection_type"]) if data["connection_type"] else "",
-                    })
-        except Exception:
-            # Avoid raising in DDS callback
-            pass
-
-
 class GraphSubscriber:
-    """DDS subscriber focused on ComponentLifecycleEvent for topology graph."""
+    """DDS subscriber focused on unified monitoring topics (GraphTopology, Event)."""
 
     # Mappings for enums
     _COMPONENT_TYPES = ["INTERFACE", "PRIMARY_AGENT", "SPECIALIZED_AGENT", "FUNCTION", "SERVICE"]
@@ -139,7 +111,6 @@ class GraphSubscriber:
         self._on_activity = on_activity
         self._participant: Optional[dds.DomainParticipant] = None
         self._subscriber: Optional[dds.Subscriber] = None
-        self._lifecycle_reader: Optional[dds.DynamicData.DataReader] = None
         self._graph_node_reader = None
         self._graph_edge_reader = None
         self._chain_reader = None
@@ -189,27 +160,9 @@ class GraphSubscriber:
         else:
             self._logger.info("Durable topology readers enabled (GenesisGraphNode/Edge)")
 
-        lifecycle_type = provider.type("genesis_lib", "ComponentLifecycleEvent")
-        lifecycle_topic = dds.DynamicData.Topic(self._participant, "rti/connext/genesis/monitoring/ComponentLifecycleEvent", lifecycle_type)
-
-        reader_qos = dds.QosProvider.default.datareader_qos
-        # Lifecycle is transient activity; subscribe VOLATILE
-        reader_qos.durability.kind = dds.DurabilityKind.VOLATILE
-        reader_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
-        reader_qos.history.kind = dds.HistoryKind.KEEP_ALL
-
-        listener = _LifecycleListener(self._handle_lifecycle_event)
-        self._lifecycle_reader = dds.DynamicData.DataReader(
-            subscriber=self._subscriber,
-            topic=lifecycle_topic,
-            qos=reader_qos,
-            listener=listener,
-            mask=dds.StatusMask.DATA_AVAILABLE,
-        )
-        self._logger.info("Lifecycle reader started (ComponentLifecycleEvent)")
-
         # ==============================================================
         # UNIFIED MONITORING TOPICS (GraphTopology, Event)
+        # ComponentLifecycleEvent is now replaced by Event (kind=LIFECYCLE)
         # ==============================================================
         self._logger.info("Using unified monitoring topics (GraphTopology, Event)")
         self._setup_v2_topology_reader(provider)
@@ -483,8 +436,6 @@ class GraphSubscriber:
                 self._graph_edge_reader.close()
             if self._graph_node_reader:
                 self._graph_node_reader.close()
-            if self._lifecycle_reader:
-                self._lifecycle_reader.close()
             if self._chain_reader:
                 self._chain_reader.close()
             # Close V2 readers if present
@@ -497,7 +448,6 @@ class GraphSubscriber:
             if self._participant:
                 self._participant.close()
         finally:
-            self._lifecycle_reader = None
             self._subscriber = None
             self._participant = None
             self._graph_edge_reader = None
@@ -515,86 +465,8 @@ class GraphSubscriber:
             return caps.get("service_name") or caps.get("service") or f"Service_{node_id[:8]}"
         return f"{ctype}_{node_id[:8]}"
 
-    def _handle_lifecycle_event(self, evt: Dict[str, Any]) -> None:
-        cat_idx = evt.get("event_category", -1)
-        category = self._EVENT_CATEGORIES[cat_idx] if 0 <= cat_idx < len(self._EVENT_CATEGORIES) else "UNKNOWN"
-
-        if category == "NODE_DISCOVERY":
-            ctype_idx = evt.get("component_type", -1)
-            ctype = self._COMPONENT_TYPES[ctype_idx] if 0 <= ctype_idx < len(self._COMPONENT_TYPES) else "UNKNOWN"
-            node_id = evt.get("component_id", "")
-            try:
-                caps = json.loads(evt.get("capabilities") or "{}")
-            except Exception:
-                caps = {}
-            node_name = self._select_node_name(ctype, node_id, caps)
-            state_idx = evt.get("new_state", 0)
-            state = self._STATES[state_idx] if 0 <= state_idx < len(self._STATES) else "UNKNOWN"
-            try:
-                self._logger.debug(f"lifecycle NODE_DISCOVERY id={node_id} type={ctype} state={state} name=\"{node_name}\"")
-            except Exception:
-                pass
-            self._on_graph_update("node_update", {
-                "node": NodeInfo(node_id=node_id, node_type=ctype, node_name=node_name, node_state=state, metadata=caps)
-            })
-
-        elif category == "EDGE_DISCOVERY":
-            src = evt.get("source_id", "")
-            tgt = evt.get("target_id", "")
-            etype = evt.get("connection_type", "")
-            try:
-                caps = json.loads(evt.get("capabilities") or "{}")
-            except Exception:
-                caps = {}
-            try:
-                self._logger.debug(f"lifecycle EDGE_DISCOVERY {src}->{tgt}:{etype}")
-            except Exception:
-                pass
-            self._on_graph_update("edge_update", {
-                "edge": EdgeInfo(source_id=src, target_id=tgt, edge_type=etype, metadata=caps)
-            })
-
-        elif category == "STATE_CHANGE":
-            # Forward node update and synthesize activity for interface request start/complete
-            node_id = evt.get("component_id", "")
-            ctype_idx = evt.get("component_type", -1)
-            ctype = self._COMPONENT_TYPES[ctype_idx] if 0 <= ctype_idx < len(self._COMPONENT_TYPES) else "UNKNOWN"
-            state_idx = evt.get("new_state", 0)
-            state = self._STATES[state_idx] if 0 <= state_idx < len(self._STATES) else "UNKNOWN"
-            reason = evt.get("reason", "") or ""
-            try:
-                caps = json.loads(evt.get("capabilities") or "{}")
-            except Exception:
-                caps = {}
-            # Emit node update for state change
-            node_name = self._select_node_name(ctype, node_id, caps)
-            self._on_graph_update("node_update", {
-                "node": NodeInfo(node_id=node_id, node_type=ctype, node_name=node_name, node_state=state, metadata=caps)
-            })
-            # Synthesize INTERFACE_* activities so the viewer can pulse/log interface requests
-            try:
-                if self._on_activity is not None and ctype == "INTERFACE":
-                    evt_ts = int(evt.get("timestamp", 0))
-                    src = node_id
-                    tgt = evt.get("target_id", "") or caps.get("target_id", "")
-                    if state == "BUSY" and reason.lower().startswith("interface request"):
-                        self._on_activity({
-                            "event_type": "INTERFACE_REQUEST_START",
-                            "source_id": src,
-                            "target_id": tgt,
-                            "status": 0,
-                            "timestamp": evt_ts,
-                        })
-                    elif state == "READY" and ("response" in reason.lower() or reason.lower().startswith("interface response")):
-                        self._on_activity({
-                            "event_type": "INTERFACE_REQUEST_COMPLETE",
-                            "source_id": src,
-                            "target_id": tgt,
-                            "status": 0,
-                            "timestamp": evt_ts,
-                        })
-            except Exception:
-                pass
+    # Legacy _handle_lifecycle_event method removed - ComponentLifecycleEvent
+    # is now replaced by unified Event topic (kind=LIFECYCLE)
 
 
 class GraphService:
