@@ -59,13 +59,14 @@ pids+=("$TEXT_PID")
 
 # Start the letter counter service in the background
 echo "Starting letter counter service..."
-python -m test_functions.services.letter_counter_service > /dev/null 2>&1 &
+python -m test_functions.services.letter_counter_service > "$LOG_DIR/letter_counter_service.log" 2>&1 &
 LETTER_PID=$!
 pids+=("$LETTER_PID")
 
 # Wait for services to start
-echo "Waiting for services to start (15 seconds)..."
-sleep 15
+# Increased to 20 seconds to ensure all services fully initialize their RPC endpoints
+echo "Waiting for services to start (20 seconds)..."
+sleep 20
 
 # Start the SimpleAgent
 echo "Starting SimpleAgent..."
@@ -83,12 +84,12 @@ python -c "
 import sys
 import time
 import asyncio
-from genesis_lib.rpc_client import GenesisRPCClient
+from genesis_lib.rpc_client_v2 import GenesisRPCClientV2
 
 async def test_client():
     try:
         # Test calculator service
-        calc_client = GenesisRPCClient('CalculatorService')
+        calc_client = GenesisRPCClientV2(service_type='CalculatorService')
         print('Waiting for calculator service to be available...')
         await calc_client.wait_for_service(timeout_seconds=10)
         result = await calc_client.call_function('add', x=10, y=20)
@@ -98,9 +99,9 @@ async def test_client():
         print(f'Calculator test passed: 10 + 20 = {result_value}')
 
         # Test text processor service
-        text_client = GenesisRPCClient('TextProcessorService')
+        text_client = GenesisRPCClientV2(service_type='TextProcessorService')
         print('Waiting for text processor service to be available...')
-        await text_client.wait_for_service(timeout_seconds=10)
+        await text_client.wait_for_service(timeout_seconds=15)
         result = await text_client.call_function('count_words', text='This is a test sentence with seven words.')
         result_value = result.get('word_count')
         if result_value != 8:
@@ -108,9 +109,9 @@ async def test_client():
         print(f'Text processor test passed: Word count = {result_value}')
 
         # Test letter counter service
-        letter_client = GenesisRPCClient('LetterCounterService')
+        letter_client = GenesisRPCClientV2(service_type='LetterCounterService')
         print('Waiting for letter counter service to be available...')
-        await letter_client.wait_for_service(timeout_seconds=10)
+        await letter_client.wait_for_service(timeout_seconds=15)
         result = await letter_client.call_function('count_letter', text='Hello World', letter='l')
         result_value = result.get('result')
         if result_value != 3:

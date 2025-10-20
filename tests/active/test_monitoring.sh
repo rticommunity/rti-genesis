@@ -146,7 +146,7 @@ if [ -n "$RTIDDSSPY_BIN" ]; then
   rm -f "$SPY_LOG"
   TOPICS=(
     'Advertisement'
-    'CalculatorServiceRequest' 'CalculatorServiceReply'
+    'rti/connext/genesis/rpc/CalculatorServiceRequest' 'rti/connext/genesis/rpc/CalculatorServiceReply'
     'MonitoringEvent' 'ChainEvent'
   )
   # Prefer qos file if present

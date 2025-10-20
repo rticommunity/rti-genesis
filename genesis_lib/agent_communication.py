@@ -695,11 +695,12 @@ class AgentCommunicationMixin:
             
             # Create replier for agent-to-agent communication
             print("🏗️ PRINT: Creating RPC Replier...")
+            # Create agent replier using unified RPC v2 naming
             self.agent_replier = rpc.Replier(
                 request_type=self.agent_request_type,
                 reply_type=self.agent_reply_type,
                 participant=self.app.participant,
-                service_name=f"rti/connext/genesis/{agent_service_name}"
+                service_name=f"rti/connext/genesis/rpc/{agent_service_name}"
             )
             print("✅ PRINT: RPC Replier created successfully")
             
@@ -922,12 +923,12 @@ class AgentCommunicationMixin:
             print(f"🚀 PRINT: Creating RPC requester for agent-to-agent service: {agent_to_agent_service_name}")
             logger.info(f"Creating RPC requester for agent-to-agent service: {agent_to_agent_service_name}")
             
-            # Create RPC requester
+            # Create RPC requester using unified RPC v2 naming
             requester = rpc.Requester(
                 request_type=self.agent_request_type,
                 reply_type=self.agent_reply_type,
                 participant=self.app.participant,
-                service_name=f"rti/connext/genesis/{agent_to_agent_service_name}"
+                service_name=f"rti/connext/genesis/rpc/{agent_to_agent_service_name}"
             )
             
             # Wait for DDS match with timeout

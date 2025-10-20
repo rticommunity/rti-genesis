@@ -50,9 +50,16 @@ class LetterCounterService(EnhancedServiceBase):
         self.type_provider = dds.QosProvider(config_path)
         self.component_lifecycle_type = self.type_provider.type("genesis_lib", "ComponentLifecycleEvent")
         
-        # Get common schemas
-        text_schema = self.get_common_schema("text")
-        letter_schema = self.get_common_schema("letter")
+        # Define schemas inline
+        text_schema = {
+            "type": "string",
+            "description": "Text to analyze"
+        }
+        letter_schema = {
+            "type": "string", 
+            "description": "Letter to count",
+            "pattern": "^[a-zA-Z]$"
+        }
         
         # Register letter counter functions with OpenAI-style schemas
         self.register_enhanced_function(
@@ -117,6 +124,19 @@ class LetterCounterService(EnhancedServiceBase):
         
         # Advertise functions
         self._advertise_functions()
+    
+    def validate_text_input(self, text: str, min_length: int = 0, max_length: int = None, pattern: str = None):
+        """Validate text input"""
+        if not text or len(text) < min_length:
+            raise ValueError(f"Text must be at least {min_length} characters")
+        if max_length and len(text) > max_length:
+            raise ValueError(f"Text must be at most {max_length} characters")
+        if pattern and not re.match(pattern, text):
+            raise ValueError(f"Text must match pattern: {pattern}")
+    
+    def format_response(self, inputs: Dict[str, Any], result: Any) -> Dict[str, Any]:
+        """Format response with inputs and result"""
+        return {"inputs": inputs, "result": result}
     
     def count_letter(self, text: str, letter: str, request_info=None) -> Dict[str, Any]:
         """

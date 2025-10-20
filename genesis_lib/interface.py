@@ -273,11 +273,12 @@ class GenesisInterface(ABC):
         except Exception:
             pass
         try:
+            # Create RPC requester using unified RPC v2 naming
             self.requester = rpc.Requester(
                 request_type=self.request_type,
                 reply_type=self.reply_type,
                 participant=self.app.participant,
-                service_name=f"rti/connext/genesis/{service_name}"
+                service_name=f"rti/connext/genesis/rpc/{service_name}"
             )
             self.discovered_agent_service_name = service_name
 

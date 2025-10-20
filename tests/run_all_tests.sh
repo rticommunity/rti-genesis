@@ -181,7 +181,7 @@ check_and_cleanup_dds() {
         
         # Check if DDS activity is still present on specific test topics
         # Use extended regex (-E) to match specific topics
-        if grep -E '(New writer|New data).*topic="(Advertisement|CalculatorServiceRequest|TextProcessorServiceRequest|LetterCounterServiceRequest)"' "$SPY_LOG"; then
+        if grep -E '(New writer|New data).*topic="(Advertisement|rti/connext/genesis/rpc/)"' "$SPY_LOG"; then
             echo "❌ ERROR: Detected lingering DDS activity on test topics (Advertisement or Service Requests) after cleanup attempt."
             kill $SPY_PID 2>/dev/null || true
             return 1

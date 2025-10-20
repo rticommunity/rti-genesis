@@ -3,6 +3,10 @@
   <qos_library name="SpyLib">
     <qos_profile name="TransientReliable" base_name="BuiltinQosLibExp::Generic.StrictReliable">
       <participant_qos>
+        <!-- Force UDPv4 transport only to avoid shared memory -->
+        <transport_builtin>
+          <mask>UDPv4</mask>
+        </transport_builtin>
         <!-- Force UDP4 discovery to match Genesis participants -->
         <discovery>
           <multicast_receive_addresses>
