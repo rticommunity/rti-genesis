@@ -57,15 +57,12 @@ class PersonalAssistant(OpenAIGenesisAgent):
             logger.info("🚀 Initializing PersonalAssistant with tracing enabled")
         
         # Initialize with configuration-controlled tracing
-        # Generate unique service instance tag using agent ID or timestamp
-        import time
-        service_tag = f"PA_{int(time.time() * 1000) % 1000000}"
+        # RPC v2: No instance tags needed - uses unified topics with GUID targeting
         
         super().__init__(
             model_name="o3-2025-04-16",
             agent_name="PersonalAssistant",
             base_service_name="OpenAIAgent",
-            service_instance_tag=service_tag,  # Unique tag for this instance
             description="General personal assistant with access to specialized agents and services",
             enable_agent_communication=True,
             enable_tracing=enable_tracing  # Use demo configuration

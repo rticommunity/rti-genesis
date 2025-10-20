@@ -18,16 +18,13 @@ from genesis_lib.decorators import genesis_tool
 
 class DronesRadar(OpenAIGenesisAgent):
     def __init__(self):
-        # Generate unique service instance tag
-        import time
-        service_tag = f"DR_{int(time.time() * 1000) % 1000000}"
+        # RPC v2: No instance tags needed - uses unified topics with GUID targeting
         
         super().__init__(
             model_name="gpt-4o",
             classifier_model_name="gpt-4o-mini",
             agent_name="DronesRadarAgent",
             base_service_name="OpenAIAgent",
-            service_instance_tag=service_tag,  # Unique tag for this instance
             description="Specialized agent with @genesis_tool autodiscovery - it discovers drones and makes their positions available if asked.",
             enable_agent_communication=True,
             enable_tracing=True

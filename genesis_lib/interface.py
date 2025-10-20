@@ -138,6 +138,10 @@ class GenesisInterface(ABC):
         self.discovered_agent_service_name: Optional[str] = None # To store discovered agent service name
         self.requester: Optional[rpc.Requester] = None # Requester will be created after discovery
         
+        # RPC v2: Track targeted agent GUID and service instance tag
+        self.target_agent_guid: Optional[str] = None
+        self.target_service_instance_tag: Optional[str] = None
+        
         # Get types from XML
         config_path = get_datamodel_path()
         self.type_provider = dds.QosProvider(config_path)
@@ -319,23 +323,60 @@ class GenesisInterface(ABC):
             await asyncio.sleep(0.1)
         logger.debug(f"RPC match confirmed for service: {self.discovered_agent_service_name}!")
 
-    async def send_request(self, request_data: Dict[str, Any], timeout_seconds: float = 10.0) -> Optional[Dict[str, Any]]:
-        """Send request to agent and wait for reply"""
+    async def send_request(self, request_data: Dict[str, Any], timeout_seconds: float = 10.0, 
+                          target_agent_guid: Optional[str] = None, 
+                          service_instance_tag: Optional[str] = None,
+                          reset_target: bool = False) -> Optional[Dict[str, Any]]:
+        """
+        Send request to agent and wait for reply with RPC v2 broadcast + GUID targeting.
+        
+        RPC v2 Behavior:
+        - First request: Broadcasts to all agents with the service_name (empty target_service_guid)
+        - First reply: Captures replier_service_guid and uses it for subsequent targeted requests
+        - Subsequent requests: Targeted to specific agent GUID via content filtering
+        - reset_target=True: Forces broadcast again (e.g., for failover or reconnection)
+        
+        Args:
+            request_data: Dictionary with request fields (must include 'message', 'conversation_id')
+            timeout_seconds: Max wait time for reply
+            target_agent_guid: Optional explicit GUID to target (overrides stored target)
+            service_instance_tag: Optional tag for migration scenarios (e.g., "production", "v2")
+            reset_target: If True, clears stored GUID and broadcasts again
+            
+        Returns:
+            Reply dictionary or None on timeout/error
+        """
         if not self.requester:
             logger.error("❌ TRACE: Cannot send request, agent not discovered or requester not created.")
             return None
             
         try:
-            # Create request
+            # Handle reset_target flag
+            if reset_target:
+                logger.debug("🔄 Resetting target agent GUID, will broadcast")
+                self.target_agent_guid = None
+                self.target_service_instance_tag = None
+            
+            # Determine target GUID: explicit > stored > broadcast (empty)
+            effective_target_guid = target_agent_guid or self.target_agent_guid or ""
+            effective_service_tag = service_instance_tag or self.target_service_instance_tag or ""
+            
+            is_broadcast = not effective_target_guid
+            
+            # Create request with RPC v2 fields
             request = dds.DynamicData(self.request_type)
             for key, value in request_data.items():
                 request[key] = value
+            
+            # Set RPC v2 fields
+            request["target_service_guid"] = effective_target_guid
+            request["service_instance_tag"] = effective_service_tag
                 
             # Send request and wait for reply using synchronous API in a thread
-            logger.debug(f"Sending request to agent service '{self.discovered_agent_service_name}': {request_data}")
+            logger.debug(f"Sending {'broadcast' if is_broadcast else 'targeted'} request to service '{self.discovered_agent_service_name}' (target_guid: {effective_target_guid or 'broadcast'}, tag: {effective_service_tag or 'none'}): {request_data}")
             try:
                 msg_preview = request_data.get('message') if isinstance(request_data, dict) else str(request_data)
-                print(f"[INTERFACE_RPC] send: service='{self.discovered_agent_service_name}' msg='{str(msg_preview)[:120]}' timeout={timeout_seconds}s")
+                print(f"[INTERFACE_RPC] send: service='{self.discovered_agent_service_name}' mode={'broadcast' if is_broadcast else 'targeted'} target='{effective_target_guid[:16] if effective_target_guid else 'all'}' msg='{str(msg_preview)[:120]}' timeout={timeout_seconds}s")
             except Exception:
                 pass
             
@@ -392,6 +433,16 @@ class GenesisInterface(ABC):
                 reply_dict = {}
                 for member in self.reply_members:
                     reply_dict[member] = reply[member]
+                
+                # RPC v2: Capture replier_service_guid from first successful reply
+                replier_guid = reply_dict.get("replier_service_guid", "")
+                replier_tag = reply_dict.get("service_instance_tag", "")
+                
+                if replier_guid and not self.target_agent_guid:
+                    logger.info(f"✅ First reply received, locking to agent GUID: {replier_guid}")
+                    self.target_agent_guid = replier_guid
+                    self.target_service_instance_tag = replier_tag
+                    print(f"[INTERFACE_RPC] lock-target: guid='{replier_guid[:16]}...' tag='{replier_tag or 'none'}'")
                     
                 logger.debug(f"Received reply from agent: {reply_dict}")
                 try:

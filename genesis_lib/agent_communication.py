@@ -111,15 +111,15 @@ class AgentCommunicationMixin:
     def _get_agent_service_name(self, agent_id: str) -> str:
         """Generate RPC service name for an agent.
 
-        Prefer explicit rpc_service_name (e.g., with service_instance_tag) when available
-        to satisfy tests and make service names stable. Fallback to unique
-        base_service_name_{agent_id} when no explicit name was provided.
+        With RPC v2, all instances of the same service type share unified topics.
+        This returns the base service name, not unique per-instance names.
+        Individual instances are targeted via their replier_guid, not separate topic names.
         """
         try:
             if hasattr(self, 'rpc_service_name') and self.rpc_service_name:
                 return self.rpc_service_name
             if hasattr(self, 'base_service_name') and hasattr(self, 'app'):
-                return f"{self.base_service_name}_{agent_id}"
+                return self.base_service_name
         except Exception:
             pass
         return f"AgentService_{agent_id}"
@@ -704,6 +704,11 @@ class AgentCommunicationMixin:
             )
             print("✅ PRINT: RPC Replier created successfully")
             
+            # RPC v2: Store replier GUID for content filtering
+            from genesis_lib.utils.guid_utils import format_guid
+            self.agent_replier_guid = format_guid(self.agent_replier.reply_datawriter.instance_handle)
+            logger.info(f"Agent-to-agent replier GUID: {self.agent_replier_guid}")
+            
             # Set up listener for incoming requests
             print("🏗️ PRINT: Setting up agent request listener...")
             if self._setup_agent_request_listener():
@@ -748,6 +753,38 @@ class AgentCommunicationMixin:
                             if request is None or info.state.instance_state != dds.InstanceState.ALIVE:
                                 print(f"⏭️ PRINT: Skipping invalid agent request sample")
                                 continue
+                            
+                            # RPC v2: Content filtering based on target_service_guid
+                            # Extract target_service_guid from request if present
+                            try:
+                                target_guid = request.get_string("target_service_guid")
+                                service_tag = request.get_string("service_instance_tag")
+                                
+                                # Get our replier GUID (stored during setup)
+                                our_guid = getattr(self._outer, 'agent_replier_guid', '')
+                                
+                                # Check if this is a broadcast (empty target_guid) or targeted to us
+                                is_broadcast = not target_guid or target_guid == ""
+                                is_targeted_to_us = target_guid == our_guid
+                                
+                                # Check if service_instance_tag matches (if set)
+                                tag_matches = True
+                                if service_tag and hasattr(self._outer.parent_agent, 'service_instance_tag'):
+                                    tag_matches = service_tag == self._outer.parent_agent.service_instance_tag
+                                
+                                if not is_broadcast and not is_targeted_to_us:
+                                    logger.debug(f"⏭️ Skipping agent request targeted to different agent (target: {target_guid}, us: {our_guid})")
+                                    continue
+                                    
+                                if not tag_matches:
+                                    logger.debug(f"⏭️ Skipping agent request with non-matching service_instance_tag")
+                                    continue
+                                    
+                                logger.debug(f"✅ Processing agent request ({'broadcast' if is_broadcast else 'targeted'}, tag: {service_tag or 'none'})")
+                                
+                            except Exception as e:
+                                # If fields don't exist, fall back to processing (backward compat)
+                                logger.warning(f"Could not read RPC v2 fields from agent request, processing anyway: {e}")
                             
                             print(f"📨 PRINT: Processing agent request sample...")
                             print(f"🔧 PRINT: Step 1 - Entering try block...")
@@ -799,12 +836,19 @@ class AgentCommunicationMixin:
             # Check if tracing is enabled before printing
             enable_tracing = getattr(self, 'enable_tracing', False)
             
-            # Extract request data
+            # Extract request data including RPC v2 fields
             print(f"📥 PRINT: Extracting request data...")
             request_data = {
                 "message": request.get_string("message"),
                 "conversation_id": request.get_string("conversation_id")
             }
+            # Extract RPC v2 fields for echo back
+            try:
+                service_tag = request.get_string("service_instance_tag")
+                request_data["service_instance_tag"] = service_tag
+            except:
+                service_tag = ""
+            
             print(f"📥 PRINT: Extracted request data: {request_data}")
             
             if enable_tracing:
@@ -828,13 +872,19 @@ class AgentCommunicationMixin:
             
             print(f"📤 PRINT: About to create reply sample with data: {response_data}", flush=True)
             
-            # Create reply sample
+            # Create reply sample with RPC v2 fields
             reply_sample = dds.DynamicData(self.agent_reply_type)
             # Ensure message is always a string, never None
             message = response_data.get("message") or ""
             reply_sample.set_string("message", str(message) if message else "")
             reply_sample.set_int32("status", response_data.get("status", 0))
             reply_sample.set_string("conversation_id", response_data.get("conversation_id", ""))
+            
+            # RPC v2: Include our replier_guid for subsequent targeted requests
+            reply_sample.set_string("replier_service_guid", self.agent_replier_guid)
+            
+            # Echo back the service_instance_tag if present in request
+            reply_sample.set_string("service_instance_tag", service_tag)
             
             print(f"📤 PRINT: About to send reply via agent_replier...", flush=True)
             
@@ -849,12 +899,14 @@ class AgentCommunicationMixin:
             if enable_tracing:
                 print(f"💥 PRINT: Error in _process_agent_request(): {e}")
             logger.error(f"Error processing agent request: {e}")
-            # Send error reply
+            # Send error reply with RPC v2 fields
             try:
                 reply_sample = dds.DynamicData(self.agent_reply_type)
                 reply_sample.set_string("message", f"Error processing request: {str(e)}")
                 reply_sample.set_int32("status", -1)
                 reply_sample.set_string("conversation_id", request_data.get("conversation_id", ""))
+                reply_sample.set_string("replier_service_guid", self.agent_replier_guid)  # RPC v2
+                reply_sample.set_string("service_instance_tag", "")  # RPC v2
                 self.agent_replier.send_reply(reply_sample, info)
                 if enable_tracing:
                     print(f"✅ PRINT: Error reply sent")
@@ -968,15 +1020,24 @@ class AgentCommunicationMixin:
                                target_agent_id: str, 
                                message: str, 
                                conversation_id: Optional[str] = None,
-                               timeout_seconds: float = 10.0) -> Optional[Dict[str, Any]]:
+                               timeout_seconds: float = 10.0,
+                               target_agent_guid: Optional[str] = None,
+                               service_instance_tag: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
-        Send a request to another agent.
+        Send a request to another agent with RPC v2 broadcast + GUID targeting.
+        
+        RPC v2 Behavior:
+        - First request: Broadcasts to all agents (empty target_service_guid)
+        - First reply: Captures replier_service_guid for subsequent targeted requests
+        - Subsequent requests: Targeted to specific agent GUID via content filtering
         
         Args:
-            target_agent_id: ID of the target agent
+            target_agent_id: ID of the target agent (for connection management)
             message: Request message
             conversation_id: Optional conversation ID for tracking
             timeout_seconds: Request timeout
+            target_agent_guid: Optional explicit GUID to target (overrides stored)
+            service_instance_tag: Optional tag for migration scenarios (e.g., "production", "v2")
             
         Returns:
             Reply data or None if failed
@@ -1000,13 +1061,24 @@ class AgentCommunicationMixin:
             if conversation_id is None:
                 conversation_id = str(uuid.uuid4())
             
-            # Create AgentAgentRequest
+            # RPC v2: Determine target GUID (explicit > stored > broadcast)
+            # Track per-connection target GUIDs
+            if not hasattr(self, 'agent_target_guids'):
+                self.agent_target_guids = {}
+                
+            effective_target_guid = target_agent_guid or self.agent_target_guids.get(target_agent_id, "")
+            effective_service_tag = service_instance_tag or ""
+            is_broadcast = not effective_target_guid
+            
+            # Create AgentAgentRequest with RPC v2 fields
             request_sample = dds.DynamicData(self.agent_request_type)
             request_sample.set_string("message", message)
             request_sample.set_string("conversation_id", conversation_id)
+            request_sample.set_string("target_service_guid", effective_target_guid)
+            request_sample.set_string("service_instance_tag", effective_service_tag)
             
             # Send via RPC
-            logger.debug(f"Sending RPC request to agent {target_agent_id}")
+            logger.debug(f"Sending {'broadcast' if is_broadcast else 'targeted'} RPC request to agent {target_agent_id} (guid: {effective_target_guid or 'all'})")
             request_id = requester.send_request(request_sample)
             
             # Wait for and receive the reply
@@ -1024,12 +1096,21 @@ class AgentCommunicationMixin:
             # Process the reply
             reply_sample = replies[0].data
             
-            # Parse response
+            # Parse response with RPC v2 fields
             response_data = {
                 "message": reply_sample.get_string("message"),
                 "status": reply_sample.get_int32("status"),
                 "conversation_id": reply_sample.get_string("conversation_id")
             }
+            
+            # RPC v2: Capture replier_service_guid from first successful reply
+            try:
+                replier_guid = reply_sample.get_string("replier_service_guid")
+                if replier_guid and target_agent_id not in self.agent_target_guids:
+                    logger.info(f"✅ First reply from agent {target_agent_id}, locking to GUID: {replier_guid}")
+                    self.agent_target_guids[target_agent_id] = replier_guid
+            except:
+                pass
             
             logger.info(f"Received reply from agent {target_agent_id}: {response_data['message']}")
             return response_data

@@ -11,22 +11,24 @@ import argparse # Added for command-line arguments
 logger = logging.getLogger("SimpleGenesisAgentScript")
 
 class SimpleGenesisAgent(OpenAIGenesisAgent):
-    def __init__(self, service_instance_tag: str = None): # Added service_instance_tag
+    def __init__(self):
         # Initialize the base class with our specific configuration
         super().__init__(
             model_name="gpt-4o",  # You can change this to your preferred model
             classifier_model_name="gpt-4o-mini",  # You can change this to your preferred model
             agent_name="SimpleGenesisAgentForTheWin",  # Friendly name for this agent instance
             # base_service_name="MyCustomChatService", # Optional: Override default OpenAIChat
-            service_instance_tag=service_instance_tag,     # Pass the tag
             description="A simple agent that listens for messages via Genesis interface and processes them.", 
             enable_tracing=True  # Enable tracing for testing
         )
         # The base class (OpenAIGenesisAgent) also has its own logging for initialization details
-        logger.info(f"'{self.agent_name}' instance (tag: {service_instance_tag or 'default'}) created. RPC Service: '{self.rpc_service_name}'. Ready to connect to Genesis services.")
+        logger.info(f"'{self.agent_name}' instance created. RPC Service: '{self.rpc_service_name}' (unified topics). Ready to connect to Genesis services.")
 
-async def main(tag: str = None, verbose: bool = False): # Added verbose parameter
-    print(f"###### AGENT MAIN STARTED - Tag: {tag}, Verbose: {verbose} ######") 
+async def main(tag: str = None, verbose: bool = False): # tag parameter kept for CLI compatibility but not used
+    # Note: tag parameter is no longer used - RPC v2 uses unified topics with GUID-based targeting
+    if tag:
+        logger.warning(f"Tag '{tag}' specified but ignored - RPC v2 uses unified topics with GUID targeting")
+    print(f"###### AGENT MAIN STARTED - Verbose: {verbose} ######") 
     # ---- START DIAGNOSTIC BLOCK ----
     # import logging # logging is already imported at the top of the file
     root_logger = logging.getLogger()
@@ -60,10 +62,10 @@ async def main(tag: str = None, verbose: bool = False): # Added verbose paramete
         genesis_lib_logger.setLevel(log_level)
         print(f"###### genesis_lib logger level AFTER EXPLICIT SET: {logging.getLevelName(genesis_lib_logger.level)} ######") # New diagnostic
 
-    agent_display_name = f"SimpleGenesisAgent{f'-{tag}' if tag else ''}"
+    agent_display_name = "SimpleGenesisAgent"
     logger.info(f"Initializing '{agent_display_name}' (Log Level: {logging.getLevelName(log_level)})...")
     # Initialize the agent
-    agent = SimpleGenesisAgent(service_instance_tag=tag) # Pass tag to constructor
+    agent = SimpleGenesisAgent() # RPC v2: No tag needed, uses unified topics
     
     try:
         # Give some time for initialization and announcement propagation (e.g., DDS discovery)

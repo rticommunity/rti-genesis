@@ -45,11 +45,10 @@ class OpenAIGenesisAgent(MonitoredAgent):
     
     def __init__(self, model_name="gpt-4o", classifier_model_name="gpt-4o-mini", 
                  domain_id: int = 0, agent_name: str = "OpenAIAgent", 
-                 base_service_name: str = "OpenAIChat", service_instance_tag: Optional[str] = None, 
+                 base_service_name: str = "OpenAIChat",
                  description: str = None, enable_tracing: bool = False, 
                  enable_agent_communication: bool = True, memory_adapter=None,
-                 auto_run: bool = True):
-        print(f"OpenAIGenesisAgent __init__ called for {agent_name}")
+                 auto_run: bool = True, service_instance_tag: str = ""):
         """Initialize the agent with the specified models
         
         Args:
@@ -58,13 +57,68 @@ class OpenAIGenesisAgent(MonitoredAgent):
             domain_id: DDS domain ID (default: 0)
             agent_name: Name of the agent (default: "OpenAIAgent")
             base_service_name: The fundamental type of service (default: "OpenAIChat")
-            service_instance_tag: Optional tag for unique RPC service name instance
             description: Optional description of the agent
             enable_tracing: Whether to enable detailed tracing logs (default: False)
             enable_agent_communication: Whether to enable agent-to-agent communication (default: True)
+            memory_adapter: Optional custom memory adapter for conversation history
+            auto_run: Whether to automatically start the agent's run loop (default: True)
+            service_instance_tag: Optional tag for content filtering (e.g., "production", "staging", "v2")
+        
+        Understanding Key Parameters:
+        
+            agent_name vs base_service_name:
+                - agent_name: The identity of this specific agent instance (e.g., "MyAssistant", 
+                  "WeatherBot_Primary"). Used for display, logging, and human identification.
+                - base_service_name: The service capability/type this agent provides (e.g., 
+                  "OpenAIChat", "WeatherService"). Used for RPC service naming and discovery.
+                - With RPC v2, multiple agents can share the same base_service_name and unified 
+                  DDS topics. They are distinguished by their unique replier_guid, not separate topics.
+                - Example: Two agents with base_service_name="OpenAIChat" both listen on 
+                  rti/connext/genesis/rpc/OpenAIChatRequest (no topic proliferation).
+            
+            memory_adapter:
+                - A plugin interface for conversation memory storage and retrieval.
+                - If None (default), uses SimpleMemoryAdapter which stores conversation history 
+                  in-memory (lost when agent stops).
+                - The MemoryAdapter interface defines standard methods (write, retrieve, summarize, 
+                  promote, prune) allowing you to plug in external memory systems.
+                - Future-ready architecture designed to support: vector stores (Pinecone, Weaviate), 
+                  graph databases (Neo4j), persistent storage (Redis, MongoDB), or specialized memory 
+                  types (episodic, semantic, procedural).
+                - Example: Pass a custom adapter to persist conversations across sessions or enable 
+                  semantic search over historical interactions.
+            
+            auto_run:
+                - When True (default): Agent automatically starts its run() loop if an event loop 
+                  is already running, making it immediately discoverable and ready to handle requests.
+                - When False: You must explicitly call await agent.run() to start the agent's main 
+                  loop, giving you control over initialization timing.
+                - Use False for: testing (calling process_request() directly), manual lifecycle 
+                  control, embedded usage in larger applications, or when you need custom setup 
+                  before the agent becomes discoverable.
+        
+        Design Note - Hardcoded agent_type="AGENT":
+            OpenAIGenesisAgent is hardcoded as agent_type="AGENT" (PRIMARY_AGENT in monitoring)
+            because it's designed as a general-purpose coordinator agent that orchestrates work
+            by delegating to specialized agents and calling functions.
+            
+            The agent_type parameter serves ONLY monitoring/visualization purposes:
+            - Affects graph topology labels (PRIMARY_AGENT vs SPECIALIZED_AGENT)
+            - Changes node color/shape in monitoring UI
+            - Used for topology validation in tests
+            - Does NOT affect functional capabilities or behavior
+            
+            For specialized domain agents (e.g., WeatherAgent, FinanceAgent):
+            - Extend MonitoredAgent directly with agent_type="SPECIALIZED_AGENT"
+            - Or subclass OpenAIGenesisAgent and override the super().__init__() call
+            
+            This architectural distinction helps visualize the agent hierarchy:
+            Interface → Primary Agents → Specialized Agents → Services → Functions
         """
         # Store tracing configuration
         self.enable_tracing = enable_tracing
+        
+        logger.debug(f"OpenAIGenesisAgent __init__ called for {agent_name}")
         
         if self.enable_tracing:
             logger.debug(f"Initializing OpenAIGenesisAgent with model {model_name}")
@@ -79,13 +133,15 @@ class OpenAIGenesisAgent(MonitoredAgent):
         super().__init__(
             agent_name=agent_name,
             base_service_name=base_service_name,
-            service_instance_tag=service_instance_tag,
-            agent_type="AGENT",  # This is a primary agent
+            # Hardcoded as "AGENT" (PRIMARY_AGENT) - see "Design Note" in docstring above
+            # This is for monitoring/visualization only, not functional behavior
+            agent_type="AGENT",
             description=description or f"An OpenAI-powered agent using {model_name} model, providing {base_service_name} service",
             domain_id=domain_id,
             enable_agent_communication=enable_agent_communication,
             memory_adapter=memory_adapter,
-            auto_run=auto_run
+            auto_run=auto_run,
+            service_instance_tag=service_instance_tag
         )
         
         # Get API key from environment
@@ -96,8 +152,27 @@ class OpenAIGenesisAgent(MonitoredAgent):
         # Initialize OpenAI client
         self.client = OpenAI(api_key=self.api_key)
 
-        # Allow forcing OpenAI tool selection behavior via env (e.g., required/auto/none)
-        # Default remains "auto" to preserve current behavior for all other tests.
+        # OpenAI tool_choice configuration via GENESIS_TOOL_CHOICE environment variable
+        # Controls whether OpenAI must/can/cannot call tools (functions, agents, internal tools)
+        #
+        # Values:
+        #   "auto" (default) - OpenAI decides whether to call tools or respond directly
+        #                      Best for production: natural, conversational, cost-effective
+        #   
+        #   "required"       - OpenAI MUST call a tool, cannot give free-form answers
+        #                      Used in TESTS ONLY for deterministic behavior:
+        #                      - Guarantees RPC paths are exercised (not bypassed)
+        #                      - Ensures agent delegation happens (not answered directly)
+        #                      - Makes tests reliable and non-flaky
+        #                      - Enables opportunistic discovery (waits for tools/agents)
+        #                      ⚠️ DO NOT USE IN PRODUCTION (slow, expensive, poor UX)
+        #   
+        #   "none"           - OpenAI cannot call tools (rarely used, for testing edge cases)
+        #
+        # This affects:
+        #   - Line 814: Opportunistic function discovery when "required"
+        #   - Line 845: Opportunistic agent discovery when "required"
+        #   - Line 1194: Passed directly to OpenAI API tool_choice parameter
         self.openai_tool_choice = os.getenv("GENESIS_TOOL_CHOICE", "auto")
         
         # Initialize generic client for function discovery, passing the agent's participant
@@ -816,15 +891,15 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             # Heuristic delegation: route obvious weather queries to a discovered weather agent
             try:
                 import re
-                print(f"🔍 PRINT: Checking heuristic delegation - agent_cache has {len(self.agent_cache)} tools")
+                logger.debug(f"Checking heuristic delegation - agent_cache has {len(self.agent_cache)} tools")
                 if re.search(r"\bweather\b", user_message, re.IGNORECASE) and self.agent_cache:
-                    print(f"🌤️ PRINT: Weather query detected, searching for weather agent...")
+                    logger.debug(f"Weather query detected, searching for weather agent...")
                     # Prefer an agent whose name or capability mentions 'weather'
                     candidate_id = None
                     candidate_name = None
                     # Try discovered agents dict for richer metadata
                     discovered_agents = self.get_discovered_agents() if hasattr(self, 'get_discovered_agents') else {}
-                    print(f"🔍 PRINT: Searching {len(discovered_agents)} discovered agents...")
+                    logger.debug(f"Searching {len(discovered_agents)} discovered agents...")
                     for aid, info in (discovered_agents or {}).items():
                         name = (info.get('name') or info.get('prefered_name') or '').lower()
                         caps = info.get('capabilities') or []
@@ -834,21 +909,21 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                         if 'weather' in name or 'weather' in caps_l or 'weather' in specs_l:
                             candidate_id = aid
                             candidate_name = info.get('name') or info.get('prefered_name') or aid
-                            print(f"✅ PRINT: Found weather agent: {candidate_name} ({candidate_id})")
+                            logger.debug(f"Found weather agent: {candidate_name} ({candidate_id})")
                             break
                     # If metadata scan failed, try agent_cache tool names
                     if not candidate_id:
-                        print(f"🔍 PRINT: No match in discovered agents, checking agent_cache tools...")
+                        logger.debug(f"No match in discovered agents, checking agent_cache tools...")
                         for tool_name, ainfo in self.agent_cache.items():
                             an = (ainfo.get('agent_name') or '').lower()
                             td = (ainfo.get('tool_description') or '').lower()
                             if 'weather' in tool_name.lower() or 'weather' in an or 'weather' in td:
                                 candidate_id = ainfo.get('agent_id')
                                 candidate_name = ainfo.get('agent_name') or tool_name
-                                print(f"✅ PRINT: Found weather tool in cache: {tool_name}")
+                                logger.debug(f"Found weather tool in cache: {tool_name}")
                                 break
                     if candidate_id:
-                        print(f"🚀 PRINT: Delegating to {candidate_name} ({candidate_id})...")
+                        logger.debug(f"Delegating to {candidate_name} ({candidate_id})...")
                         # Route via monitored agent communication if available
                         if hasattr(self, 'send_agent_request_monitored'):
                             routed = await self.send_agent_request_monitored(
@@ -864,16 +939,15 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                                 conversation_id=None,
                                 timeout_seconds=30.0
                             )
-                        print(f"✅ PRINT: Delegation returned: {routed}")
+                        logger.debug(f"Delegation returned: {routed}")
                         if isinstance(routed, dict) and routed.get('status') == 0:
                             return {"message": routed.get('message', ''), "status": 0}
                     else:
-                        print(f"⚠️ PRINT: No weather agent candidate found")
+                        logger.debug(f"No weather agent candidate found")
                 else:
-                    print(f"⏭️ PRINT: Skipping heuristic delegation (weather={'weather' in user_message.lower()}, cache_size={len(self.agent_cache)})")
+                    logger.debug(f"Skipping heuristic delegation (weather={'weather' in user_message.lower()}, cache_size={len(self.agent_cache)})")
             except Exception as e:
                 # NEVER silently swallow exceptions - log them!
-                print(f"💥 PRINT: Error in heuristic delegation: {e}")
                 logger.error(f"Error in heuristic delegation: {e}")
                 logger.error(traceback.format_exc())
                 # Fall through to normal flow
@@ -1174,7 +1248,7 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             # Check if the model wants to call a function
             if message.tool_calls:
                 logger.debug(f"===== TRACING: Model requested function call(s): {len(message.tool_calls)} =======")
-                print(f"==== Full on print to trace message calls. {message.tool_calls} ====")
+                logger.debug(f"Model tool calls: {message.tool_calls}")
                 # Process each tool call (function or agent)
                 tool_responses = []
                 for tool_call in message.tool_calls:
@@ -1299,7 +1373,7 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                 
                 # CRITICAL: OpenAI may request MULTIPLE rounds of tool calls.
                 # Loop until we get a text response instead of more tool calls.
-                print(f"🔧 PRINT: Starting multi-turn tool conversation loop with {len(tool_responses)} initial tool responses", flush=True)
+                logger.debug(f"Starting multi-turn tool conversation loop with {len(tool_responses)} initial tool responses")
                 
                 # Build initial conversation for tool response processing
                 N = 8
@@ -1334,7 +1408,7 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                 
                 while turn_count < max_turns:
                     turn_count += 1
-                    print(f"🔧 PRINT: Tool conversation turn {turn_count}/{max_turns}, making OpenAI call with {len(messages)} messages...", flush=True)
+                    logger.debug(f"Tool conversation turn {turn_count}/{max_turns}, making OpenAI call with {len(messages)} messages...")
                     
                     # Create chain event for LLM call start
                     self._publish_llm_call_start(
@@ -1346,7 +1420,7 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                     # CRITICAL: Always use 'auto' for multi-turn tool conversations.
                     # If we use 'required', OpenAI is FORCED to always call a tool, creating an infinite loop.
                     # With 'auto', OpenAI intelligently decides when to call tools vs return text.
-                    print(f"🔧 PRINT: Turn {turn_count} using tool_choice='auto'", flush=True)
+                    logger.debug(f"Turn {turn_count} using tool_choice='auto'")
                     
                     # Call OpenAI with current conversation state
                     response = self.client.chat.completions.create(
@@ -1364,17 +1438,17 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                     )
                     
                     response_message = response.choices[0].message
-                    print(f"🔧 PRINT: Turn {turn_count} response: content={response_message.content is not None}, tool_calls={len(response_message.tool_calls) if response_message.tool_calls else 0}", flush=True)
+                    logger.debug(f"Turn {turn_count} response: content={response_message.content is not None}, tool_calls={len(response_message.tool_calls) if response_message.tool_calls else 0}")
                     
                     # Check if OpenAI returned text content (final response)
                     if response_message.content and not response_message.tool_calls:
                         final_message = response_message.content
-                        print(f"🔧 PRINT: Turn {turn_count} returned final text response!", flush=True)
+                        logger.debug(f"Turn {turn_count} returned final text response!")
                         break
                     
                     # OpenAI wants to make MORE tool calls
                     if response_message.tool_calls:
-                        print(f"🔧 PRINT: Turn {turn_count} has {len(response_message.tool_calls)} more tool calls to execute", flush=True)
+                        logger.debug(f"Turn {turn_count} has {len(response_message.tool_calls)} more tool calls to execute")
                         
                         # Add assistant message with tool calls to conversation
                         assistant_content = response_message.content if response_message.content is not None else ""
@@ -1385,7 +1459,7 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                         for tool_call in response_message.tool_calls:
                             tool_name = tool_call.function.name
                             tool_args = json.loads(tool_call.function.arguments)
-                            print(f"🔧 PRINT: Turn {turn_count} executing tool: {tool_name}", flush=True)
+                            logger.debug(f"Turn {turn_count} executing tool: {tool_name}")
                             
                             try:
                                 # Determine tool type and execute
@@ -1415,7 +1489,7 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                                     "name": tool_name,
                                     "content": str(tool_result)
                                 })
-                                print(f"🔧 PRINT: Turn {turn_count} tool {tool_name} returned: {str(tool_result)[:100]}", flush=True)
+                                logger.debug(f"Turn {turn_count} tool {tool_name} returned: {str(tool_result)[:100]}")
                                 
                             except Exception as e:
                                 logger.error(f"Error executing tool {tool_name} in turn {turn_count}: {e}")
@@ -1428,18 +1502,18 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                         
                         # Add tool responses to conversation
                         messages.extend(new_tool_responses)
-                        print(f"🔧 PRINT: Turn {turn_count} added {len(new_tool_responses)} tool responses, continuing loop...", flush=True)
+                        logger.debug(f"Turn {turn_count} added {len(new_tool_responses)} tool responses, continuing loop...")
                     else:
                         # No tool calls and no content - shouldn't happen but handle it
-                        print(f"🔧 PRINT: Turn {turn_count} has neither content nor tool_calls - breaking", flush=True)
+                        logger.debug(f"Turn {turn_count} has neither content nor tool_calls - breaking")
                         final_message = "No response generated"
                         break
                 
                 if turn_count >= max_turns:
-                    print(f"🔧 PRINT: Reached max turns ({max_turns}), stopping loop", flush=True)
+                    logger.debug(f"Reached max turns ({max_turns}), stopping loop")
                     final_message = "Response processing exceeded maximum turns"
                 
-                print(f"🔧 PRINT: Multi-turn loop completed after {turn_count} turns, final_message: {final_message[:100] if final_message else 'None'}", flush=True)
+                logger.debug(f"Multi-turn loop completed after {turn_count} turns, final_message: {final_message[:100] if final_message else 'None'}")
                 
                 # Write user and agent messages to memory
                 self.memory.write(user_message, metadata={"role": "user"})
@@ -1497,9 +1571,9 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                 logger.debug(f"🔍 TRACE: Agent request - conversation_id: {conversation_id}")
             
             # Process the request using our standard OpenAI processing
-            print(f"🔧 PRINT: process_agent_request() calling process_request() with message: {message}", flush=True)
+            logger.debug(f"process_agent_request() calling process_request() with message: {message}")
             response = await self.process_request({"message": message})
-            print(f"🔧 PRINT: process_agent_request() got response from process_request(): {response}", flush=True)
+            logger.debug(f"process_agent_request() got response from process_request(): {response}")
             
             # Format response for agent-to-agent communication
             agent_response = {
@@ -1507,7 +1581,7 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                 "status": response.get("status", 0),
                 "conversation_id": conversation_id
             }
-            print(f"🔧 PRINT: process_agent_request() formatted agent_response: {agent_response}", flush=True)
+            logger.debug(f"process_agent_request() formatted agent_response: {agent_response}")
             
             if self.enable_tracing:
                 logger.debug(f"🔍 TRACE: OpenAIGenesisAgent agent response: {agent_response}")

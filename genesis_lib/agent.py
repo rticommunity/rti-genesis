@@ -48,30 +48,39 @@ class GenesisAgent(ABC):
     # registration_writer removed - now using unified Advertisement topic via AdvertisementBus
 
     def __init__(self, agent_name: str, base_service_name: str, 
-                 service_instance_tag: Optional[str] = None, agent_id: str = None,
+                 agent_id: str = None,
                  enable_agent_communication: bool = False, memory_adapter=None,
-                 auto_run: bool = True):
+                 auto_run: bool = True, service_instance_tag: str = ""):
         """
         Initialize the agent.
         
         Args:
             agent_name: Name of the agent (for display, identification)
             base_service_name: The fundamental type of service offered (e.g., "Chat", "ImageGeneration")
-            service_instance_tag: Optional tag to make this instance's RPC service name unique (e.g., "Primary", "User1")
             agent_id: Optional UUID for the agent (if None, will generate one)
             enable_agent_communication: Whether to enable agent-to-agent communication capabilities
+            memory_adapter: Optional custom memory adapter for conversation history
+            auto_run: Whether to automatically start the agent's run loop
+            service_instance_tag: Optional tag for content filtering (e.g., "production", "staging", "v2")
+                                 Used for migrations and A/B testing via content filtering, not topic names
+        
+        Note:
+            RPC v2 uses unified topics with GUID-based targeting. All agents of the same
+            base_service_name share the same DDS topics (e.g., rti/connext/genesis/rpc/OpenAIChatRequest).
+            Individual agents are targeted using their unique replier_guid, not separate topic names.
+            The optional service_instance_tag enables content filtering for migration scenarios.
         """
         logger.info(f"GenesisAgent {agent_name} STARTING initializing with agent_id {agent_id}, base_service_name: {base_service_name}, tag: {service_instance_tag}")
         self.agent_name = agent_name
         self.mcp_server = None  # Initialize MCP server to None
         
+        # RPC v2: Use base_service_name directly - no instance tags needed
+        # All instances share unified topics, targeted by GUID
         self.base_service_name = base_service_name
-        if service_instance_tag:
-            self.rpc_service_name = f"{base_service_name}_{service_instance_tag}"
-        else:
-            self.rpc_service_name = base_service_name
+        self.rpc_service_name = base_service_name
+        self.service_instance_tag = service_instance_tag  # Optional tag for content filtering
         
-        logger.info(f"Determined RPC service name: {self.rpc_service_name}")
+        logger.info(f"RPC v2 service name: {self.rpc_service_name} (unified topics, tag: {service_instance_tag or 'none'})")
 
         logger.debug("===== DDS TRACE: Creating GenesisApp in GenesisAgent =====")
         self.app = GenesisApp(preferred_name=self.agent_name, agent_id=agent_id)
@@ -120,6 +129,35 @@ class GenesisAgent(ABC):
                         print(f"⏭️ PRINT: Skipping invalid request sample")
                         continue
                         
+                    # RPC v2: Content filtering based on target_service_guid
+                    # Extract target_service_guid from request if present
+                    try:
+                        target_guid = request.get_string("target_service_guid")
+                        service_tag = request.get_string("service_instance_tag")
+                        
+                        # Check if this is a broadcast (empty target_guid) or targeted to us
+                        is_broadcast = not target_guid or target_guid == ""
+                        is_targeted_to_us = target_guid == self.agent.replier_guid
+                        
+                        # Check if service_instance_tag matches (if set)
+                        tag_matches = True
+                        if service_tag and hasattr(self.agent, 'service_instance_tag'):
+                            tag_matches = service_tag == self.agent.service_instance_tag
+                        
+                        if not is_broadcast and not is_targeted_to_us:
+                            logger.debug(f"⏭️ Skipping request targeted to different agent (target: {target_guid}, us: {self.agent.replier_guid})")
+                            continue
+                            
+                        if not tag_matches:
+                            logger.debug(f"⏭️ Skipping request with non-matching service_instance_tag")
+                            continue
+                            
+                        logger.debug(f"✅ Processing request ({'broadcast' if is_broadcast else 'targeted'}, tag: {service_tag or 'none'})")
+                        
+                    except Exception as e:
+                        # If fields don't exist, fall back to processing (backward compat)
+                        logger.warning(f"Could not read RPC v2 fields from request, processing anyway: {e}")
+                        
                     print(f"✅ PRINT: Processing valid Interface-to-Agent request")
                     logger.info(f"Received request: {request}")
                     
@@ -164,12 +202,19 @@ class GenesisAgent(ABC):
                     reply_data = await self.agent.process_request(request_dict)
                     print(f"✅ PRINT: process_request() returned: {reply_data}")
                     
-                    # Create reply - explicitly set all required fields
+                    # Create reply - explicitly set all required fields including RPC v2 fields
                     print(f"📤 PRINT: Creating DDS reply...")
                     reply = dds.DynamicData(self.agent.reply_type)
                     reply["message"] = str(reply_data.get("message", ""))
                     reply["status"] = int(reply_data.get("status", 0))
                     reply["conversation_id"] = str(reply_data.get("conversation_id", ""))
+                    
+                    # RPC v2: Include our replier_guid for subsequent targeted requests
+                    reply["replier_service_guid"] = self.agent.replier_guid
+                    
+                    # Echo back the service_instance_tag if present in request
+                    service_tag = request_dict.get("service_instance_tag", "")
+                    reply["service_instance_tag"] = service_tag
                     
                     print(f"📤 PRINT: Sending reply via replier...")
                     # Send reply
@@ -179,11 +224,13 @@ class GenesisAgent(ABC):
                 except Exception as e:
                     logger.error(f"Error processing request: {e}")
                     logger.error(traceback.format_exc())
-                    # Send error reply - explicitly set all required fields
+                    # Send error reply - explicitly set all required fields including RPC v2 fields
                     reply = dds.DynamicData(self.agent.reply_type)
                     reply["message"] = f"Error: {str(e)}"
                     reply["status"] = 1  # Error status
                     reply["conversation_id"] = ""  # Empty conversation ID for errors
+                    reply["replier_service_guid"] = self.agent.replier_guid  # RPC v2
+                    reply["service_instance_tag"] = ""  # RPC v2
                     self.agent.replier.send_reply(reply, info)
         
         # Create replier with listener using unified RPC v2 naming
@@ -193,6 +240,11 @@ class GenesisAgent(ABC):
             participant=self.app.participant,
             service_name=f"rti/connext/genesis/rpc/{self.rpc_service_name}"
         )
+        
+        # Store replier GUID for RPC v2 targeted requests
+        from genesis_lib.utils.guid_utils import format_guid
+        self.replier_guid = format_guid(self.replier.reply_datawriter.instance_handle)
+        logger.info(f"Agent {self.agent_name} replier_guid: {self.replier_guid}")
         
         # Set listener on replier's DataReader with status mask for data available
         self.request_listener = RequestListener(self)
@@ -782,6 +834,7 @@ class GenesisAgent(ABC):
             payload = {
                 "agent_type": getattr(self, 'agent_type', 'AGENT'),
                 "prefered_name": self.agent_name,
+                "replier_guid": getattr(self, 'replier_guid', ''),  # RPC v2: for GUID-based targeting
             }
             ad["payload"] = json.dumps(payload)
 

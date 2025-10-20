@@ -62,20 +62,20 @@ class MonitoredAgent(GenesisAgent):
     _function_client_initialized = False
 
     def __init__(self, agent_name: str, base_service_name: str,
-                 agent_type: str = "AGENT", service_instance_tag: Optional[str] = None,
+                 agent_type: str = "AGENT",
                  agent_id: str = None, description: str = None, domain_id: int = 0,
                  enable_agent_communication: bool = False, memory_adapter=None,
-                 auto_run: bool = True):
+                 auto_run: bool = True, service_instance_tag: str = ""):
         logger.info(f"🚀 TRACE: MonitoredAgent {agent_name} STARTING initializing with agent_id {agent_id}")
 
         super().__init__(
             agent_name=agent_name,
             base_service_name=base_service_name,
-            service_instance_tag=service_instance_tag,
             agent_id=agent_id,
             enable_agent_communication=enable_agent_communication,
             memory_adapter=memory_adapter,
-            auto_run=auto_run
+            auto_run=auto_run,
+            service_instance_tag=service_instance_tag
         )
         logger.info(f"✅ TRACE: MonitoredAgent {agent_name} initialized with base class")
 

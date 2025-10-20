@@ -82,8 +82,9 @@ sleep 2
 echo "Starting test components (agent, service, interface)..."
 
 # Start SimpleGenesisAgent
+# RPC v2: No --tag needed, uses unified topics with GUID targeting
 export GENESIS_TOOL_CHOICE="required"
-python "$SCRIPT_DIR/../helpers/simpleGenesisAgent.py" --tag parity_test --verbose > "$AGENT_LOG" 2>&1 &
+python "$SCRIPT_DIR/../helpers/simpleGenesisAgent.py" --verbose > "$AGENT_LOG" 2>&1 &
 pids+=("$!")
 
 # Start CalculatorService

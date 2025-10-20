@@ -83,7 +83,8 @@ echo "Starting SimpleGenesisAgent..."
 # Force the agent to always use tools for this test to ensure the RPC path is exercised.
 export GENESIS_TOOL_CHOICE="required"
 # Start the agent with verbose logging to aid discovery diagnostics
-python "$SCRIPT_DIR/../helpers/simpleGenesisAgent.py" --tag pipeline_test --verbose > "$AGENT_LOG" 2>&1 &
+# RPC v2: No --tag needed, uses unified topics with GUID targeting
+python "$SCRIPT_DIR/../helpers/simpleGenesisAgent.py" --verbose > "$AGENT_LOG" 2>&1 &
 pids+=("$!")
 
 # --- 3. Start CalculatorService ---
@@ -135,9 +136,10 @@ fi
 # --- 5. Verify Interaction through Logs ---
 echo "Verifying interactions via logs..."
 
-# Check 1: Connected to SimpleGenesisAgent-pipeline_test
-if ! grep -q "Successfully connected to agent: 'SimpleGenesisAgentForTheWin' (Service: 'OpenAIChat_pipeline_test')." "$STATIC_INTERFACE_LOG"; then
-    echo "ERROR: Verification FAILED. Did not find print statement for connection to 'SimpleGenesisAgentForTheWin' (Service: 'OpenAIChat_pipeline_test') in $STATIC_INTERFACE_LOG"
+# Check 1: Connected to SimpleGenesisAgent with RPC v2 unified topics
+# RPC v2: Service name is now just 'OpenAIChat' (no tag suffix)
+if ! grep -q "Successfully connected to agent: 'SimpleGenesisAgentForTheWin' (Service: 'OpenAIChat')." "$STATIC_INTERFACE_LOG"; then
+    echo "ERROR: Verification FAILED. Did not find print statement for connection to 'SimpleGenesisAgentForTheWin' (Service: 'OpenAIChat') in $STATIC_INTERFACE_LOG"
     exit 1
 fi
 echo "  ✅ Verified: Connection to Agent (via print statement)."

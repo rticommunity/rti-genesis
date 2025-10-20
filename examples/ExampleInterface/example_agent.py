@@ -19,18 +19,12 @@ logger = logging.getLogger("SimpleGenesisAgentScript")
 class SimpleGenesisAgent(OpenAIGenesisAgent):
     """
     A simple example of an agent built using the OpenAIGenesisAgent base class.
-    This agent demonstrates how to initialize and run an agent that can connect
-    to the Genesis messaging infrastructure. It can be given an instance tag
-    to differentiate multiple running instances.
+    RPC v2: Uses unified topics with GUID-based targeting. Multiple instances
+    share the same DDS topics and are distinguished by their unique replier_guid.
     """
-    def __init__(self, service_instance_tag: str = None): # Added service_instance_tag
+    def __init__(self):
         """
-        Initializes the SimpleGenesisAgent.
-
-        Args:
-            service_instance_tag (str, optional): An optional tag to make the
-                agent's underlying RPC service name unique. This is useful when
-                running multiple instances of the same agent. Defaults to None.
+        Initializes the SimpleGenesisAgent with RPC v2 unified topic architecture.
         """
         # Initialize the base class (OpenAIGenesisAgent) with specific configurations.
         super().__init__(
@@ -38,24 +32,25 @@ class SimpleGenesisAgent(OpenAIGenesisAgent):
             classifier_model_name="gpt-4o-mini",  # Specifies the OpenAI model for classification tasks.
             agent_name="SimpleGenesisAgentForTheWin",  # A friendly, descriptive name for this agent instance.
             # base_service_name="MyCustomChatService", # Optional: Uncomment to override the default OpenAIChat service name.
-            service_instance_tag=service_instance_tag,     # Pass the tag to the base class for service name uniqueness.
             description="A simple agent that listens for messages via Genesis interface and processes them.", 
             enable_tracing=True  # Enable OpenTelemetry tracing for observability.
         )
         # Log that the agent instance has been created.
         # The base class OpenAIGenesisAgent also performs its own logging during initialization.
-        logger.info(f"'{self.agent_name}' instance (tag: {service_instance_tag or 'default'}) created. RPC Service: '{self.rpc_service_name}'. Ready to connect to Genesis services.")
+        logger.info(f"'{self.agent_name}' instance created. RPC Service: '{self.rpc_service_name}' (unified topics). Ready to connect to Genesis services.")
 
-async def main(tag: str = None, verbose: bool = False): # Added verbose parameter
+async def main(tag: str = None, verbose: bool = False): # tag kept for CLI compatibility
     """
     The main asynchronous function to set up logging, initialize, and run the SimpleGenesisAgent.
 
     Args:
-        tag (str, optional): An instance tag for the agent, passed from command-line arguments.
-                             Defaults to None.
+        tag (str, optional): Legacy parameter kept for CLI compatibility. Ignored in RPC v2.
         verbose (bool, optional): If True, sets logging to DEBUG level for this script
                                   and the `genesis_lib`. Defaults to False (INFO level).
     """
+    # Note: tag parameter is no longer used - RPC v2 uses unified topics with GUID targeting
+    if tag:
+        logger.warning(f"Tag '{tag}' specified but ignored - RPC v2 uses unified topics with GUID targeting")
     # Determine the logging level based on the verbose flag.
     log_level = logging.DEBUG if verbose else logging.INFO
 
@@ -82,11 +77,11 @@ async def main(tag: str = None, verbose: bool = False): # Added verbose paramete
 
 
     # Construct a display name for the agent, incorporating the tag if provided.
-    agent_display_name = f"SimpleGenesisAgent{f'-{tag}' if tag else ''}"
+    agent_display_name = "SimpleGenesisAgent"
     logger.info(f"Initializing '{agent_display_name}' (Log Level: {logging.getLevelName(log_level)})...")
     
-    # Instantiate the agent.
-    agent = SimpleGenesisAgent(service_instance_tag=tag) # Pass the tag to the agent's constructor.
+    # Instantiate the agent (RPC v2: No tag needed, uses unified topics).
+    agent = SimpleGenesisAgent()
     
     try:
         # A short delay to allow for system components (like DDS discovery) to initialize

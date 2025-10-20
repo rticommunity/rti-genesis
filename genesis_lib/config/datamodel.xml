@@ -14,28 +14,44 @@
     </struct>
 
     <!-- Below are the two NLP communication types, interface to agent and agent to agent.  Right now they're at 8K, But it should probably be either Unbounded or... Better yet, Add Streaming like we had in version 0.1.-->
-    <!-- interface to agent communication -->
+    <!-- interface to agent communication (RPC v2: unified topics with GUID-based content filtering) -->
     <struct name="InterfaceAgentRequest">
       <member name="message" type="string" stringMaxLength="8192"/>
       <member name="conversation_id" type="string" stringMaxLength="128"/>
+      <!-- RPC v2: Empty for broadcast, set to specific GUID for targeted request -->
+      <member name="target_service_guid" type="string" stringMaxLength="128"/>
+      <!-- Optional service instance tag for migration scenarios (content filtering, not topic names) -->
+      <member name="service_instance_tag" type="string" stringMaxLength="64"/>
     </struct>
 
     <struct name="InterfaceAgentReply">
       <member name="message" type="string" stringMaxLength="8192"/>
       <member name="status" type="int32"/>
       <member name="conversation_id" type="string" stringMaxLength="128"/>
+      <!-- RPC v2: Replier's GUID for subsequent targeted requests -->
+      <member name="replier_service_guid" type="string" stringMaxLength="128"/>
+      <!-- Echo back the service instance tag if present -->
+      <member name="service_instance_tag" type="string" stringMaxLength="64"/>
     </struct>
 
-        <!-- Agent to agent communication -->
+        <!-- Agent to agent communication (RPC v2: unified topics with GUID-based content filtering) -->
     <struct name="AgentAgentRequest">
       <member name="message" type="string" stringMaxLength="8192"/>
       <member name="conversation_id" type="string" stringMaxLength="128"/>
+      <!-- RPC v2: Empty for broadcast, set to specific GUID for targeted request -->
+      <member name="target_service_guid" type="string" stringMaxLength="128"/>
+      <!-- Optional service instance tag for migration scenarios (content filtering, not topic names) -->
+      <member name="service_instance_tag" type="string" stringMaxLength="64"/>
     </struct>
 
     <struct name="AgentAgentReply">
       <member name="message" type="string" stringMaxLength="8192"/>
       <member name="status" type="int32"/>
       <member name="conversation_id" type="string" stringMaxLength="128"/>
+      <!-- RPC v2: Replier's GUID for subsequent targeted requests -->
+      <member name="replier_service_guid" type="string" stringMaxLength="128"/>
+      <!-- Echo back the service instance tag if present -->
+      <member name="service_instance_tag" type="string" stringMaxLength="64"/>
     </struct>
 
     <!-- Monitoring and Logging interface -->
