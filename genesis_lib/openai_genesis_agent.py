@@ -169,10 +169,6 @@ class OpenAIGenesisAgent(MonitoredAgent):
         #   
         #   "none"           - OpenAI cannot call tools (rarely used, for testing edge cases)
         #
-        # This affects:
-        #   - Line 814: Opportunistic function discovery when "required"
-        #   - Line 845: Opportunistic agent discovery when "required"
-        #   - Line 1194: Passed directly to OpenAI API tool_choice parameter
         self.openai_tool_choice = os.getenv("GENESIS_TOOL_CHOICE", "auto")
         
         # Initialize generic client for function discovery, passing the agent's participant
@@ -180,13 +176,6 @@ class OpenAIGenesisAgent(MonitoredAgent):
         # Ensure GenericFunctionClient uses the SAME FunctionRegistry as the GenesisApp
         logger.debug(f"===== TRACING: Initializing GenericFunctionClient using agent app's FunctionRegistry: {id(self.app.function_registry)} =====")
         self.generic_client = GenericFunctionClient(function_registry=self.app.function_registry)
-        self.function_cache = {}  # Cache for discovered functions
-        
-        # Initialize agent cache for agent-as-tool pattern
-        self.agent_cache = {}  # Cache for discovered agents that can be called as tools
-        
-        # Register discovery callback with the function registry for asynchronous edge discovery
-        self.app.function_registry.add_discovery_callback(self._on_function_discovered)
         
         # Initialize function classifier
         self.function_classifier = FunctionClassifier(llm_client=self.client)
@@ -233,228 +222,55 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         if self.enable_tracing:
             logger.debug("OpenAIGenesisAgent initialized successfully")
     
-    def _on_function_discovered(self, function_id: str, function_info: dict):
+    def _get_available_functions(self) -> Dict[str, Dict[str, Any]]:
         """
-        Callback method called when a function is discovered asynchronously.
-        This publishes edge discovery events immediately when functions become available.
+        Get currently available functions from FunctionRegistry via GenericFunctionClient.
+        This is the single source of truth for function availability, querying DDS directly.
         
-        Args:
-            function_id: ID of the discovered function
-            function_info: Dictionary containing function information
+        Returns:
+            Dict[str, Dict]: Dictionary keyed by function name, containing:
+                - function_id: Unique identifier for the function
+                - description: Human-readable description
+                - schema: JSON schema for function parameters
+                - provider_id: ID of the service providing this function
         """
-        try:
-            if self.enable_tracing:
-                logger.debug(f"===== TRACING: Function discovered callback: {function_info.get('name', 'unknown')} ({function_id}) =====")
-            
-            provider_id = function_info.get('provider_id', '')
-            function_name = function_info.get('name', 'unknown')
-            
-            if provider_id:
-                # Only publish AGENT_TO_SERVICE edge discovery event
-                # The service will handle SERVICE_TO_FUNCTION edges
-                reason = f"provider={provider_id} client={self.app.agent_id} function={function_id} name={function_name}"
-                if self.enable_tracing:
-                    logger.debug(f"Publishing AGENT_TO_SERVICE edge discovery event with reason: {reason}")
-
-                self.graph.publish_edge(
-                    source_id=self.app.agent_id,
-                    target_id=provider_id,
-                    edge_type="AGENT_TO_SERVICE",
-                    attrs={
-                        "agent_type": self.agent_type,
-                        "service": self.base_service_name,
-                        "edge_type": "agent_to_service",
-                        "provider_id": provider_id,
-                        "client_id": self.app.agent_id,
-                        "function_id": function_id,
-                        "function_name": function_name,
-                        "reason": reason
-                    },
-                    component_type=1  # AGENT_PRIMARY
-                )
-                if self.enable_tracing:
-                    logger.debug("Published AGENT_TO_SERVICE edge discovery event")
-
-                # NOTE: Removed direct FUNCTION_CONNECTION edge to function UUID
-                # The service provider will handle SERVICE_TO_FUNCTION edges
-                    
-        except Exception as e:
-            logger.error(f"Error in function discovery callback: {str(e)}")
-            logger.error(traceback.format_exc())
-    
-    async def _ensure_functions_discovered(self):
-        """Ensure functions are discovered before use. Relies on GenericFunctionClient to asynchronously update its list.
-        This method populates the agent's function_cache based on the current list from GenericFunctionClient ON EVERY CALL.
-        """
-        logger.debug("===== TRACING: Attempting to populate function cache from GenericFunctionClient... =====")
-        
         functions = self.generic_client.list_available_functions()
-        
-        # Track which functions are newly discovered
-        previously_cached_functions = set(self.function_cache.keys())
-        
-        # Reset function cache for fresh population
-        self.function_cache = {}
-
-        if not functions:
-            logger.debug("===== TRACING: No functions currently listed by GenericFunctionClient. =====")
-            # Only use general prompt if BOTH functions and agents are unavailable
-            if not self.agent_cache:
-                logger.debug("===== TRACING: No functions or agents available. General prompt will be used. =====")
-                self.system_prompt = self.general_system_prompt
-            else:
-                logger.debug("===== TRACING: No functions but agents are available. Function-based prompt maintained. =====")
-            return
-        
-        logger.debug(f"===== TRACING: {len(functions)} functions listed by GenericFunctionClient. Populating cache. System prompt set to function-based. =====")
-        self.system_prompt = self.function_based_system_prompt
-
-        newly_discovered_functions = []
-        
-        for func_data in functions: # Iterate over list of dicts
-            # func_data should be a dictionary from the list returned by GenericFunctionClient
-            # It has keys like 'name', 'description', 'schema', 'function_id'
-            func_id = func_data["function_id"]
+        result = {}
+        for func_data in functions:
             func_name = func_data["name"]
-            
-            self.function_cache[func_name] = {
-                "function_id": func_id,
+            result[func_name] = {
+                "function_id": func_data["function_id"],
                 "description": func_data["description"],
                 "schema": func_data["schema"],
                 "provider_id": func_data.get("provider_id"),
-                "classification": { # Default classification, can be overridden if func_data has it
-                    "entity_type": "function",
-                    "domain": ["unknown"],
-                    "operation_type": func_data.get("operation_type", "unknown"),
-                    "io_types": {
-                        "input": ["unknown"],
-                        "output": ["unknown"]
-                    },
-                    "performance": {
-                        "latency": "unknown",
-                        "throughput": "unknown"
-                    },
-                    "security": {
-                        "level": "public",
-                        "authentication": "none"
-                    }
-                }
             }
-            # If func_data itself contains a 'classification' field, merge it or use it
-            if "classification" in func_data and isinstance(func_data["classification"], dict):
-                self.function_cache[func_name]["classification"].update(func_data["classification"])
-
-            # Check if this is a newly discovered function
-            if func_name not in previously_cached_functions:
-                newly_discovered_functions.append(func_data)
-            
-            logger.debug("===== TRACING: Processing discovered function for cache =====")
-            logger.debug(f"Name: {func_data['name']}")
-            logger.debug(f"ID: {func_id}")
-            logger.debug(f"Description: {func_data['description']}")
-            logger.debug(f"Schema: {json.dumps(func_data['schema'], indent=2)}")
-            logger.debug("=" * 80)
-            
-            # Publish discovery event (consider if this is too noisy here - it's already done by FunctionRegistry)
-            # For now, let's keep it to see if OpenAIGenesisAgent "sees" them
-            self.publish_monitoring_event(
-                "AGENT_DISCOVERY", # This event type might need review for semantic correctness here
-                metadata={
-                    "function_id": func_id,
-                    "function_name": func_data["name"],
-                    "provider_id": func_data.get("provider_id"),
-                    "source": "OpenAIGenesisAgent._ensure_functions_discovered"
-                }
-            )
-        
-        # Publish edge discovery events for newly discovered functions (asynchronously discovered)
-        if newly_discovered_functions:
-            logger.debug(f"===== TRACING: Publishing edge discovery events for {len(newly_discovered_functions)} newly discovered functions =====")
-            
-            for func_data in newly_discovered_functions:
-                provider_id = func_data.get('provider_id', '')
-                function_name = func_data.get('name', 'unknown')
-                function_id = func_data.get('function_id', '')
-                
-                if provider_id:
-                    # Only publish AGENT_TO_SERVICE edge discovery event
-                    # The service will handle SERVICE_TO_FUNCTION edges
-                    reason = f"provider={provider_id} client={self.app.agent_id} function={function_id} name={function_name}"
-                    logger.debug(f"Publishing AGENT_TO_SERVICE edge discovery event with reason: {reason}")
-
-                    self.graph.publish_edge(
-                        source_id=self.app.agent_id,
-                        target_id=provider_id,
-                        edge_type="AGENT_TO_SERVICE",
-                        attrs={
-                            "agent_type": self.agent_type,
-                            "service": self.base_service_name,
-                            "edge_type": "agent_to_service",
-                            "provider_id": provider_id,
-                            "client_id": self.app.agent_id,
-                            "function_id": function_id,
-                            "function_name": function_name,
-                            "reason": reason
-                        },
-                        component_type=1  # AGENT_PRIMARY
-                    )
-                    logger.debug("Published AGENT_TO_SERVICE edge discovery event")
-
-                    # NOTE: Removed direct FUNCTION_CONNECTION edge to function UUID
-                    # The service provider will handle SERVICE_TO_FUNCTION edges
+        return result
     
-    async def _ensure_agents_discovered(self):
+    def _get_available_agent_tools(self) -> Dict[str, Dict[str, Any]]:
         """
-        Ensure agents are discovered and available as tools based on their capabilities.
-        This method populates the agent_cache with discovered agents that can be called as tools
-        based on their advertised functionality, NOT their names.
-        """
-        if self.enable_tracing:
-            logger.debug("===== TRACING: Ensuring agents are discovered for capability-based agent-as-tool pattern =====")
+        Get currently available agents as capability-based tools.
+        Queries discovered_agents dynamically and transforms to tool format.
+        This is the single source of truth queried from DDS via AgentCommunicationMixin.
         
+        Returns:
+            Dict[str, Dict]: Dictionary keyed by tool name, containing agent metadata
+        """
         # Skip if agent communication is not enabled
         if not hasattr(self, 'agent_communication') or not self.agent_communication:
-            if self.enable_tracing:
-                logger.debug("===== TRACING: Agent communication not enabled, skipping agent discovery =====")
-            return
+            return {}
         
-        # Get discovered agents from the communication mixin
+        # Get discovered agents from the communication mixin (source of truth)
         discovered_agents = self.get_discovered_agents()
         
-        if self.enable_tracing:
-            logger.debug(f"===== TRACING: Raw discovered agents from get_discovered_agents(): {discovered_agents} =====")
-        
-        # Track which agents are newly discovered
-        previously_cached_agents = set(self.agent_cache.keys())
-        
-        # Reset agent cache for fresh population
-        self.agent_cache = {}
-        
         if not discovered_agents:
-            if self.enable_tracing:
-                logger.debug("===== TRACING: No agents currently discovered. Agent tools will not be available. =====")
-            return
+            return {}
         
-        if self.enable_tracing:
-            logger.debug(f"===== TRACING: {len(discovered_agents)} agents discovered. Creating capability-based tools. =====")
-        
-        # Switch to function-based system prompt when agents are available as tools
-        # This ensures the LLM knows it has specialized agents available
-        if self.enable_tracing:
-            logger.debug("===== TRACING: Agents discovered - switching to function-based system prompt =====")
-        self.system_prompt = self.function_based_system_prompt
-        
-        newly_discovered_agents = []
+        agent_tools = {}
         
         for agent_id, agent_info in discovered_agents.items():
             # Skip self to avoid circular calls
             if agent_id == self.app.agent_id:
-                if self.enable_tracing:
-                    logger.debug(f"===== TRACING: Skipping self agent {agent_id} =====")
                 continue
-            
-            if self.enable_tracing:
-                logger.debug(f"===== TRACING: Processing discovered agent {agent_id}: {agent_info} =====")
             
             # Extract capability information
             agent_name = agent_info.get('name', agent_id)
@@ -464,20 +280,14 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             capabilities = agent_info.get('capabilities', [])
             specializations = agent_info.get('specializations', [])
             
-            if self.enable_tracing:
-                logger.debug(f"===== TRACING: Agent {agent_name} capabilities: {capabilities}, specializations: {specializations} =====")
-            
-            # Create capability-based tool names instead of name-based ones
+            # Generate capability-based tool names
             tool_names = self._generate_capability_based_tool_names(
                 agent_info, capabilities, specializations, service_name
             )
             
-            if self.enable_tracing:
-                logger.debug(f"===== TRACING: Generated {len(tool_names)} tools for agent {agent_name}: {list(tool_names.keys())} =====")
-            
             # Create tool entries for each capability/specialization
             for tool_name, tool_description in tool_names.items():
-                self.agent_cache[tool_name] = {
+                agent_tools[tool_name] = {
                     "agent_id": agent_id,
                     "agent_name": agent_name,
                     "agent_type": agent_type,
@@ -488,46 +298,8 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                     "specializations": specializations,
                     "is_capability_based": True
                 }
-                
-                # Check if this is a newly discovered tool
-                if tool_name not in previously_cached_agents:
-                    newly_discovered_agents.append({
-                        "tool_name": tool_name,
-                        "agent_id": agent_id,
-                        "agent_info": agent_info,
-                        "capability_description": tool_description
-                    })
-                
-                if self.enable_tracing:
-                    logger.debug(f"===== TRACING: Created capability-based tool: {tool_name} -> {agent_id} =====")
         
-        # Publish edge discovery events for newly discovered agent tools
-        if newly_discovered_agents:
-            if self.enable_tracing:
-                logger.debug(f"===== TRACING: Publishing capability-based agent tool discovery events for {len(newly_discovered_agents)} tools =====")
-            
-            for tool_data in newly_discovered_agents:
-                self.graph.publish_edge(
-                    source_id=self.app.agent_id,
-                    target_id=tool_data['agent_id'],
-                    edge_type="CAPABILITY_BASED_TOOL",
-                    attrs={
-                        "agent_type": self.agent_type,
-                        "service": self.base_service_name,
-                        "edge_type": "capability_based_agent_tool",
-                        "target_agent_id": tool_data['agent_id'],
-                        "client_id": self.app.agent_id,
-                        "tool_name": tool_data['tool_name'],
-                        "capability_description": tool_data['capability_description'],
-                        "reason": f"capability_tool={tool_data['tool_name']} agent={tool_data['agent_id']} client={self.app.agent_id}"
-                    },
-                    component_type=1  # AGENT_PRIMARY
-                )
-        
-        if self.enable_tracing:
-            logger.debug(f"===== TRACING: Agent cache populated with {len(self.agent_cache)} capability-based agent tools =====")
-            for tool_name, tool_info in self.agent_cache.items():
-                logger.debug(f"===== TRACING: Tool '{tool_name}' -> Agent {tool_info['agent_id']} ({tool_info['agent_name']}) =====")
+        return agent_tools
     
     def _generate_capability_based_tool_names(self, agent_info, capabilities, specializations, service_name):
         """
@@ -600,7 +372,8 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         logger.debug("===== TRACING: Converting agents to universal tool schemas =====")
         agent_tools = []
         
-        for tool_name, agent_info in self.agent_cache.items():
+        available_agent_tools = self._get_available_agent_tools()
+        for tool_name, agent_info in available_agent_tools.items():
             agent_name = agent_info.get('agent_name', 'Unknown Agent')
             capabilities = agent_info.get('capabilities', [])
             
@@ -641,7 +414,8 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         logger.debug("===== TRACING: Converting function schemas for OpenAI =======")
         function_schemas = []
         
-        for name, func_info in self.function_cache.items():
+        available_functions = self._get_available_functions()
+        for name, func_info in available_functions.items():
             # If relevant_functions is provided, only include those functions
             if relevant_functions is not None and name not in relevant_functions:
                 continue
@@ -719,7 +493,8 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         logger.debug(f"===== TRACING: Calling function {function_name} =====")
         logger.debug(f"===== TRACING: Function arguments: {json.dumps(kwargs, indent=2)} =====")
         
-        if function_name not in self.function_cache:
+        available_functions = self._get_available_functions()
+        if function_name not in available_functions:
             error_msg = f"Function not found: {function_name}"
             logger.error(f"===== TRACING: {error_msg} =====")
             raise ValueError(error_msg)
@@ -728,7 +503,7 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             # Call the function through the generic client
             start_time = time.time()
             result = await self.generic_client.call_function(
-                self.function_cache[function_name]["function_id"],
+                available_functions[function_name]["function_id"],
                 **kwargs
             )
             end_time = time.time()
@@ -759,12 +534,13 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         logger.debug(f"===== TRACING: Calling agent tool {agent_tool_name} =====")
         logger.debug(f"===== TRACING: Agent arguments: {json.dumps(kwargs, indent=2)} =====")
         
-        if agent_tool_name not in self.agent_cache:
+        available_agent_tools = self._get_available_agent_tools()
+        if agent_tool_name not in available_agent_tools:
             error_msg = f"Agent tool not found: {agent_tool_name}"
             logger.error(f"===== TRACING: {error_msg} =====")
             raise ValueError(error_msg)
         
-        agent_info = self.agent_cache[agent_tool_name]
+        agent_info = available_agent_tools[agent_tool_name]
         target_agent_id = agent_info["agent_id"]
         
         # Extract message from universal schema (simplified from query/context pattern)
@@ -837,14 +613,19 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                     # Non-fatal; proceed to non-blocking cache population
                     pass
 
-            # Ensure functions are discovered (non-blocking cache population)
-            await self._ensure_functions_discovered()
+            # Check available functions and agents for system prompt switching
+            available_functions = self._get_available_functions()
+            agent_tools = self._get_available_agent_tools()
+            if not available_functions and not agent_tools:
+                self.system_prompt = self.general_system_prompt
+            else:
+                self.system_prompt = self.function_based_system_prompt
             
             # Fast-path: simple math (addition) via calculator function
             try:
                 import re
                 m = re.search(r"what\s+is\s+(\d+)\s+plus\s+(\d+)\??", user_message, re.IGNORECASE)
-                if m and "add" in self.function_cache:
+                if m and "add" in available_functions:
                     x = int(m.group(1))
                     y = int(m.group(2))
                     result = await self._call_function("add", x=x, y=y)
@@ -886,13 +667,12 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                         await asyncio.sleep(0.2)
                 except Exception:
                     pass
-            await self._ensure_agents_discovered()
-
             # Heuristic delegation: route obvious weather queries to a discovered weather agent
             try:
                 import re
-                logger.debug(f"Checking heuristic delegation - agent_cache has {len(self.agent_cache)} tools")
-                if re.search(r"\bweather\b", user_message, re.IGNORECASE) and self.agent_cache:
+                agent_tools_for_heuristic = self._get_available_agent_tools()
+                logger.debug(f"Checking heuristic delegation - agent tools has {len(agent_tools_for_heuristic)} tools")
+                if re.search(r"\bweather\b", user_message, re.IGNORECASE) and agent_tools_for_heuristic:
                     logger.debug(f"Weather query detected, searching for weather agent...")
                     # Prefer an agent whose name or capability mentions 'weather'
                     candidate_id = None
@@ -911,10 +691,10 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                             candidate_name = info.get('name') or info.get('prefered_name') or aid
                             logger.debug(f"Found weather agent: {candidate_name} ({candidate_id})")
                             break
-                    # If metadata scan failed, try agent_cache tool names
+                    # If metadata scan failed, try agent tools
                     if not candidate_id:
-                        logger.debug(f"No match in discovered agents, checking agent_cache tools...")
-                        for tool_name, ainfo in self.agent_cache.items():
+                        logger.debug(f"No match in discovered agents, checking agent tools...")
+                        for tool_name, ainfo in agent_tools_for_heuristic.items():
                             an = (ainfo.get('agent_name') or '').lower()
                             td = (ainfo.get('tool_description') or '').lower()
                             if 'weather' in tool_name.lower() or 'weather' in an or 'weather' in td:
@@ -945,7 +725,7 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                     else:
                         logger.debug(f"No weather agent candidate found")
                 else:
-                    logger.debug(f"Skipping heuristic delegation (weather={'weather' in user_message.lower()}, cache_size={len(self.agent_cache)})")
+                    logger.debug(f"Skipping heuristic delegation (weather={'weather' in user_message.lower()}, cache_size={len(agent_tools_for_heuristic)})")
             except Exception as e:
                 # NEVER silently swallow exceptions - log them!
                 logger.error(f"Error in heuristic delegation: {e}")
@@ -965,12 +745,14 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             call_id = str(uuid.uuid4())
             
             # If no functions are available, proceed with basic response
-            if not self.function_cache:
+            available_functions_for_check = self._get_available_functions()
+            if not available_functions_for_check:
                 logger.debug("===== TRACING: No external functions available, checking for internal tools or agents =====")
                 
                 # Check if we have internal tools or agents available
                 has_internal_tools = hasattr(self, 'internal_tools_cache') and self.internal_tools_cache
-                has_agents = bool(self.agent_cache)
+                agent_tools_for_check = self._get_available_agent_tools()
+                has_agents = bool(agent_tools_for_check)
                 
                 if not has_internal_tools and not has_agents:
                     logger.debug("===== TRACING: No tools or agents available, using general conversation =====")
@@ -1041,14 +823,14 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             )
             
             # Get available functions for classification
+            functions_dict = self._get_available_functions()
             available_functions = [
                 {
                     "name": name,
                     "description": info["description"],
-                    "schema": info["schema"],
-                    "classification": info.get("classification", {})
+                    "schema": info["schema"]
                 }
-                for name, info in self.function_cache.items()
+                for name, info in functions_dict.items()
             ]
             
             # Enhanced tracing: Function classification details
@@ -1084,13 +866,14 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             )
             
             # Publish classification results for each relevant function
+            functions_for_classification = self._get_available_functions()
             for func in relevant_functions:
                 # Create chain event for classification result
                 self._publish_classification_result(
                     chain_id=chain_id,
                     call_id=call_id,
                     classified_function_name=func["name"],
-                    classified_function_id=self.function_cache[func["name"]]["function_id"]
+                    classified_function_id=functions_for_classification[func["name"]]["function_id"]
                 )
                 
                 # Create component lifecycle event for function classification
@@ -1101,7 +884,6 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                     attrs={
                         "function_name": func["name"],
                         "description": func["description"],
-                        "classification": func["classification"],
                         "reason": f"CLASSIFICATION.RELEVANT: Function '{func['name']}' for query: {user_message[:100]}"
                     }
                 )
@@ -1258,8 +1040,10 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                     logger.debug(f"===== TRACING: Processing tool call: {tool_name} =====")
                     
                     # Determine if this is a function call, agent call, or internal tool call
-                    is_function_call = tool_name in self.function_cache
-                    is_agent_call = tool_name in self.agent_cache
+                    available_functions_for_tool = self._get_available_functions()
+                    available_agent_tools_for_tool = self._get_available_agent_tools()
+                    is_function_call = tool_name in available_functions_for_tool
+                    is_agent_call = tool_name in available_agent_tools_for_tool
                     is_internal_tool_call = hasattr(self, 'internal_tools_cache') and tool_name in self.internal_tools_cache
 
                     # DEBUG: Decision record for this tool call
@@ -1280,8 +1064,8 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                             start_time = time.time()
                             tool_result = await self.execute_function_with_monitoring(
                                 function_name=tool_name,
-                                function_id=self.function_cache[tool_name]["function_id"],
-                                provider_id=self.function_cache[tool_name].get("provider_id"),
+                                function_id=available_functions_for_tool[tool_name]["function_id"],
+                                provider_id=available_functions_for_tool[tool_name].get("provider_id"),
                                 tool_args=tool_args,
                                 chain_id=chain_id,
                                 call_id=call_id,
@@ -1304,7 +1088,7 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                             logger.debug(f"===== TRACING: Tool {tool_name} is an AGENT call =====")
                             
                             # Create chain event for agent call start
-                            agent_info = self.agent_cache[tool_name]
+                            agent_info = available_agent_tools_for_tool[tool_name]
                             try:
                                 logger.info(
                                     f"AGENT_TOOL_SELECTED primary: chain={chain_id[:8]} call={call_id[:8]} tool={tool_name} "
@@ -1463,18 +1247,20 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                             
                             try:
                                 # Determine tool type and execute
-                                if tool_name in self.function_cache:
+                                available_functions_for_multiturn = self._get_available_functions()
+                                available_agent_tools_for_multiturn = self._get_available_agent_tools()
+                                if tool_name in available_functions_for_multiturn:
                                     tool_result = await self.execute_function_with_monitoring(
                                         function_name=tool_name,
-                                        function_id=self.function_cache[tool_name]["function_id"],
-                                        provider_id=self.function_cache[tool_name].get("provider_id"),
+                                        function_id=available_functions_for_multiturn[tool_name]["function_id"],
+                                        provider_id=available_functions_for_multiturn[tool_name].get("provider_id"),
                                         tool_args=tool_args,
                                         chain_id=chain_id,
                                         call_id=call_id,
                                     )
                                 elif hasattr(self, 'internal_tools_cache') and tool_name in self.internal_tools_cache:
                                     tool_result = await self._call_internal_tool(tool_name, **tool_args)
-                                elif tool_name in self.agent_cache:
+                                elif tool_name in available_agent_tools_for_multiturn:
                                     tool_result = await self._call_agent(tool_name, **tool_args)
                                 else:
                                     raise ValueError(f"Tool not found: {tool_name}")
@@ -1602,12 +1388,14 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
     def _trace_discovery_status(self, phase: str):
         """Enhanced tracing: Discovery status at different phases"""
         logger.debug(f"🔍 TRACE: === Discovery Status: {phase} ===")
-        logger.debug(f"🔧 TRACE: Function cache: {len(self.function_cache)} functions")
-        for name, info in self.function_cache.items():
+        available_functions_for_trace = self._get_available_functions()
+        logger.debug(f"🔧 TRACE: Available functions: {len(available_functions_for_trace)} functions")
+        for name, info in available_functions_for_trace.items():
             logger.debug(f"🔧 TRACE: - {name}: {info.get('description', 'No description')}")
         
-        logger.debug(f"🤝 TRACE: Agent cache: {len(self.agent_cache)} agent tools")
-        for name, info in self.agent_cache.items():
+        agent_tools_for_trace = self._get_available_agent_tools()
+        logger.debug(f"🤝 TRACE: Available agent tools: {len(agent_tools_for_trace)} agent tools")
+        for name, info in agent_tools_for_trace.items():
             logger.debug(f"🤝 TRACE: - {name}: {info.get('agent_name', 'Unknown agent')}")
         
         # Add internal tools tracing
@@ -1672,10 +1460,6 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
     async def close(self):
         """Clean up resources"""
         try:
-            # Remove discovery callback
-            if hasattr(self, 'app') and hasattr(self.app, 'function_registry'):
-                self.app.function_registry.remove_discovery_callback(self._on_function_discovered)
-            
             # Close OpenAI-specific resources
             if hasattr(self, 'generic_client') and self.generic_client is not None:
                 if asyncio.iscoroutinefunction(self.generic_client.close):

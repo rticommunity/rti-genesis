@@ -50,10 +50,10 @@ async def main():
         await asyncio.sleep(5)  # Use async sleep instead of time.sleep
         
         # Log available functions
-        await agent._ensure_functions_discovered()
+        available_functions = agent._get_available_functions()
         print("=== Available Functions ===")
-        if agent.function_cache:
-            for func_name in agent.function_cache.keys():
+        if available_functions:
+            for func_name in available_functions.keys():
                 print(f"Function: {func_name}")
         else:
             print("No functions discovered")
