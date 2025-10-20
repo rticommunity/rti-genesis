@@ -877,6 +877,41 @@ class MonitoredAgent(GenesisAgent):
             logger.error(f"Error publishing monitoring event: {str(e)}")
             logger.error(traceback.format_exc())
 
+    def _trace_discovery_status(self, phase: str):
+        """
+        Enhanced tracing: Discovery status at different phases.
+        Available to all monitored agents regardless of LLM backend.
+        
+        Args:
+            phase: Description of the current execution phase
+        """
+        logger.debug(f"🔍 TRACE: === Discovery Status: {phase} ===")
+        available_functions_for_trace = self._get_available_functions()
+        logger.debug(f"🔧 TRACE: Available functions: {len(available_functions_for_trace)} functions")
+        for name, info in available_functions_for_trace.items():
+            logger.debug(f"🔧 TRACE: - {name}: {info.get('description', 'No description')}")
+        
+        agent_tools_for_trace = self._get_available_agent_tools()
+        logger.debug(f"🤝 TRACE: Available agent tools: {len(agent_tools_for_trace)} agent tools")
+        for name, info in agent_tools_for_trace.items():
+            logger.debug(f"🤝 TRACE: - {name}: {info.get('agent_name', 'Unknown agent')}")
+        
+        # Add internal tools tracing
+        internal_tools_count = len(getattr(self, 'internal_tools_cache', {}))
+        logger.debug(f"🛠️ TRACE: Internal tools cache: {internal_tools_count} internal tools")
+        if hasattr(self, 'internal_tools_cache'):
+            for name, info in self.internal_tools_cache.items():
+                func_name = info.get('function_name', name)
+                logger.debug(f"🛠️ TRACE: - {name}: {func_name}")
+        
+        if hasattr(self, 'agent_communication') and self.agent_communication:
+            discovered = self.get_discovered_agents()
+            logger.debug(f"🌐 TRACE: Raw discovered agents: {len(discovered)}")
+            for agent_id, agent_info in discovered.items():
+                logger.debug(f"🌐 TRACE: - {agent_id}: {agent_info.get('prefered_name', 'Unknown')}")
+        
+        logger.debug(f"🔍 TRACE: === End Discovery Status ===")
+
     def memory_write(self, item, metadata=None):
         self.memory.write(item, metadata)
         if hasattr(self, 'publish_monitoring_event'):

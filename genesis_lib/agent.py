@@ -254,6 +254,9 @@ class GenesisAgent(ABC):
         # Store discovered functions
         # self.discovered_functions = [] # Removed as per event-driven plan
         
+        # Initialize internal tools cache for @genesis_tool decorated methods
+        self.internal_tools_cache = {}
+        
         # Initialize agent-to-agent communication if enabled
         self.enable_agent_communication = enable_agent_communication
         self.agent_communication = None
@@ -698,6 +701,354 @@ class GenesisAgent(ABC):
         
         # Fallback to local processing
         return await self.process_request(request)
+
+    def _get_available_functions(self) -> Dict[str, Any]:
+        """
+        Get currently available functions from FunctionRegistry via GenericFunctionClient.
+        This is the single source of truth for function availability, querying DDS directly.
+        Available to all agents regardless of LLM backend (OpenAI, Anthropic, custom).
+        
+        Returns:
+            Dict[str, Dict]: Dictionary keyed by function name, containing:
+                - function_id: Unique identifier for the function
+                - description: Human-readable description
+                - schema: JSON schema for function parameters
+                - provider_id: ID of the service providing this function
+        """
+        # Lazy init GenericFunctionClient if needed
+        if not hasattr(self, '_generic_client'):
+            from genesis_lib.generic_function_client import GenericFunctionClient
+            self._generic_client = GenericFunctionClient(
+                function_registry=self.app.function_registry
+            )
+        
+        functions = self._generic_client.list_available_functions()
+        result = {}
+        for func_data in functions:
+            func_name = func_data["name"]
+            result[func_name] = {
+                "function_id": func_data["function_id"],
+                "description": func_data["description"],
+                "schema": func_data["schema"],
+                "provider_id": func_data.get("provider_id"),
+            }
+        return result
+
+    def _generate_capability_based_tool_names(self, agent_info, capabilities, specializations, service_name):
+        """
+        Generate tool names based on agent capabilities and specializations instead of agent names.
+        This ensures the LLM can discover functionality rather than needing to know agent names.
+        Available to all agents regardless of LLM backend.
+        """
+        tool_names = {}
+        
+        # Generate tools based on specializations (most specific)
+        for specialization in specializations:
+            tool_name = f"get_{specialization.lower().replace(' ', '_').replace('-', '_')}_info"
+            tool_description = f"Get information and assistance related to {specialization}. " + \
+                             f"This tool connects to a specialized {specialization} agent."
+            tool_names[tool_name] = tool_description
+        
+        # Generate tools based on service type
+        if service_name and service_name != 'UnknownService':
+            # Create service-based tool name
+            service_clean = service_name.lower().replace('service', '').replace(' ', '_').replace('-', '_')
+            if service_clean:
+                tool_name = f"use_{service_clean}_service"
+                tool_description = f"Access {service_name} capabilities. " + \
+                                 f"Description: {agent_info.get('description', 'Specialized service')}"
+                tool_names[tool_name] = tool_description
+        
+        # Generate tools based on capabilities
+        for capability in capabilities:
+            capability_clean = capability.lower().replace(' ', '_').replace('-', '_')
+            tool_name = f"request_{capability_clean}"
+            tool_description = f"Request {capability} functionality from a specialized agent. " + \
+                             f"Service: {service_name}"
+            tool_names[tool_name] = tool_description
+        
+        # Fallback: if no specific capabilities/specializations, create a generic tool
+        if not tool_names:
+            agent_type_clean = agent_info.get('agent_type', 'agent').lower().replace('_', '_')
+            tool_name = f"consult_{agent_type_clean}"
+            tool_description = f"Consult a {agent_info.get('agent_type', 'general')} agent. " + \
+                             f"Service: {service_name}. " + \
+                             f"Description: {agent_info.get('description', 'General purpose agent')}"
+            tool_names[tool_name] = tool_description
+        
+        return tool_names
+
+    def _get_available_agent_tools(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Get currently available agents as capability-based tools.
+        Queries discovered_agents dynamically and transforms to tool format.
+        This is the single source of truth queried from DDS via AgentCommunicationMixin.
+        Available to all agents regardless of LLM backend.
+        
+        Returns:
+            Dict[str, Dict]: Dictionary keyed by tool name, containing agent metadata
+        """
+        # Skip if agent communication is not enabled
+        if not hasattr(self, 'agent_communication') or not self.agent_communication:
+            return {}
+        
+        # Get discovered agents from the communication mixin (source of truth)
+        discovered_agents = self.get_discovered_agents()
+        
+        if not discovered_agents:
+            return {}
+        
+        agent_tools = {}
+        
+        for agent_id, agent_info in discovered_agents.items():
+            # Skip self to avoid circular calls
+            if agent_id == self.app.agent_id:
+                continue
+            
+            # Extract capability information
+            agent_name = agent_info.get('name', agent_id)
+            agent_type = agent_info.get('agent_type', 'AGENT')
+            service_name = agent_info.get('service_name', 'UnknownService')
+            description = agent_info.get('description', f'Agent {agent_name}')
+            capabilities = agent_info.get('capabilities', [])
+            specializations = agent_info.get('specializations', [])
+            
+            # Generate capability-based tool names
+            tool_names = self._generate_capability_based_tool_names(
+                agent_info, capabilities, specializations, service_name
+            )
+            
+            # Create tool entries for each capability/specialization
+            for tool_name, tool_description in tool_names.items():
+                agent_tools[tool_name] = {
+                    "agent_id": agent_id,
+                    "agent_name": agent_name,
+                    "agent_type": agent_type,
+                    "service_name": service_name,
+                    "description": description,
+                    "tool_description": tool_description,
+                    "capabilities": capabilities,
+                    "specializations": specializations,
+                    "is_capability_based": True
+                }
+        
+        return agent_tools
+
+    async def _call_function(self, function_name: str, **kwargs) -> Any:
+        """
+        Call a function using the generic client.
+        Available to all agents regardless of LLM backend.
+        
+        Args:
+            function_name: Name of the function to call
+            **kwargs: Function arguments
+            
+        Returns:
+            Function result (extracted from dict if present)
+        """
+        logger.debug(f"===== TRACING: Calling function {function_name} =====")
+        logger.debug(f"===== TRACING: Function arguments: {json.dumps(kwargs, indent=2)} =====")
+        
+        available_functions = self._get_available_functions()
+        if function_name not in available_functions:
+            error_msg = f"Function not found: {function_name}"
+            logger.error(f"===== TRACING: {error_msg} =====")
+            raise ValueError(error_msg)
+        
+        try:
+            # Call the function through the generic client
+            start_time = time.time()
+            result = await self._generic_client.call_function(
+                available_functions[function_name]["function_id"],
+                **kwargs
+            )
+            end_time = time.time()
+            
+            logger.debug(f"===== TRACING: Function call completed in {end_time - start_time:.2f} seconds =====")
+            logger.debug(f"===== TRACING: Function result: {result} =====")
+            
+            # Extract result value if in dict format
+            if isinstance(result, dict) and "result" in result:
+                return result["result"]
+            return result
+            
+        except Exception as e:
+            logger.error(f"===== TRACING: Error calling function {function_name}: {str(e)} =====")
+            logger.error(traceback.format_exc())
+            raise
+
+    async def _call_agent(self, agent_tool_name: str, **kwargs) -> Any:
+        """
+        Call an agent using the UNIVERSAL AGENT SCHEMA.
+        Available to all agents regardless of LLM backend.
+        
+        All agents use the same simple interface:
+        - Input: message (string)
+        - Output: response (string)
+        
+        This eliminates the need for agents to handle custom tool schemas.
+        
+        Args:
+            agent_tool_name: Name of the agent tool to call
+            **kwargs: Agent arguments (expects 'message' key)
+            
+        Returns:
+            Agent response (extracted from dict if present)
+        """
+        logger.debug(f"===== TRACING: Calling agent tool {agent_tool_name} =====")
+        logger.debug(f"===== TRACING: Agent arguments: {json.dumps(kwargs, indent=2)} =====")
+        
+        available_agent_tools = self._get_available_agent_tools()
+        if agent_tool_name not in available_agent_tools:
+            error_msg = f"Agent tool not found: {agent_tool_name}"
+            logger.error(f"===== TRACING: {error_msg} =====")
+            raise ValueError(error_msg)
+        
+        agent_info = available_agent_tools[agent_tool_name]
+        target_agent_id = agent_info["agent_id"]
+        
+        # Extract message from universal schema (simplified from query/context pattern)
+        message = kwargs.get("message", "")
+        if not message:
+            # Fallback for backward compatibility with old query/context pattern
+            query = kwargs.get("query", "")
+            context = kwargs.get("context", "")
+            message = f"{query} {context}".strip() if context else query
+        
+        if not message:
+            raise ValueError("No message provided for agent call")
+        
+        try:
+            # Use monitored agent communication if available
+            if hasattr(self, 'send_agent_request_monitored'):
+                logger.debug(f"===== TRACING: Using monitored agent communication =====")
+                start_time = time.time()
+                result = await self.send_agent_request_monitored(
+                    target_agent_id=target_agent_id,
+                    message=message,
+                    conversation_id=None,  # Simplified - no separate conversation tracking
+                    timeout_seconds=30.0
+                )
+                end_time = time.time()
+            else:
+                # Fallback to basic agent communication
+                logger.debug(f"===== TRACING: Using basic agent communication =====")
+                start_time = time.time()
+                result = await self.send_agent_request(
+                    target_agent_id=target_agent_id,
+                    message=message,
+                    conversation_id=None,  # Simplified - no separate conversation tracking
+                    timeout_seconds=30.0
+                )
+                end_time = time.time()
+            
+            logger.debug(f"===== TRACING: Agent call completed in {end_time - start_time:.2f} seconds =====")
+            logger.debug(f"===== TRACING: Agent result: {result} =====")
+            
+            # Extract result message if in dict format (universal response handling)
+            if isinstance(result, dict):
+                if "message" in result:
+                    return result["message"]
+                elif "response" in result:
+                    return result["response"]
+                else:
+                    return str(result)
+            return str(result)
+            
+        except Exception as e:
+            logger.error(f"===== TRACING: Error calling agent {agent_tool_name}: {str(e)} =====")
+            logger.error(traceback.format_exc())
+            raise
+
+    async def _ensure_internal_tools_discovered(self):
+        """
+        Discover and register internal methods decorated with @genesis_tool.
+        Available to all agents regardless of LLM backend.
+        
+        This method automatically scans the agent for methods decorated with @genesis_tool,
+        generates appropriate tool schemas, and stores them for automatic injection
+        into LLM clients.
+        """
+        logger.debug("===== TRACING: Discovering internal @genesis_tool methods =====")
+        
+        # Initialize internal tools cache if not exists (safety check)
+        if not hasattr(self, 'internal_tools_cache'):
+            self.internal_tools_cache = {}
+        
+        # Scan all methods for @genesis_tool decorator
+        tool_methods = []
+        for attr_name in dir(self):
+            if attr_name.startswith('_'):  # Skip private methods
+                continue
+                
+            attr = getattr(self, attr_name)
+            if callable(attr) and hasattr(attr, '__is_genesis_tool__'):
+                tool_meta = getattr(attr, '__genesis_tool_meta__', {})
+                if tool_meta:
+                    tool_methods.append((attr_name, attr, tool_meta))
+                    logger.debug(f"===== TRACING: Found @genesis_tool method: {attr_name} =====")
+        
+        if not tool_methods:
+            logger.debug("===== TRACING: No @genesis_tool methods found =====")
+            return
+        
+        logger.debug(f"===== TRACING: Processing {len(tool_methods)} @genesis_tool methods =====")
+        
+        # Generate tool schemas for discovered methods
+        for method_name, method, tool_meta in tool_methods:
+            # Store method reference and metadata
+            self.internal_tools_cache[method_name] = {
+                "method": method,
+                "metadata": tool_meta,
+                "function_name": tool_meta.get("function_name", method_name)
+            }
+            
+            logger.debug(f"===== TRACING: Registered internal tool: {method_name} =====")
+            logger.debug(f"===== TRACING: Tool metadata: {tool_meta} =====")
+
+    async def _call_internal_tool(self, tool_name: str, **kwargs) -> Any:
+        """
+        Call an internal @genesis_tool decorated method.
+        Available to all agents regardless of LLM backend.
+        
+        Args:
+            tool_name: Name of the internal tool/method to call
+            **kwargs: Arguments to pass to the method
+            
+        Returns:
+            Result from the internal method
+        """
+        logger.debug(f"===== TRACING: Calling internal tool {tool_name} =====")
+        logger.debug(f"===== TRACING: Tool arguments: {json.dumps(kwargs, indent=2)} =====")
+        
+        if not hasattr(self, 'internal_tools_cache') or tool_name not in self.internal_tools_cache:
+            error_msg = f"Internal tool not found: {tool_name}"
+            logger.error(f"===== TRACING: {error_msg} =====")
+            raise ValueError(error_msg)
+        
+        tool_info = self.internal_tools_cache[tool_name]
+        method = tool_info["method"]
+        
+        try:
+            start_time = time.time()
+            
+            # Call the internal method
+            if asyncio.iscoroutinefunction(method):
+                result = await method(**kwargs)
+            else:
+                result = method(**kwargs)
+                
+            end_time = time.time()
+            
+            logger.debug(f"===== TRACING: Internal tool call completed in {end_time - start_time:.2f} seconds =====")
+            logger.debug(f"===== TRACING: Internal tool result: {result} =====")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"===== TRACING: Error calling internal tool {tool_name}: {str(e)} =====")
+            logger.error(traceback.format_exc())
+            raise
 
     @abstractmethod
     async def process_request(self, request: Any) -> Dict[str, Any]:
