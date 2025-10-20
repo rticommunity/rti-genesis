@@ -12,7 +12,7 @@ set -e # Exit immediately if a command exits with a non-zero status.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 LOG_DIR="$PROJECT_ROOT/logs"
-PYTHONPATH=$PYTHONPATH:$PROJECT_ROOT
+export PYTHONPATH=$PYTHONPATH:$PROJECT_ROOT
 
 # Ensure log directory exists
 mkdir -p "$LOG_DIR"
@@ -35,7 +35,7 @@ cleanup() {
     # Extra cleanup for rtiddsspy if it was left running
     pkill -f "rtiddsspy.*RegistrationAnnouncement" || true
     pkill -f "rtiddsspy.*InterfaceAgentRequest" || true
-    pkill -f "rtiddsspy.*CalculatorServiceRequest" || true
+    pkill -f "rtiddsspy.*rpc.*Request" || true
     echo "Pipeline test cleanup complete."
 }
 trap cleanup EXIT
@@ -61,7 +61,7 @@ if [ ! -f "$NDDSHOME/bin/rtiddsspy" ]; then
 fi
 
 # Spy on topics that should be quiet before our test starts
-"$NDDSHOME/bin/rtiddsspy" -printSample -topic 'RegistrationAnnouncement' -topic 'InterfaceAgentRequest' -topic 'CalculatorServiceRequest' -duration 5 > "$SPY_LOG" 2>&1 &
+"$NDDSHOME/bin/rtiddsspy" -printSample -topic 'RegistrationAnnouncement' -topic 'InterfaceAgentRequest' -topic 'rti/connext/genesis/rpc/CalculatorServiceRequest' -duration 5 > "$SPY_LOG" 2>&1 &
 SPY_PID=$!
 pids+=("$SPY_PID") # Add spy to cleanup, though it should exit on its own
 wait "$SPY_PID" # Wait for spy to finish its 5-second run
@@ -69,7 +69,7 @@ wait "$SPY_PID" # Wait for spy to finish its 5-second run
 # Check if spy detected any activity on these specific topics
 # We are looking for evidence of existing writers or data samples.
 if grep -E '(New writer for topic|SAMPLE for topic)' "$SPY_LOG"; then
-    echo "ERROR: DDS Sanity Check FAILED. Existing activity detected on RegistrationAnnouncement, InterfaceAgentRequest, or CalculatorServiceRequest topics."
+    echo "ERROR: DDS Sanity Check FAILED. Existing activity detected on RegistrationAnnouncement, InterfaceAgentRequest, or unified RPC topics."
     echo "Relevant spy log entries:"
     grep -E '(New writer for topic|SAMPLE for topic)' "$SPY_LOG"
     exit 1
@@ -100,7 +100,8 @@ echo "Ensuring agent has discovered calculator functions (waiting up to 15s)..."
 DISCOVERY_WAIT_SECS=15
 DISCOVERY_START_TS=$(date +%s)
 while true; do
-  if grep -q "function_discovery - INFO - Updated/Added discovered function: add" "$AGENT_LOG"; then
+  # Check for either log format or print statement format (for robustness against logging config issues)
+  if grep -q "Updated/Added discovered function: add" "$AGENT_LOG"; then
     echo "Function discovery confirmed in agent log."
     break
   fi

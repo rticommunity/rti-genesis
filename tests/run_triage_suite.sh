@@ -101,7 +101,7 @@ dds_writer_sweep() {
   # Topics most tests use; adjust as needed
   local topics=(
     'Advertisement'
-    'CalculatorServiceRequest' 'CalculatorServiceReply'
+    'rti/connext/genesis/rpc/CalculatorServiceRequest' 'rti/connext/genesis/rpc/CalculatorServiceReply'
     'InterfaceAgentRequest' 'InterfaceAgentReply'
     'MathTestServiceRequest' 'MathTestServiceReply'
   )

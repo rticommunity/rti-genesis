@@ -204,7 +204,7 @@ check_log "$AGENT_LOG" "MathTestAgent listening for requests" "Agent listening s
 
 # Check DDS Spy logs for function registration via unified Advertisement topic
 check_log "$SERVICE_SPY_LOG" 'New data.*topic=.*Advertisement' "Spy received durable Advertisement data" true
-check_log "$SERVICE_SPY_LOG" 'New writer.*topic=.*CalculatorServiceReply.*type="FunctionReply".*name="Replier"' "Service reply writer" true
+check_log "$SERVICE_SPY_LOG" 'New writer.*topic=.*rpc/CalculatorServiceReply.*type="RPCReplyV2".*name="Replier"' "Service reply writer" true
 # With lifecycle events now VOLATILE, the durable graph node metadata carries the reason
 # Accept either lifecycle 'reason:' line or durable GraphNode 'metadata:' containing the reason
 check_log "$SERVICE_SPY_LOG" "reason: .*Function 'add' available.*|metadata:.*Function 'add' available.*" "Function discovery" true

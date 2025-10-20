@@ -52,7 +52,8 @@ import traceback
 # )
 
 # Configure function discovery logger specifically
-logger = logging.getLogger("function_discovery")
+# Use genesis_lib prefix so it inherits from the genesis_lib logger configuration
+logger = logging.getLogger("genesis_lib.function_discovery")
 # logger.setLevel(logging.DEBUG) # REMOVE - Let the script control the level
 
 # Set all genesis_lib loggers to DEBUG
@@ -440,6 +441,10 @@ class FunctionRegistry:
         # Add callback mechanism for function discovery
         self.discovery_callbacks = []  # List of callback functions to call when functions are discovered
         
+        # Event to signal when the first function capability has been discovered
+        # Initialize this EARLY so it's available during historical sample processing
+        self._discovery_event = asyncio.Event()
+        
         # Create or use provided participant
         if participant is None:
             self.participant = dds.DomainParticipant(domain_id)
@@ -534,6 +539,10 @@ class FunctionRegistry:
                     # CRITICAL: For TRANSIENT_LOCAL, manually retrieve historical data
                     # The listener might miss historical samples if they arrive before callback setup
                     try:
+                        # Small delay to allow DDS discovery to propagate before reading historical samples
+                        # This prevents a race condition where the reader is created before writers are discovered
+                        import time
+                        time.sleep(0.1)  # 100ms should be sufficient for DDS discovery
                         print(f"📚 PRINT: Calling read() on advertisement_reader...", flush=True)
                         historical_samples = self.advertisement_reader.read()
                         print(f"📚 PRINT: Retrieved {len(historical_samples)} historical advertisement samples", flush=True)
@@ -553,11 +562,12 @@ class FunctionRegistry:
                     logger.error(traceback.format_exc())
             
             # Create RPC client for function execution
+            # Create function execution client using unified RPC v2 naming
             self.execution_client = rpc.Requester(
                 request_type=self.execution_request_type,
                 reply_type=self.execution_reply_type,
                 participant=self.participant,
-                service_name="rti/connext/genesis/FunctionExecution"
+                service_name="rti/connext/genesis/rpc/FunctionExecution"
             )
         else:
             self.subscriber = None
@@ -572,9 +582,6 @@ class FunctionRegistry:
         
         # Initialize function matcher with LLM support
         self.matcher = FunctionMatcher()
-        
-        # Event to signal when the first function capability has been discovered
-        self._discovery_event = asyncio.Event()
         
         logger.debug("FunctionRegistry initialized successfully")
     
@@ -793,6 +800,8 @@ class FunctionRegistry:
             }
 
             # Use same log format as legacy path for test compatibility
+            # Also print to ensure test scripts can detect discovery even if logging is misconfigured
+            print(f"📚 PRINT: Updated/Added discovered function: {name}", flush=True)
             logger.info(f"Updated/Added discovered function: {name} ({function_id}) from provider {provider_id} for service {service_name}")
             if not self._discovery_event.is_set():
                 self._discovery_event.set()

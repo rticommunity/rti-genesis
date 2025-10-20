@@ -186,12 +186,12 @@ class GenesisAgent(ABC):
                     reply["conversation_id"] = ""  # Empty conversation ID for errors
                     self.agent.replier.send_reply(reply, info)
         
-        # Create replier with listener
+        # Create replier with listener using unified RPC v2 naming
         self.replier = rpc.Replier(
             request_type=self.request_type,
             reply_type=self.reply_type,
             participant=self.app.participant,
-            service_name=f"rti/connext/genesis/{self.rpc_service_name}"
+            service_name=f"rti/connext/genesis/rpc/{self.rpc_service_name}"
         )
         
         # Set listener on replier's DataReader with status mask for data available

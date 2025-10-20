@@ -14,7 +14,7 @@ import logging
 import asyncio
 import json
 from typing import Dict, Any, List, Optional, Callable
-from genesis_lib.rpc_service import GenesisRPCService
+from genesis_lib.rpc_service_v2 import GenesisRPCServiceV2
 from genesis_lib.function_discovery import FunctionRegistry
 import uuid
 
@@ -27,14 +27,24 @@ from genesis_lib.graph_monitoring import (
 
 logger = logging.getLogger("enhanced_service_base")
 
-class EnhancedServiceBase(GenesisRPCService):
+class EnhancedServiceBase(GenesisRPCServiceV2):
     """
     Enhanced base class for GENESIS RPC services.
     Now uses unified GraphMonitor for all node/edge monitoring events.
     """
 
     def __init__(self, service_name: str, capabilities: List[str], participant=None, domain_id=0, registry: FunctionRegistry = None):
-        super().__init__(service_name=service_name)
+        # Create participant FIRST if needed, before calling super().__init__
+        if participant is None:
+            import rti.connextdds as dds
+            qos = dds.DomainParticipantQos()
+            qos.transport_builtin.mask = dds.TransportBuiltinMask.UDPv4
+            participant = dds.DomainParticipant(domain_id, qos)
+        
+        # Now call parent __init__ with the participant and service_type
+        # V2 uses 'service_type' parameter instead of 'service_name'
+        super().__init__(service_type=service_name, participant=participant)
+        
         self.service_name = service_name
         self.participant = participant
         self.domain_id = domain_id
@@ -44,12 +54,6 @@ class EnhancedServiceBase(GenesisRPCService):
         self._advertised_function_ids: Dict[str, str] = {}
         self._call_ids = {}
         self.logger = logging.getLogger("enhanced_service_base")
-
-        # Function registry setup
-        if participant is None:
-            import rti.connextdds as dds
-            participant = dds.DomainParticipant(domain_id)
-        self.participant = participant
         self.registry = registry if registry is not None else FunctionRegistry(
             participant=self.participant,
             domain_id=domain_id,
