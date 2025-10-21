@@ -304,7 +304,8 @@ class GraphSubscriber:
                                     parts = element_id.split("|")
                                     if len(parts) == 3:
                                         source_id, target_id, edge_type = parts
-                                        edge_metadata = metadata.get("edge_metadata", {})
+                                        # Extract edge metadata from "attributes" field
+                                        edge_metadata = metadata.get("attributes", {})
                                         
                                         # Track handle for removals
                                         try:

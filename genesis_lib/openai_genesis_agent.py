@@ -1,19 +1,39 @@
 #!/usr/bin/env python3
 """
-OpenAI Genesis Agent Implementation
+OpenAI Genesis Agent - LLM Provider Implementation
 
 This module defines the OpenAIGenesisAgent class, which extends the MonitoredAgent
 to provide an agent implementation specifically utilizing the OpenAI API.
 It integrates OpenAI's chat completion capabilities, including function calling,
 with the Genesis framework's monitoring and function discovery features.
 
-Copyright (c) 2025, RTI & Jason Upchurch
-"""
+Architecture Layers:
+  GenesisAgent (agent.py)
+    - Provider-agnostic discovery (_get_available_functions, _get_available_agent_tools)
+    - Tool routing (_call_function, _call_agent, _call_internal_tool)
+    - Internal tool discovery (_ensure_internal_tools_discovered)
+    
+  MonitoredAgent (monitored_agent.py)
+    - Monitoring wrapper (process_request with events)
+    - Graph publishing helpers (_publish_classification_node, etc.)
+    - Chain tracking (_publish_llm_call_start, _publish_llm_call_complete)
+    - Agent communication monitoring (_publish_agent_chain_event)
+    
+  OpenAIGenesisAgent (this file)
+    - OpenAI-specific API calls (client.chat.completions.create)
+    - OpenAI message format and conversation management
+    - OpenAI tool schema generation (_get_all_tool_schemas_for_openai)
+    - Multi-turn tool conversation handling
 
-"""
-OpenAI Genesis agent with function calling capabilities.
-This agent provides a flexible and configurable interface for creating OpenAI-based agents
-with support for function discovery, classification, and execution.
+Future Providers:
+  - AnthropicGenesisAgent: Use AnthropicSchemaGenerator + messages.create API
+  - GeminiGenesisAgent: Use GeminiSchemaGenerator + appropriate API
+  - Custom/Local LLMs: Use LocalLLMSchemaGenerator + custom endpoints
+  
+All providers inherit the same discovery, routing, and monitoring from base classes,
+only implementing provider-specific LLM API calls and schema formatting.
+
+Copyright (c) 2025, RTI & Jason Upchurch
 """
 
 import os
@@ -224,55 +244,37 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
     
     def _convert_agents_to_tools(self):
         """
-        Convert discovered agents into OpenAI tool schemas using UNIVERSAL AGENT SCHEMA.
+        Convert agent schemas to OpenAI tool format.
         
-        This implements the simplified agent-to-agent pattern where:
-        1. ALL agents use the same universal schema: message -> response
-        2. NO manual tool schema definition required in individual agents
-        3. Genesis handles ALL tool execution automatically
-        
-        This eliminates the complexity of manual schema definition while maintaining
-        capability-based tool names for LLM understanding.
+        Gets universal agent schemas from parent class and wraps them
+        in OpenAI's tool format.
         """
-        logger.debug("===== TRACING: Converting agents to universal tool schemas =====")
-        agent_tools = []
+        logger.debug("===== TRACING: Converting agent schemas to OpenAI tool format =====")
         
-        available_agent_tools = self._get_available_agent_tools()
-        for tool_name, agent_info in available_agent_tools.items():
-            agent_name = agent_info.get('agent_name', 'Unknown Agent')
-            capabilities = agent_info.get('capabilities', [])
-            
-            # Create capability-based description for the LLM
-            if capabilities:
-                capability_desc = f"Specialized agent for {', '.join(capabilities[:3])}"
-                if len(capabilities) > 3:
-                    capability_desc += f" and {len(capabilities)-3} more capabilities"
-            else:
-                capability_desc = f"General purpose agent ({agent_name})"
-            
-            # UNIVERSAL AGENT SCHEMA - Same for ALL agents
-            tool_schema = {
+        # Get universal agent schemas from parent (provider-agnostic)
+        agent_schemas = self._get_agent_tool_schemas()
+        
+        # Wrap in OpenAI-specific format
+        openai_tools = []
+        for schema in agent_schemas:
+            openai_tools.append({
                 "type": "function",
                 "function": {
-                    "name": tool_name,
-                    "description": f"{capability_desc}. Send natural language queries and receive responses.",
+                    "name": schema["name"],
+                    "description": schema["description"],
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "message": {
-                                "type": "string",
-                                "description": "Natural language query or request to send to the agent"
-                            }
+                            "message": schema["parameters"]["message"]
                         },
-                        "required": ["message"]
+                        "required": schema["required"]
                     }
                 }
-            }
-            agent_tools.append(tool_schema)
-            logger.debug(f"===== TRACING: Added universal agent tool: {tool_name} =====")
+            })
+            logger.debug(f"===== TRACING: Wrapped agent tool in OpenAI format: {schema['name']} =====")
         
-        logger.debug(f"===== TRACING: Generated {len(agent_tools)} universal agent tools =====")
-        return agent_tools
+        logger.debug(f"===== TRACING: Generated {len(openai_tools)} OpenAI agent tools =====")
+        return openai_tools
     
     def _get_function_schemas_for_openai(self, relevant_functions: Optional[List[str]] = None):
         """Convert discovered functions to OpenAI function schemas format"""
@@ -353,736 +355,142 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                 
         return internal_schemas
     
+    # Implement abstract methods for LLM provider
+    async def _call_llm(self, messages: List[Dict], tools: Optional[List[Dict]] = None, 
+                        tool_choice: str = "auto") -> Any:
+        """OpenAI-specific LLM call"""
+        kwargs = {
+            "model": self.model_config['model_name'],
+            "messages": messages
+        }
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = tool_choice
+        
+        return self.client.chat.completions.create(**kwargs)
+
+    def _format_messages(self, user_message: str, system_prompt: str, 
+                         memory_items: List[Dict]) -> List[Dict]:
+        """Format in OpenAI message format"""
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        # Add conversation history from memory
+        # Filter out tool messages since they can't be reconstructed without tool_calls context
+        for entry in memory_items:
+            item = entry["item"]
+            meta = entry.get("metadata", {})
+            role = meta.get("role")
+            
+            # Skip tool/assistant_tool messages - they require full tool_calls context
+            if role in ("tool", "assistant_tool"):
+                continue
+                
+            if role not in ("user", "assistant"):
+                # Fallback: alternate roles if metadata is missing
+                idx = memory_items.index(entry)
+                role = "user" if idx % 2 == 0 else "assistant"
+            messages.append({"role": role, "content": str(item)})
+        
+        # Add current user message
+        messages.append({"role": "user", "content": user_message})
+        return messages
+
+    def _extract_tool_calls(self, response: Any) -> Optional[List[Dict]]:
+        """Extract tool calls from OpenAI response"""
+        message = response.choices[0].message
+        if not hasattr(message, 'tool_calls') or not message.tool_calls:
+            return None
+        
+        return [
+            {
+                'id': tc.id,
+                'name': tc.function.name,
+                'arguments': json.loads(tc.function.arguments)
+            }
+            for tc in message.tool_calls
+        ]
+
+    def _extract_text_response(self, response: Any) -> str:
+        """Extract text from OpenAI response"""
+        return response.choices[0].message.content
+
+    def _create_assistant_message(self, response: Any) -> Dict:
+        """Create assistant message dict from OpenAI response for conversation history"""
+        message = response.choices[0].message
+        assistant_msg = {
+            "role": "assistant",
+            "content": message.content if message.content is not None else ""
+        }
+        
+        # Add tool_calls if present
+        if hasattr(message, 'tool_calls') and message.tool_calls:
+            assistant_msg["tool_calls"] = message.tool_calls
+        
+        return assistant_msg
+    
     async def process_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """OpenAI-specific request processing using inherited orchestration"""
         user_message = request.get("message", "")
         logger.debug(f"===== TRACING: Processing request: {user_message} =====")
+        
         try:
             # Enhanced tracing: Discovery status before processing
             if self.enable_tracing:
                 self._trace_discovery_status("BEFORE PROCESSING")
             
-            # If tools are required, opportunistically block a short time for discovery
-            # so tools are available on first request (useful for deterministic tests).
-            if getattr(self, 'openai_tool_choice', 'auto') == 'required':
-                try:
-                    await self.generic_client.discover_functions(timeout_seconds=5)
-                except Exception:
-                    # Non-fatal; proceed to non-blocking cache population
-                    pass
-
-            # Check available functions and agents for system prompt switching
-            available_functions = self._get_available_functions()
-            agent_tools = self._get_available_agent_tools()
-            if not available_functions and not agent_tools:
-                self.system_prompt = self.general_system_prompt
-            else:
-                self.system_prompt = self.function_based_system_prompt
-            
-            # Fast-path: simple math (addition) via calculator function
-            try:
-                import re
-                m = re.search(r"what\s+is\s+(\d+)\s+plus\s+(\d+)\??", user_message, re.IGNORECASE)
-                if m and "add" in available_functions:
-                    x = int(m.group(1))
-                    y = int(m.group(2))
-                    result = await self._call_function("add", x=x, y=y)
-                    # Ensure result is numeric if dict
-                    if isinstance(result, dict) and "result" in result:
-                        result_val = result["result"]
-                    else:
-                        result_val = result
-                    reply_text = f"{x} plus {y} equals {result_val}."
-                    return {"message": reply_text, "status": 0}
-            except Exception:
-                # Fall back to normal flow on any error
-                pass
-
-            # Ensure agents are discovered (critical for agent-as-tool pattern)
-            # If tools are required, give agent discovery a brief chance before proceeding
-            if getattr(self, 'openai_tool_choice', 'auto') == 'required':
-                try:
-                    # Opportunistic short wait to let other agents announce
-                    wait_deadline = time.time() + 5.0
-                    lower_msg = (user_message or '').lower()
-                    while time.time() < wait_deadline:
-                        discovered_agents = self.get_discovered_agents() if hasattr(self, 'get_discovered_agents') else {}
-                        if discovered_agents:
-                            # If it's a weather-like query, bias for a discovered weather agent
-                            if 'weather' in lower_msg:
-                                found_weather = False
-                                for info in discovered_agents.values():
-                                    name = (info.get('name') or info.get('prefered_name') or '').lower()
-                                    caps = [str(c).lower() for c in (info.get('capabilities') or [])]
-                                    specs = [str(s).lower() for s in (info.get('specializations') or [])]
-                                    if 'weather' in name or 'weather' in caps or 'weather' in specs:
-                                        found_weather = True
-                                        break
-                                if found_weather:
-                                    break
-                            else:
-                                break
-                        await asyncio.sleep(0.2)
-                except Exception:
-                    pass
-            # Heuristic delegation: route obvious weather queries to a discovered weather agent
-            try:
-                import re
-                agent_tools_for_heuristic = self._get_available_agent_tools()
-                logger.debug(f"Checking heuristic delegation - agent tools has {len(agent_tools_for_heuristic)} tools")
-                if re.search(r"\bweather\b", user_message, re.IGNORECASE) and agent_tools_for_heuristic:
-                    logger.debug(f"Weather query detected, searching for weather agent...")
-                    # Prefer an agent whose name or capability mentions 'weather'
-                    candidate_id = None
-                    candidate_name = None
-                    # Try discovered agents dict for richer metadata
-                    discovered_agents = self.get_discovered_agents() if hasattr(self, 'get_discovered_agents') else {}
-                    logger.debug(f"Searching {len(discovered_agents)} discovered agents...")
-                    for aid, info in (discovered_agents or {}).items():
-                        name = (info.get('name') or info.get('prefered_name') or '').lower()
-                        caps = info.get('capabilities') or []
-                        specs = info.get('specializations') or []
-                        caps_l = [str(c).lower() for c in caps] if isinstance(caps, (list, tuple)) else []
-                        specs_l = [str(s).lower() for s in specs] if isinstance(specs, (list, tuple)) else []
-                        if 'weather' in name or 'weather' in caps_l or 'weather' in specs_l:
-                            candidate_id = aid
-                            candidate_name = info.get('name') or info.get('prefered_name') or aid
-                            logger.debug(f"Found weather agent: {candidate_name} ({candidate_id})")
-                            break
-                    # If metadata scan failed, try agent tools
-                    if not candidate_id:
-                        logger.debug(f"No match in discovered agents, checking agent tools...")
-                        for tool_name, ainfo in agent_tools_for_heuristic.items():
-                            an = (ainfo.get('agent_name') or '').lower()
-                            td = (ainfo.get('tool_description') or '').lower()
-                            if 'weather' in tool_name.lower() or 'weather' in an or 'weather' in td:
-                                candidate_id = ainfo.get('agent_id')
-                                candidate_name = ainfo.get('agent_name') or tool_name
-                                logger.debug(f"Found weather tool in cache: {tool_name}")
-                                break
-                    if candidate_id:
-                        logger.debug(f"Delegating to {candidate_name} ({candidate_id})...")
-                        # Route via monitored agent communication if available
-                        if hasattr(self, 'send_agent_request_monitored'):
-                            routed = await self.send_agent_request_monitored(
-                                target_agent_id=candidate_id,
-                                message=user_message,
-                                conversation_id=None,
-                                timeout_seconds=30.0
-                            )
-                        else:
-                            routed = await self.send_agent_request(
-                                target_agent_id=candidate_id,
-                                message=user_message,
-                                conversation_id=None,
-                                timeout_seconds=30.0
-                            )
-                        logger.debug(f"Delegation returned: {routed}")
-                        if isinstance(routed, dict) and routed.get('status') == 0:
-                            return {"message": routed.get('message', ''), "status": 0}
-                    else:
-                        logger.debug(f"No weather agent candidate found")
-                else:
-                    logger.debug(f"Skipping heuristic delegation (weather={'weather' in user_message.lower()}, cache_size={len(agent_tools_for_heuristic)})")
-            except Exception as e:
-                # NEVER silently swallow exceptions - log them!
-                logger.error(f"Error in heuristic delegation: {e}")
-                logger.error(traceback.format_exc())
-                # Fall through to normal flow
-                pass
-            
             # Ensure internal tools are discovered (@genesis_tool decorated methods)
             await self._ensure_internal_tools_discovered()
+            
+            # Check what tools are available
+            available_functions = self._get_available_functions()
+            agent_tools = self._get_available_agent_tools()
+            
+            # Select system prompt based on tool availability
+            if not available_functions and not agent_tools:
+                system_prompt = self.general_system_prompt
+            else:
+                system_prompt = self.function_based_system_prompt
             
             # Enhanced tracing: Discovery status after discovery
             if self.enable_tracing:
                 self._trace_discovery_status("AFTER DISCOVERY")
             
-            # Generate chain and call IDs for tracking
-            chain_id = str(uuid.uuid4())
-            call_id = str(uuid.uuid4())
+            # Get tools in OpenAI format
+            tools = self._get_all_tool_schemas_for_openai()
             
-            # If no functions are available, proceed with basic response
-            available_functions_for_check = self._get_available_functions()
-            if not available_functions_for_check:
-                logger.debug("===== TRACING: No external functions available, checking for internal tools or agents =====")
+            if not tools:
+                # Simple conversation (no tools available)
+                logger.debug("===== TRACING: No tools available, using simple conversation =====")
                 
-                # Check if we have internal tools or agents available
-                has_internal_tools = hasattr(self, 'internal_tools_cache') and self.internal_tools_cache
-                agent_tools_for_check = self._get_available_agent_tools()
-                has_agents = bool(agent_tools_for_check)
+                messages = self._format_messages(user_message, system_prompt, self.memory.retrieve(k=8))
+                response = await self._call_llm(messages)
+                text = self._extract_text_response(response)
                 
-                if not has_internal_tools and not has_agents:
-                    logger.debug("===== TRACING: No tools or agents available, using general conversation =====")
-                    
-                    # Create chain event for LLM call start
-                    self._publish_llm_call_start(
-                        chain_id=chain_id,
-                        call_id=call_id,
-                        model_identifier=f"openai.{self.model_config['model_name']}"
-                    )
-                    
-                    # Enhanced tracing: OpenAI API call details
-                    if self.enable_tracing:
-                        self._trace_openai_call("General conversation (no tools)", [], user_message)
-                    
-                    # Process with general conversation - FIX MEMORY INTEGRATION
-                    
-                    # Retrieve memory and format for OpenAI
-                    N = 8
-                    memory_items = self.memory.retrieve(k=N)
-                    messages = [{"role": "system", "content": self.general_system_prompt}]
-                    
-                    # Add conversation history from memory
-                    for entry in memory_items:
-                        item = entry["item"]
-                        meta = entry.get("metadata", {})
-                        role = meta.get("role")
-                        if role not in ("user", "assistant"):
-                            # Fallback: alternate roles if metadata is missing
-                            idx = memory_items.index(entry)
-                            role = "user" if idx % 2 == 0 else "assistant"
-                        messages.append({"role": role, "content": str(item)})
-                    
-                    # Add current user message
-                    messages.append({"role": "user", "content": user_message})
-                    
-                    response = self.client.chat.completions.create(
-                        model=self.model_config['model_name'],
-                        messages=messages
-                    )
-                    
-                    # Enhanced tracing: OpenAI response analysis
-                    if self.enable_tracing:
-                        self._trace_openai_response(response)
-                    
-                    # Create chain event for LLM call completion
-                    self._publish_llm_call_complete(
-                        chain_id=chain_id,
-                        call_id=call_id,
-                        model_identifier=f"openai.{self.model_config['model_name']}"
-                    )
-                    
-                    # Write user and agent messages to memory
-                    self.memory.write(user_message, metadata={"role": "user"})
-                    agent_response = response.choices[0].message.content
-                    self.memory.write(agent_response, metadata={"role": "assistant"})
-                    return {"message": agent_response, "status": 0}
-                else:
-                    logger.debug(f"===== TRACING: No external functions but have internal tools ({has_internal_tools}) or agents ({has_agents}), proceeding with tool processing =====")
-                    # Continue to tool processing - we have internal tools or agents to offer
-            
-            # Phase 1: Function Classification (or tool selection if no external functions)
-            # Create chain event for classification LLM call start
-            self._publish_llm_call_start(
-                chain_id=chain_id,
-                call_id=call_id,
-                model_identifier=f"openai.{self.model_config['classifier_model_name']}.classifier"
-            )
-            
-            # Get available functions for classification
-            functions_dict = self._get_available_functions()
-            available_functions = [
-                {
-                    "name": name,
-                    "description": info["description"],
-                    "schema": info["schema"]
-                }
-                for name, info in functions_dict.items()
-            ]
-            
-            # Enhanced tracing: Function classification details
-            if self.enable_tracing:
-                logger.debug(f"🧠 TRACE: Available external functions for classification: {[f['name'] for f in available_functions]}")
-            
-            if available_functions:
-                # Classify functions based on user query (only if we have external functions)
-                relevant_functions = self.function_classifier.classify_functions(
-                    user_message,
-                    available_functions,
-                    self.model_config['classifier_model_name']
-                )
-                
-                # Enhanced tracing: Classification results
-                if self.enable_tracing:
-                    logger.debug(f"🧠 TRACE: Classifier returned: {[f['name'] for f in relevant_functions]}")
-                
-                # Get function schemas for relevant functions
-                relevant_function_names = [func["name"] for func in relevant_functions]
-            else:
-                # No external functions to classify
-                if self.enable_tracing:
-                    logger.debug(f"🧠 TRACE: No external functions to classify, using all available tools")
-                relevant_functions = []
-                relevant_function_names = []
-            
-            # Create chain event for classification LLM call completion
-            self._publish_llm_call_complete(
-                chain_id=chain_id,
-                call_id=call_id,
-                model_identifier=f"openai.{self.model_config['classifier_model_name']}.classifier"
-            )
-            
-            # Publish classification results for each relevant function
-            functions_for_classification = self._get_available_functions()
-            for func in relevant_functions:
-                # Create chain event for classification result
-                self._publish_classification_result(
-                    chain_id=chain_id,
-                    call_id=call_id,
-                    classified_function_name=func["name"],
-                    classified_function_id=functions_for_classification[func["name"]]["function_id"]
-                )
-                
-                # Create component lifecycle event for function classification
-                self.graph.publish_node(
-                    component_id=self.app.agent_id,
-                    component_type=1,  # AGENT_PRIMARY
-                    state=2,  # READY
-                    attrs={
-                        "function_name": func["name"],
-                        "description": func["description"],
-                        "reason": f"CLASSIFICATION.RELEVANT: Function '{func['name']}' for query: {user_message[:100]}"
-                    }
-                )
-            
-            # Get ALL tool schemas (external functions + internal tools + agents)
-            function_schemas = self._get_all_tool_schemas_for_openai(relevant_function_names)
-            
-            # Enhanced tracing: Tool schema generation
-            if self.enable_tracing:
-                logger.debug(f"🛠️ TRACE: Generated {len(function_schemas)} total tool schemas")
-                for i, tool in enumerate(function_schemas):
-                    tool_name = tool.get('function', {}).get('name', 'Unknown')
-                    logger.debug(f"🛠️ TRACE: Tool {i+1}: {tool_name}")
-            
-            if not function_schemas:
-                logger.warning("===== TRACING: No relevant functions found, processing without functions =====")
-                
-                # Create chain event for LLM call start
-                self._publish_llm_call_start(
-                    chain_id=chain_id,
-                    call_id=call_id,
-                    model_identifier=f"openai.{self.model_config['model_name']}"
-                )
-                
-                # Enhanced tracing: OpenAI API call details
-                if self.enable_tracing:
-                    self._trace_openai_call("No relevant functions", [], user_message)
-                
-                # Process without functions - FIX MEMORY INTEGRATION
-                
-                # Retrieve memory and format for OpenAI
-                N = 8
-                memory_items = self.memory.retrieve(k=N)
-                messages = [{"role": "system", "content": self.system_prompt}]
-                
-                # Add conversation history from memory
-                for entry in memory_items:
-                    item = entry["item"]
-                    meta = entry.get("metadata", {})
-                    role = meta.get("role")
-                    if role not in ("user", "assistant"):
-                        # Fallback: alternate roles if metadata is missing
-                        idx = memory_items.index(entry)
-                        role = "user" if idx % 2 == 0 else "assistant"
-                    messages.append({"role": role, "content": str(item)})
-                
-                # Add current user message
-                messages.append({"role": "user", "content": user_message})
-                
-                response = self.client.chat.completions.create(
-                    model=self.model_config['model_name'],
-                    messages=messages
-                )
-                
-                # Enhanced tracing: OpenAI response analysis
-                if self.enable_tracing:
-                    self._trace_openai_response(response)
-                
-                # Create chain event for LLM call completion
-                self._publish_llm_call_complete(
-                    chain_id=chain_id,
-                    call_id=call_id,
-                    model_identifier=f"openai.{self.model_config['model_name']}"
-                )
-                
-                # Write user and agent messages to memory
                 self.memory.write(user_message, metadata={"role": "user"})
-                agent_response = response.choices[0].message.content
-                self.memory.write(agent_response, metadata={"role": "assistant"})
-                return {"message": agent_response, "status": 0}
+                self.memory.write(text, metadata={"role": "assistant"})
+                return {"message": text, "status": 0}
             
-            # Phase 2: Function Execution with proper memory integration
-            logger.debug("===== TRACING: Calling OpenAI API with function schemas =====")
+            # Tool-based conversation (orchestrated by parent class)
+            logger.debug(f"===== TRACING: Using tool-based orchestration with {len(tools)} tools =====")
             
-            # Create chain event for LLM call start
-            self._publish_llm_call_start(
-                chain_id=chain_id,
-                call_id=call_id,
-                model_identifier=f"openai.{self.model_config['model_name']}"
-            )
-            
-            # Enhanced tracing: OpenAI API call details
-            if self.enable_tracing:
-                self._trace_openai_call("Function execution", function_schemas, user_message)
-            
-            # Retrieve memory and format for OpenAI
-            N = 8
-            memory_items = self.memory.retrieve(k=N)
-            messages = [{"role": "system", "content": self.system_prompt}]
-            
-            # Add conversation history from memory
-            for entry in memory_items:
-                item = entry["item"]
-                meta = entry.get("metadata", {})
-                role = meta.get("role")
-                if role not in ("user", "assistant"):
-                    # Fallback: alternate roles if metadata is missing
-                    idx = memory_items.index(entry)
-                    role = "user" if idx % 2 == 0 else "assistant"
-                messages.append({"role": role, "content": str(item)})
-            
-            # Add current user message
-            messages.append({"role": "user", "content": user_message})
-            
-            response = self.client.chat.completions.create(
-                model=self.model_config['model_name'],
-                messages=messages,
-                tools=function_schemas,
+            result = await self._orchestrate_tool_request(
+                user_message=user_message,
+                tools=tools,
+                system_prompt=system_prompt,
                 tool_choice=self.openai_tool_choice
             )
-
-            logger.debug(f"=====!!!!! TRACING: OpenAI response: {response} !!!!!=====")
-            
-            # Enhanced tracing: OpenAI response analysis
-            if self.enable_tracing:
-                self._trace_openai_response(response)
-            
-            # Create chain event for LLM call completion
-            self._publish_llm_call_complete(
-                chain_id=chain_id,
-                call_id=call_id,
-                model_identifier=f"openai.{self.model_config['model_name']}"
-            )
-            
-            # Extract the response
-            message = response.choices[0].message
-
-            # DEBUG: Log tool calls returned by the primary LLM
-            try:
-                if hasattr(message, 'tool_calls') and message.tool_calls:
-                    debug_tools = []
-                    for tc in message.tool_calls:
-                        try:
-                            debug_tools.append({
-                                "name": getattr(tc.function, 'name', 'unknown'),
-                                "arguments": getattr(tc.function, 'arguments', '')
-                            })
-                        except Exception:
-                            pass
-                    logger.info(f"LLM_TOOL_SELECTION primary: chain={chain_id[:8]} call={call_id[:8]} tools={debug_tools}")
-            except Exception:
-                pass
-            
-            # Check if the model wants to call a function
-            if message.tool_calls:
-                logger.debug(f"===== TRACING: Model requested function call(s): {len(message.tool_calls)} =======")
-                logger.debug(f"Model tool calls: {message.tool_calls}")
-                # Process each tool call (function or agent)
-                tool_responses = []
-                for tool_call in message.tool_calls:
-                    tool_name = tool_call.function.name
-                    tool_args = json.loads(tool_call.function.arguments)
-                    
-                    logger.debug(f"===== TRACING: Processing tool call: {tool_name} =====")
-                    
-                    # Determine if this is a function call, agent call, or internal tool call
-                    available_functions_for_tool = self._get_available_functions()
-                    available_agent_tools_for_tool = self._get_available_agent_tools()
-                    is_function_call = tool_name in available_functions_for_tool
-                    is_agent_call = tool_name in available_agent_tools_for_tool
-                    is_internal_tool_call = hasattr(self, 'internal_tools_cache') and tool_name in self.internal_tools_cache
-
-                    # DEBUG: Decision record for this tool call
-                    try:
-                        logger.info(
-                            f"TOOL_CALL_DECISION chain={chain_id[:8]} call={call_id[:8]} name={tool_name} "
-                            f"is_agent={is_agent_call} is_function={is_function_call} is_internal={is_internal_tool_call} "
-                            f"args={tool_args}"
-                        )
-                    except Exception:
-                        pass
-                    
-                    try:
-                        if is_function_call:
-                            logger.debug(f"===== TRACING: Tool {tool_name} is a FUNCTION call =====")
-                            
-                            # Delegate monitoring and execution to base class helper
-                            start_time = time.time()
-                            tool_result = await self.execute_function_with_monitoring(
-                                function_name=tool_name,
-                                function_id=available_functions_for_tool[tool_name]["function_id"],
-                                provider_id=available_functions_for_tool[tool_name].get("provider_id"),
-                                tool_args=tool_args,
-                                chain_id=chain_id,
-                                call_id=call_id,
-                            )
-                            end_time = time.time()
-                            
-                            logger.debug(f"===== TRACING: Function call completed in {end_time - start_time:.2f} seconds =====")
-                            
-                        elif is_internal_tool_call:
-                            logger.debug(f"===== TRACING: Tool {tool_name} is an INTERNAL TOOL call =====")
-                            
-                            # Call the internal tool directly
-                            start_time = time.time()
-                            tool_result = await self._call_internal_tool(tool_name, **tool_args)
-                            end_time = time.time()
-                            
-                            logger.debug(f"===== TRACING: Internal tool call completed in {end_time - start_time:.2f} seconds =====")
-                            
-                        elif is_agent_call:
-                            logger.debug(f"===== TRACING: Tool {tool_name} is an AGENT call =====")
-                            
-                            # Create chain event for agent call start
-                            agent_info = available_agent_tools_for_tool[tool_name]
-                            try:
-                                logger.info(
-                                    f"AGENT_TOOL_SELECTED primary: chain={chain_id[:8]} call={call_id[:8]} tool={tool_name} "
-                                    f"target_agent_id={agent_info.get('agent_id','')}"
-                                )
-                            except Exception:
-                                pass
-                            # Log the outbound agent request payload for traceability
-                            try:
-                                logger.info(
-                                    f"AGENT_REQUEST_START payload: chain={chain_id[:8]} call={call_id[:8]} "
-                                    f"from={self.app.agent_id} to={agent_info.get('agent_id','')} message={tool_args.get('message','')}"
-                                )
-                            except Exception:
-                                pass
-                            self._publish_agent_chain_event(
-                                chain_id=chain_id,
-                                call_id=call_id,
-                                event_type="AGENT_REQUEST_START",
-                                source_id=self.app.agent_id,
-                                target_id=agent_info["agent_id"]
-                            )
-                            
-                            # Call the agent through the agent communication system
-                            start_time = time.time()
-                            tool_result = await self._call_agent(tool_name, **tool_args)
-                            end_time = time.time()
-                            
-                            # Create chain event for agent call completion
-                            self._publish_agent_chain_event(
-                                chain_id=chain_id,
-                                call_id=call_id,
-                                event_type="AGENT_RESPONSE_RECEIVED",
-                                source_id=agent_info["agent_id"],
-                                target_id=self.app.agent_id
-                            )
-                            
-                            logger.debug(f"===== TRACING: Agent call completed in {end_time - start_time:.2f} seconds =====")
-                            
-                        else:
-                            logger.error(f"===== TRACING: Tool {tool_name} not found in function cache, agent cache, or internal tools cache =====")
-                            raise ValueError(f"Tool not found: {tool_name}")
-                        
-                        logger.debug(f"===== TRACING: Tool result: {tool_result} =====")
-                        
-                        # Extract result value if in dict format
-                        if isinstance(tool_result, dict) and "result" in tool_result:
-                            tool_result = tool_result["result"]
-                            
-                        tool_responses.append({
-                            "tool_call_id": tool_call.id,
-                            "role": "tool",
-                            "name": tool_name,
-                            "content": str(tool_result)
-                        })
-                        logger.debug(f"===== TRACING: Tool {tool_name} returned: {tool_result} =====")
-                        
-                    except Exception as e:
-                        logger.error(f"===== TRACING: Error calling tool {tool_name}: {str(e)} =====")
-                        tool_responses.append({
-                            "tool_call_id": tool_call.id,
-                            "role": "tool",
-                            "name": tool_name,
-                            "content": f"Error: {str(e)}"
-                        })
-                
-                # CRITICAL: OpenAI may request MULTIPLE rounds of tool calls.
-                # Loop until we get a text response instead of more tool calls.
-                logger.debug(f"Starting multi-turn tool conversation loop with {len(tool_responses)} initial tool responses")
-                
-                # Build initial conversation for tool response processing
-                N = 8
-                memory_items = self.memory.retrieve(k=N)
-                messages = [{"role": "system", "content": self.system_prompt}]
-                
-                # Add conversation history from memory
-                for entry in memory_items:
-                    item = entry["item"]
-                    meta = entry.get("metadata", {})
-                    role = meta.get("role")
-                    if role not in ("user", "assistant"):
-                        # Fallback: alternate roles if metadata is missing
-                        idx = memory_items.index(entry)
-                        role = "user" if idx % 2 == 0 else "assistant"
-                    messages.append({"role": role, "content": str(item)})
-                
-                # Add current user message
-                messages.append({"role": "user", "content": user_message})
-                
-                # Add assistant message with tool calls
-                assistant_content = message.content if message.content is not None else ""
-                messages.append({"role": "assistant", "content": assistant_content, "tool_calls": message.tool_calls})
-                
-                # Add initial tool responses
-                messages.extend(tool_responses)
-                
-                # Multi-turn tool conversation loop
-                max_turns = 5  # Prevent infinite loops
-                turn_count = 0
-                final_message = None
-                
-                while turn_count < max_turns:
-                    turn_count += 1
-                    logger.debug(f"Tool conversation turn {turn_count}/{max_turns}, making OpenAI call with {len(messages)} messages...")
-                    
-                    # Create chain event for LLM call start
-                    self._publish_llm_call_start(
-                        chain_id=chain_id,
-                        call_id=call_id,
-                        model_identifier=f"openai.{self.model_config['model_name']}"
-                    )
-                    
-                    # CRITICAL: Always use 'auto' for multi-turn tool conversations.
-                    # If we use 'required', OpenAI is FORCED to always call a tool, creating an infinite loop.
-                    # With 'auto', OpenAI intelligently decides when to call tools vs return text.
-                    logger.debug(f"Turn {turn_count} using tool_choice='auto'")
-                    
-                    # Call OpenAI with current conversation state
-                    response = self.client.chat.completions.create(
-                        model=self.model_config['model_name'],
-                        messages=messages,
-                        tools=function_schemas,
-                        tool_choice='auto'  # Always auto for multi-turn conversations
-                    )
-                    
-                    # Create chain event for LLM call completion
-                    self._publish_llm_call_complete(
-                        chain_id=chain_id,
-                        call_id=call_id,
-                        model_identifier=f"openai.{self.model_config['model_name']}"
-                    )
-                    
-                    response_message = response.choices[0].message
-                    logger.debug(f"Turn {turn_count} response: content={response_message.content is not None}, tool_calls={len(response_message.tool_calls) if response_message.tool_calls else 0}")
-                    
-                    # Check if OpenAI returned text content (final response)
-                    if response_message.content and not response_message.tool_calls:
-                        final_message = response_message.content
-                        logger.debug(f"Turn {turn_count} returned final text response!")
-                        break
-                    
-                    # OpenAI wants to make MORE tool calls
-                    if response_message.tool_calls:
-                        logger.debug(f"Turn {turn_count} has {len(response_message.tool_calls)} more tool calls to execute")
-                        
-                        # Add assistant message with tool calls to conversation
-                        assistant_content = response_message.content if response_message.content is not None else ""
-                        messages.append({"role": "assistant", "content": assistant_content, "tool_calls": response_message.tool_calls})
-                        
-                        # Execute the additional tool calls
-                        new_tool_responses = []
-                        for tool_call in response_message.tool_calls:
-                            tool_name = tool_call.function.name
-                            tool_args = json.loads(tool_call.function.arguments)
-                            logger.debug(f"Turn {turn_count} executing tool: {tool_name}")
-                            
-                            try:
-                                # Determine tool type and execute
-                                available_functions_for_multiturn = self._get_available_functions()
-                                available_agent_tools_for_multiturn = self._get_available_agent_tools()
-                                if tool_name in available_functions_for_multiturn:
-                                    tool_result = await self.execute_function_with_monitoring(
-                                        function_name=tool_name,
-                                        function_id=available_functions_for_multiturn[tool_name]["function_id"],
-                                        provider_id=available_functions_for_multiturn[tool_name].get("provider_id"),
-                                        tool_args=tool_args,
-                                        chain_id=chain_id,
-                                        call_id=call_id,
-                                    )
-                                elif hasattr(self, 'internal_tools_cache') and tool_name in self.internal_tools_cache:
-                                    tool_result = await self._call_internal_tool(tool_name, **tool_args)
-                                elif tool_name in available_agent_tools_for_multiturn:
-                                    tool_result = await self._call_agent(tool_name, **tool_args)
-                                else:
-                                    raise ValueError(f"Tool not found: {tool_name}")
-                                
-                                # Extract result value if in dict format
-                                if isinstance(tool_result, dict) and "result" in tool_result:
-                                    tool_result = tool_result["result"]
-                                
-                                new_tool_responses.append({
-                                    "tool_call_id": tool_call.id,
-                                    "role": "tool",
-                                    "name": tool_name,
-                                    "content": str(tool_result)
-                                })
-                                logger.debug(f"Turn {turn_count} tool {tool_name} returned: {str(tool_result)[:100]}")
-                                
-                            except Exception as e:
-                                logger.error(f"Error executing tool {tool_name} in turn {turn_count}: {e}")
-                                new_tool_responses.append({
-                                    "tool_call_id": tool_call.id,
-                                    "role": "tool",
-                                    "name": tool_name,
-                                    "content": f"Error: {str(e)}"
-                                })
-                        
-                        # Add tool responses to conversation
-                        messages.extend(new_tool_responses)
-                        logger.debug(f"Turn {turn_count} added {len(new_tool_responses)} tool responses, continuing loop...")
-                    else:
-                        # No tool calls and no content - shouldn't happen but handle it
-                        logger.debug(f"Turn {turn_count} has neither content nor tool_calls - breaking")
-                        final_message = "No response generated"
-                        break
-                
-                if turn_count >= max_turns:
-                    logger.debug(f"Reached max turns ({max_turns}), stopping loop")
-                    final_message = "Response processing exceeded maximum turns"
-                
-                logger.debug(f"Multi-turn loop completed after {turn_count} turns, final_message: {final_message[:100] if final_message else 'None'}")
-                
-                # Write user and agent messages to memory
-                self.memory.write(user_message, metadata={"role": "user"})
-                if final_message:
-                    self.memory.write(final_message, metadata={"role": "assistant"})
-                
-                return {"message": final_message, "status": 0}
-            
-            # If no tool call, just return the response
-            text_response = message.content
-            logger.debug(f"===== TRACING: Response (no tool call): {text_response} =====")
             
             # Enhanced tracing: Final discovery status
             if self.enable_tracing:
                 self._trace_discovery_status("AFTER PROCESSING")
             
-            # Write user and agent messages to memory
-            self.memory.write(user_message, metadata={"role": "user"})
-            self.memory.write(text_response, metadata={"role": "assistant"})
-            return {"message": text_response, "status": 0}
+            return result
                 
         except Exception as e:
             logger.error(f"===== TRACING: Error processing request: {str(e)} =======")
             logger.error(traceback.format_exc())
             return {"message": f"Error: {str(e)}", "status": 1}
-    
+
     async def process_agent_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """
         Process a request from another agent (agent-to-agent communication).

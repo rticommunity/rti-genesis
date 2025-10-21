@@ -607,6 +607,22 @@ class MonitoredAgent(GenesisAgent):
         except Exception:
             pass
 
+    def _publish_classification_node(self, func_name: str, func_desc: str, reason: str):
+        """Publish classification node to graph for monitoring/visualization"""
+        try:
+            self.graph.publish_node(
+                component_id=self.app.agent_id,
+                component_type=COMPONENT_TYPE["AGENT_PRIMARY"] if self.agent_type == "AGENT" else COMPONENT_TYPE["AGENT_SPECIALIZED"],
+                state=STATE["READY"],
+                attrs={
+                    "function_name": func_name,
+                    "description": func_desc,
+                    "reason": reason
+                }
+            )
+        except Exception:
+            pass
+
     def _publish_function_call_start(self, chain_id: str, call_id: str, function_name: str, function_id: str, target_provider_id: str = None):
         """Publish chain event for function call start to Event"""
         if not hasattr(self, "unified_event_writer") or not self.unified_event_writer:
@@ -754,6 +770,31 @@ class MonitoredAgent(GenesisAgent):
             source_provider_id=provider_id,
         )
         return result
+
+    async def _orchestrate_tool_request(self, user_message: str, tools: List[Dict],
+                                        system_prompt: str, tool_choice: str = "auto") -> Dict[str, Any]:
+        """
+        Monitored wrapper around tool orchestration.
+        Adds monitoring events before/after calling parent orchestration.
+        """
+        chain_id = str(uuid.uuid4())
+        call_id = str(uuid.uuid4())
+        
+        # Publish monitoring events
+        self._publish_llm_call_start(chain_id, call_id, f"{self.__class__.__name__}.orchestration")
+        
+        try:
+            # Call parent orchestration (GenesisAgent)
+            result = await super()._orchestrate_tool_request(
+                user_message, tools, system_prompt, tool_choice
+            )
+            
+            self._publish_llm_call_complete(chain_id, call_id, f"{self.__class__.__name__}.orchestration")
+            return result
+            
+        except Exception as e:
+            self._publish_llm_call_complete(chain_id, call_id, f"{self.__class__.__name__}.orchestration.error")
+            raise
 
     def _get_requester_guid(self, function_client) -> str:
         requester_guid = None

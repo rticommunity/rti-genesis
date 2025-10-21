@@ -35,6 +35,8 @@ class MathTestAgent(MonitoredAgent):
     """
     A monitored agent for testing concurrent Interface <-> Agent RPC
     using simple math operations.
+    
+    This is a non-LLM agent, so it implements the abstract LLM methods as stubs.
     """
     print("🏗️ TRACE: Starting MathTestAgent initialization... (print)")
     logger.info("🏗️ TRACE: Starting MathTestAgent initialization... (logger)")
@@ -53,6 +55,27 @@ class MathTestAgent(MonitoredAgent):
         except Exception as e:
             logger.error(f"💥 TRACE: Error during MathTestAgent initialization: {e}")
             logger.error(f"Stack trace: {traceback.format_exc()}")
+
+    # Stub implementations of abstract methods (not used by this non-LLM agent)
+    async def _call_llm(self, messages, tools=None, tool_choice="auto"):
+        """Not used - this is a non-LLM agent"""
+        raise NotImplementedError("MathTestAgent does not use LLM")
+    
+    def _format_messages(self, user_message, system_prompt, memory_items):
+        """Not used - this is a non-LLM agent"""
+        raise NotImplementedError("MathTestAgent does not use LLM")
+    
+    def _extract_tool_calls(self, response):
+        """Not used - this is a non-LLM agent"""
+        raise NotImplementedError("MathTestAgent does not use LLM")
+    
+    def _extract_text_response(self, response):
+        """Not used - this is a non-LLM agent"""
+        raise NotImplementedError("MathTestAgent does not use LLM")
+    
+    def _create_assistant_message(self, response):
+        """Not used - this is a non-LLM agent"""
+        raise NotImplementedError("MathTestAgent does not use LLM")
 
     async def process_request(self, request):
         """Process math operation requests"""

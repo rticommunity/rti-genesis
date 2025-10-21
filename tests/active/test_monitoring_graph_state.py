@@ -162,6 +162,7 @@ async def main() -> int:
             # Give a moment for durable refresh
             await asyncio.sleep(3)
             stf = [e for e in obs.edges if e.edge_type in ("SERVICE_TO_FUNCTION", "FUNCTION_CONNECTION", "function_connection")]
+        
         # Filter to edges belonging to CalculatorService
         stf_calc = []
         for e in stf:
@@ -170,6 +171,7 @@ async def main() -> int:
                     stf_calc.append(e)
             except Exception:
                 pass
+        
         fn_from_edges: Set[str] = set()
         extras_from_edges: Set[str] = set()
         for e in stf_calc:

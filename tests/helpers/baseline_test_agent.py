@@ -15,6 +15,8 @@ class BaselineTestAgent(MonitoredAgent):
     """
     A simple monitored agent for baseline testing of Interface <-> Agent RPC
     using the 'ChatGPT' service name and existing request/reply types.
+    
+    This is a non-LLM agent, so it implements the abstract LLM methods as stubs.
     """
     def __init__(self):
         logger.info("🚀 TRACE: Starting BaselineTestAgent initialization...")
@@ -30,6 +32,27 @@ class BaselineTestAgent(MonitoredAgent):
             logger.error(f"💥 TRACE: Error during initialization: {e}")
             logger.error(f"Stack trace:\n{traceback.format_exc()}")
             raise
+
+    # Stub implementations of abstract methods (not used by this non-LLM agent)
+    async def _call_llm(self, messages, tools=None, tool_choice="auto"):
+        """Not used - this is a non-LLM agent"""
+        raise NotImplementedError("BaselineTestAgent does not use LLM")
+    
+    def _format_messages(self, user_message, system_prompt, memory_items):
+        """Not used - this is a non-LLM agent"""
+        raise NotImplementedError("BaselineTestAgent does not use LLM")
+    
+    def _extract_tool_calls(self, response):
+        """Not used - this is a non-LLM agent"""
+        raise NotImplementedError("BaselineTestAgent does not use LLM")
+    
+    def _extract_text_response(self, response):
+        """Not used - this is a non-LLM agent"""
+        raise NotImplementedError("BaselineTestAgent does not use LLM")
+    
+    def _create_assistant_message(self, response):
+        """Not used - this is a non-LLM agent"""
+        raise NotImplementedError("BaselineTestAgent does not use LLM")
 
     async def _process_request(self, request) -> dict:
         """

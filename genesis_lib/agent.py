@@ -834,6 +834,49 @@ class GenesisAgent(ABC):
         
         return agent_tools
 
+    def _get_agent_tool_schemas(self) -> List[Dict[str, Any]]:
+        """
+        Get provider-agnostic tool schemas for discovered agents.
+        
+        This uses the UNIVERSAL AGENT SCHEMA pattern where all agents
+        accept a 'message' parameter regardless of their internal implementation.
+        
+        Returns:
+            List of agent tool schemas with 'name', 'description', and 'parameters'
+        """
+        agent_schemas = []
+        
+        available_agent_tools = self._get_available_agent_tools()
+        for tool_name, agent_info in available_agent_tools.items():
+            agent_name = agent_info.get('agent_name', 'Unknown Agent')
+            capabilities = agent_info.get('capabilities', [])
+            
+            # Create capability-based description for the LLM
+            if capabilities:
+                capability_desc = f"Specialized agent for {', '.join(capabilities[:3])}"
+                if len(capabilities) > 3:
+                    capability_desc += f" and {len(capabilities)-3} more capabilities"
+            else:
+                capability_desc = f"General purpose agent ({agent_name})"
+            
+            # UNIVERSAL AGENT SCHEMA - provider-agnostic
+            agent_schemas.append({
+                "name": tool_name,
+                "description": f"{capability_desc}. Send natural language queries and receive responses.",
+                "parameters": {
+                    "message": {
+                        "type": "string",
+                        "description": "Natural language query or request to send to the agent"
+                    }
+                },
+                "required": ["message"]
+            })
+            
+            logger.debug(f"===== TRACING: Generated universal schema for agent tool: {tool_name} =====")
+        
+        logger.debug(f"===== TRACING: Generated {len(agent_schemas)} universal agent tool schemas =====")
+        return agent_schemas
+
     async def _call_function(self, function_name: str, **kwargs) -> Any:
         """
         Call a function using the generic client.
@@ -1054,6 +1097,221 @@ class GenesisAgent(ABC):
     async def process_request(self, request: Any) -> Dict[str, Any]:
         """Process the request and return reply data as a dictionary"""
         pass
+
+    # Abstract methods for LLM provider implementations
+    @abstractmethod
+    async def _call_llm(self, messages: List[Dict], tools: Optional[List[Dict]] = None, 
+                        tool_choice: str = "auto") -> Any:
+        """
+        Call the LLM provider's API.
+        
+        Args:
+            messages: Conversation history in provider-specific format
+            tools: Tool schemas in provider-specific format
+            tool_choice: How the LLM should use tools ("auto", "required", "none")
+        
+        Returns:
+            Provider-specific response object
+        """
+        pass
+
+    @abstractmethod
+    def _format_messages(self, user_message: str, system_prompt: str, 
+                         memory_items: List[Dict]) -> List[Dict]:
+        """
+        Format conversation history in provider-specific message format.
+        
+        Args:
+            user_message: Current user message
+            system_prompt: System prompt to use
+            memory_items: Retrieved memory items
+        
+        Returns:
+            List of messages in provider's expected format
+        """
+        pass
+
+    @abstractmethod
+    def _extract_tool_calls(self, response: Any) -> Optional[List[Dict]]:
+        """
+        Extract tool calls from provider's response.
+        
+        Args:
+            response: Provider-specific response object
+        
+        Returns:
+            List of tool calls with 'name', 'id', 'arguments' keys, or None
+        """
+        pass
+
+    @abstractmethod
+    def _extract_text_response(self, response: Any) -> str:
+        """
+        Extract text response from provider's response.
+        
+        Args:
+            response: Provider-specific response object
+        
+        Returns:
+            Text response string
+        """
+        pass
+
+    @abstractmethod
+    def _create_assistant_message(self, response: Any) -> Dict:
+        """
+        Create an assistant message dict from provider's response for conversation history.
+        
+        This is used to add the assistant's message (with or without tool_calls) to 
+        the conversation history for multi-turn conversations.
+        
+        Args:
+            response: Provider-specific response object
+            
+        Returns:
+            Dict representing the assistant message in provider's expected format
+        """
+        pass
+
+    async def _orchestrate_tool_request(self, user_message: str, tools: List[Dict],
+                                        system_prompt: str, tool_choice: str = "auto") -> Dict[str, Any]:
+        """
+        Provider-agnostic orchestration of tool-based LLM requests.
+        
+        This method handles:
+        1. Formatting conversation with memory
+        2. Calling LLM
+        3. Routing tool calls (functions/agents/internal tools)
+        4. Multi-turn conversation loop
+        5. Memory management
+        
+        Args:
+            user_message: User's message
+            tools: Tool schemas in provider-specific format
+            system_prompt: System prompt to use
+            tool_choice: How LLM should use tools
+        
+        Returns:
+            Dict with 'message' and 'status' keys
+        """
+        # 1. Format messages (provider-specific)
+        memory_items = self.memory.retrieve(k=8)
+        messages = self._format_messages(user_message, system_prompt, memory_items)
+        
+        # 2. Call LLM (provider-specific)
+        response = await self._call_llm(messages, tools, tool_choice)
+        
+        # 3. Extract tool calls (provider-specific)
+        tool_calls = self._extract_tool_calls(response)
+        
+        # 4. If no tool calls, return text response
+        if not tool_calls:
+            text_response = self._extract_text_response(response)
+            self.memory.write(user_message, metadata={"role": "user"})
+            self.memory.write(text_response, metadata={"role": "assistant"})
+            return {"message": text_response, "status": 0}
+        
+        # 5. Execute tool calls
+        tool_responses = []
+        for tool_call in tool_calls:
+            result = await self._route_tool_call(
+                tool_name=tool_call['name'],
+                tool_args=tool_call['arguments']
+            )
+            tool_responses.append({
+                "tool_call_id": tool_call['id'],
+                "role": "tool",
+                "name": tool_call['name'],
+                "content": str(result)
+            })
+        
+        # 6. Multi-turn loop
+        max_turns = 5
+        turn_count = 0
+        final_message = None
+        
+        # Add assistant message with tool_calls, then tool responses to conversation
+        assistant_message = self._create_assistant_message(response)
+        messages.append(assistant_message)
+        messages.extend(tool_responses)
+        
+        while turn_count < max_turns:
+            turn_count += 1
+            
+            # Call LLM with tool results (always use 'auto' in multi-turn)
+            response = await self._call_llm(messages, tools, tool_choice='auto')
+            tool_calls = self._extract_tool_calls(response)
+            
+            # Check if we got a text response
+            if not tool_calls:
+                final_message = self._extract_text_response(response)
+                break
+            
+            # LLM wants to make more tool calls - add assistant message first
+            assistant_message = self._create_assistant_message(response)
+            messages.append(assistant_message)
+            
+            # Execute additional tool calls
+            new_tool_responses = []
+            for tool_call in tool_calls:
+                result = await self._route_tool_call(
+                    tool_name=tool_call['name'],
+                    tool_args=tool_call['arguments']
+                )
+                new_tool_responses.append({
+                    "tool_call_id": tool_call['id'],
+                    "role": "tool",
+                    "name": tool_call['name'],
+                    "content": str(result)
+                })
+            
+            # Add tool responses to conversation
+            messages.extend(new_tool_responses)
+        
+        if turn_count >= max_turns:
+            final_message = "Response processing exceeded maximum turns"
+        
+        # Write to memory
+        self.memory.write(user_message, metadata={"role": "user"})
+        if final_message:
+            self.memory.write(final_message, metadata={"role": "assistant"})
+        
+        return {"message": final_message, "status": 0}
+
+    async def _route_tool_call(self, tool_name: str, tool_args: Dict) -> Any:
+        """
+        Route a tool call to the appropriate handler.
+        Provider-agnostic - works for all LLM providers.
+        
+        Args:
+            tool_name: Name of the tool to call
+            tool_args: Arguments for the tool
+        
+        Returns:
+            Tool execution result
+        """
+        # Check what type of tool this is
+        functions = self._get_available_functions()
+        agents = self._get_available_agent_tools()
+        internal_tools = getattr(self, 'internal_tools_cache', {})
+        
+        if tool_name in functions:
+            # External function via RPC
+            result = await self._call_function(tool_name, **tool_args)
+        elif tool_name in agents:
+            # Agent-to-agent call
+            result = await self._call_agent(tool_name, **tool_args)
+        elif tool_name in internal_tools:
+            # Internal @genesis_tool method
+            result = await self._call_internal_tool(tool_name, **tool_args)
+        else:
+            raise ValueError(f"Tool not found: {tool_name}")
+        
+        # Extract result if in dict format
+        if isinstance(result, dict) and "result" in result:
+            result = result["result"]
+        
+        return result
 
     async def run(self):
         """Main agent loop"""
