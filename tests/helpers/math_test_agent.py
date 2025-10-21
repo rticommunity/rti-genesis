@@ -76,6 +76,14 @@ class MathTestAgent(MonitoredAgent):
     def _create_assistant_message(self, response):
         """Not used - this is a non-LLM agent"""
         raise NotImplementedError("MathTestAgent does not use LLM")
+    
+    async def _get_tool_schemas(self):
+        """Not used - this is a non-LLM agent"""
+        raise NotImplementedError("MathTestAgent does not use LLM")
+    
+    def _get_tool_choice(self):
+        """Not used - this is a non-LLM agent"""
+        raise NotImplementedError("MathTestAgent does not use LLM")
 
     async def process_request(self, request):
         """Process math operation requests"""

@@ -1093,10 +1093,78 @@ class GenesisAgent(ABC):
             logger.error(traceback.format_exc())
             raise
 
-    @abstractmethod
-    async def process_request(self, request: Any) -> Dict[str, Any]:
-        """Process the request and return reply data as a dictionary"""
-        pass
+    async def process_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process a request using the LLM with tool support.
+        Provider-agnostic orchestration - delegates provider-specific logic to abstract methods.
+        
+        Args:
+            request: Request dict with 'message' key
+            
+        Returns:
+            Response dict with 'message' and 'status' keys
+        """
+        user_message = request.get("message", "")
+        
+        # Ensure internal tools are discovered
+        await self._ensure_internal_tools_discovered()
+        
+        # Check what tools are available
+        available_functions = self._get_available_functions()
+        agent_tools = self._get_available_agent_tools()
+        
+        # Select appropriate system prompt
+        system_prompt = self._select_system_prompt(available_functions, agent_tools)
+        
+        # Get tools in provider-specific format
+        tools = await self._get_tool_schemas()
+        
+        if not tools:
+            # Simple conversation (no tools available)
+            memory_items = self.memory.retrieve(k=8)
+            messages = self._format_messages(user_message, system_prompt, memory_items)
+            response = await self._call_llm(messages)
+            text = self._extract_text_response(response)
+            
+            self.memory.write(user_message, metadata={"role": "user"})
+            self.memory.write(text, metadata={"role": "assistant"})
+            return {"message": text, "status": 0}
+        
+        # Tool-based conversation (orchestrated by this class)
+        tool_choice = self._get_tool_choice()
+        return await self._orchestrate_tool_request(
+            user_message=user_message,
+            tools=tools,
+            system_prompt=system_prompt,
+            tool_choice=tool_choice
+        )
+
+    async def process_agent_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process a request from another agent (agent-to-agent communication).
+        Provider-agnostic wrapper that adds agent-specific tracing.
+        
+        Args:
+            request: Request dict with 'message' key and metadata about source agent
+            
+        Returns:
+            Response dict with 'message' and 'status' keys
+        """
+        # Extract source agent info for tracing
+        source_agent = request.get("source_agent", "unknown")
+        user_message = request.get("message", "")
+        
+        if getattr(self, 'enable_tracing', False):
+            logger.info(f"🤝 Agent-to-Agent Request from '{source_agent}': {user_message[:100]}")
+        
+        # Process using standard flow
+        result = await self.process_request(request)
+        
+        if getattr(self, 'enable_tracing', False):
+            response_msg = result.get("message", "")
+            logger.info(f"🤝 Agent-to-Agent Response to '{source_agent}': {response_msg[:100]}")
+        
+        return result
 
     # Abstract methods for LLM provider implementations
     @abstractmethod
@@ -1173,6 +1241,124 @@ class GenesisAgent(ABC):
         """
         pass
 
+    @abstractmethod
+    async def _get_tool_schemas(self) -> List[Dict]:
+        """
+        Get all tool schemas in provider-specific format.
+        
+        This should return schemas for:
+        - External functions (discovered via DDS)
+        - Agent tools (other agents)
+        - Internal tools (@genesis_tool decorated methods)
+        
+        Returns:
+            List of tool schemas formatted for the specific LLM provider
+        """
+        pass
+
+    @abstractmethod
+    def _get_tool_choice(self) -> str:
+        """
+        Get provider-specific tool choice setting.
+        
+        Returns:
+            Tool choice string (e.g., "auto", "required", "none" for OpenAI)
+        """
+        pass
+
+    def _select_system_prompt(self, available_functions: Dict, agent_tools: Dict) -> str:
+        """
+        Select appropriate system prompt based on available tools.
+        Provider-agnostic logic.
+        
+        Args:
+            available_functions: Dict of available external functions
+            agent_tools: Dict of available agent tools
+        
+        Returns:
+            Selected system prompt string
+        """
+        if not available_functions and not agent_tools:
+            return getattr(self, 'general_system_prompt', 'You are a helpful assistant.')
+        else:
+            return getattr(self, 'function_based_system_prompt', 
+                          'You are a helpful assistant with access to tools.')
+
+    def _trace_llm_call(self, context: str, tools: List[Dict], user_message: str, 
+                        tool_responses: Optional[List[Dict]] = None):
+        """
+        Enhanced tracing: LLM API call details.
+        Provider-agnostic tracing for debugging LLM interactions.
+        
+        Args:
+            context: Description of the call context
+            tools: Tool schemas being sent to LLM
+            user_message: User's message
+            tool_responses: Optional tool responses being sent
+        """
+        if not getattr(self, 'enable_tracing', False):
+            return
+            
+        logger.debug(f"🚀 TRACE: === CALLING LLM: {context} ===")
+        logger.debug(f"🚀 TRACE: User message: {user_message}")
+        
+        if tools:
+            logger.debug(f"🚀 TRACE: Tools provided: {len(tools)} tools")
+            for i, tool in enumerate(tools):
+                # Handle different tool schema formats
+                tool_name = (tool.get('function', {}).get('name') or 
+                           tool.get('name', 'Unknown'))
+                logger.debug(f"🚀 TRACE: Tool {i+1}: {tool_name}")
+        else:
+            logger.debug(f"🚀 TRACE: NO TOOLS PROVIDED TO LLM")
+        
+        if tool_responses:
+            logger.debug(f"🚀 TRACE: Tool responses included: {len(tool_responses)} responses")
+            for i, response in enumerate(tool_responses):
+                tool_name = response.get('name', 'Unknown')
+                logger.debug(f"🚀 TRACE: Tool response {i+1}: {tool_name}")
+
+    def _trace_llm_response(self, response: Any, provider_name: str = "LLM"):
+        """
+        Enhanced tracing: LLM response analysis.
+        Provider-agnostic tracing for debugging LLM responses.
+        
+        Args:
+            response: Provider-specific response object
+            provider_name: Name of the LLM provider (for logging)
+        """
+        if not getattr(self, 'enable_tracing', False):
+            return
+            
+        logger.debug(f"🎯 TRACE: === {provider_name} RESPONSE RECEIVED ===")
+        logger.debug(f"🎯 TRACE: Response type: {type(response)}")
+        
+        # Try to extract text response using the provider's method
+        try:
+            text = self._extract_text_response(response)
+            if text:
+                logger.debug(f"🎯 TRACE: Response content length: {len(text)} characters")
+                logger.debug(f"🎯 TRACE: Response content preview: {text[:100]}{'...' if len(text) > 100 else ''}")
+            else:
+                logger.debug(f"🎯 TRACE: No text content in response")
+        except Exception:
+            logger.debug(f"🎯 TRACE: Could not extract text content")
+        
+        # Try to extract tool calls using the provider's method
+        try:
+            tool_calls = self._extract_tool_calls(response)
+            if tool_calls:
+                logger.debug(f"🎯 TRACE: *** TOOL CALLS DETECTED: {len(tool_calls)} ***")
+                for i, tool_call in enumerate(tool_calls):
+                    tool_name = tool_call.get('name', 'Unknown')
+                    tool_args = tool_call.get('arguments', {})
+                    logger.debug(f"🎯 TRACE: Tool call {i+1}: {tool_name}")
+                    logger.debug(f"🎯 TRACE: Tool call args: {tool_args}")
+            else:
+                logger.debug(f"🎯 TRACE: *** NO TOOL CALLS - DIRECT RESPONSE ***")
+        except Exception:
+            logger.debug(f"🎯 TRACE: Could not extract tool calls")
+
     async def _orchestrate_tool_request(self, user_message: str, tools: List[Dict],
                                         system_prompt: str, tool_choice: str = "auto") -> Dict[str, Any]:
         """
@@ -1198,8 +1384,17 @@ class GenesisAgent(ABC):
         memory_items = self.memory.retrieve(k=8)
         messages = self._format_messages(user_message, system_prompt, memory_items)
         
+        # Trace LLM call if tracing enabled
+        if getattr(self, 'enable_tracing', False):
+            self._trace_llm_call("initial orchestration", tools, user_message)
+        
         # 2. Call LLM (provider-specific)
         response = await self._call_llm(messages, tools, tool_choice)
+        
+        # Trace LLM response if tracing enabled
+        if getattr(self, 'enable_tracing', False):
+            provider_name = self.__class__.__name__.replace("GenesisAgent", "")
+            self._trace_llm_response(response, provider_name or "LLM")
         
         # 3. Extract tool calls (provider-specific)
         tool_calls = self._extract_tool_calls(response)
@@ -1238,8 +1433,18 @@ class GenesisAgent(ABC):
         while turn_count < max_turns:
             turn_count += 1
             
+            # Trace multi-turn call if tracing enabled
+            if getattr(self, 'enable_tracing', False):
+                self._trace_llm_call(f"multi-turn loop (turn {turn_count})", tools, user_message, tool_responses)
+            
             # Call LLM with tool results (always use 'auto' in multi-turn)
             response = await self._call_llm(messages, tools, tool_choice='auto')
+            
+            # Trace response if tracing enabled
+            if getattr(self, 'enable_tracing', False):
+                provider_name = self.__class__.__name__.replace("GenesisAgent", "")
+                self._trace_llm_response(response, f"{provider_name or 'LLM'} (turn {turn_count})")
+            
             tool_calls = self._extract_tool_calls(response)
             
             # Check if we got a text response

@@ -243,7 +243,8 @@ class MonitoredAgent(GenesisAgent):
             )
             self.current_state = "BUSY"
 
-            result = await self._process_request(request)
+            # Call parent's process_request (from GenesisAgent)
+            result = await super().process_request(request)
 
             self.graph.publish_node(
                 component_id=self.app.agent_id,
@@ -297,9 +298,6 @@ class MonitoredAgent(GenesisAgent):
             except Exception as recovery_error:
                 logger.error(f"Failed to recover from DEGRADED state: {recovery_error}")
             raise
-
-    def _process_request(self, request: Any) -> Dict[str, Any]:
-        raise NotImplementedError("Concrete agents must implement _process_request")
 
     async def close(self) -> None:
         try:
