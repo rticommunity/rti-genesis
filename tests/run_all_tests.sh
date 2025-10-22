@@ -463,7 +463,17 @@ run_with_timeout "$(resolve_path start_services_and_cli.sh)" 90 || { echo "Test 
 # Genesis framework test
 run_with_timeout "$(resolve_path test_genesis_framework.sh)" 120 || { echo "Test failed: test_genesis_framework.sh"; exit 1; }
 
-# Monitoring test
+# Monitoring tests
+echo "🔍 Running monitoring tests..."
+
+# Comprehensive monitoring coverage test (NEW - verifies ALL monitoring features)
+# This test checks that agent→agent edges, agent→service edges, and all chain events are working
+run_with_timeout "$(resolve_path test_monitoring_complete.sh)" 90 || { echo "Test failed: test_monitoring_complete.sh - MONITORING COVERAGE BROKEN"; exit 1; }
+
+# Wait for cleanup between monitoring tests
+sleep 5
+
+# Legacy monitoring test with OpenAI agent (kept for backward compatibility)
 # Guard: test_monitoring.sh may require API keys; skip if absent
 if [ -z "${OPENAI_API_KEY:-}" ]; then
     echo "⚠️  Skipping test_monitoring.sh: OPENAI_API_KEY not set."

@@ -235,6 +235,14 @@ main() {
   fi
   echo "✅ Stage 4a.2 passed: Interface→Agent monitoring"
 
+  # 4a.3) Comprehensive monitoring coverage (agent→agent edges, agent→service edges, all chain events)
+  if ! run_with_timeout "$(resolve_path test_monitoring_complete.sh)" 90; then
+    fail_and_exit "Comprehensive monitoring coverage test failed" \
+      "${LOG_DIR}/triage_test_monitoring_complete.log" \
+      "comprehensive monitoring failed — verify agent→agent edges, agent→service edges, and chain event publishing"
+  fi
+  echo "✅ Stage 4a.3 passed: Comprehensive monitoring coverage"
+
   # 4b) Full monitoring test (requires OPENAI_API_KEY)
   if [ -z "${OPENAI_API_KEY:-}" ]; then
     echo "⚠️  Skipping full monitoring test: OPENAI_API_KEY not set."

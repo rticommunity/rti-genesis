@@ -36,8 +36,28 @@ if not logger.hasHandlers():
     logger.addHandler(handler)
 
 # Shared topic registry for unified monitoring topics (V2)
-# Multiple components (GraphMonitor, MonitoredInterface, MonitoredAgent) in the same process
-# share the same participant and must reuse topic references. Key: (participant_id, topic_name)
+#
+# WHY THIS EXISTS:
+# Genesis allows multiple components (GraphMonitor, MonitoredInterface, MonitoredAgent)
+# to coexist in the same process, sharing a single DDS Participant. Each component needs
+# to publish to the same monitoring topics ("Event", "GraphTopology").
+#
+# DDS CONSTRAINT:
+# Within a DDS Participant, each topic name must be unique. Attempting to create the
+# same topic twice results in a "topic not unique" error.
+#
+# SOLUTION:
+# This registry acts as a process-wide cache of Topic objects, keyed by:
+#   (participant_id, topic_name)
+# 
+# The first component to initialize creates the Topic and caches it here.
+# Subsequent components check the registry and reuse the existing Topic object
+# instead of attempting to create a duplicate.
+#
+# THREAD SAFETY:
+# Topic creation happens during component initialization (typically single-threaded).
+# Once created, Topic objects are immutable and safe for concurrent use by multiple
+# DataWriters.
 _UNIFIED_TOPIC_REGISTRY = {}
 
 # Enum constants for component types
