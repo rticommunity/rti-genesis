@@ -74,14 +74,37 @@ class GenesisAgent(ABC):
         self.agent_name = agent_name
         self.mcp_server = None  # Initialize MCP server to None
         
-        # RPC v2: Use base_service_name directly - no instance tags needed
-        # All instances share unified topics, targeted by GUID
+        # RPC v2: All instances share unified topics, targeted by GUID
         self.base_service_name = base_service_name
-        self.rpc_service_name = base_service_name
         self.service_instance_tag = service_instance_tag  # Optional tag for content filtering
         
-        logger.info(f"RPC v2 service name: {self.rpc_service_name} (unified topics, tag: {service_instance_tag or 'none'})")
+        logger.info(f"RPC v2 service name: {self.base_service_name} (unified topics, tag: {service_instance_tag or 'none'})")
 
+        # ===== DDS Infrastructure via Composition (Has-A Pattern) =====
+        # 
+        # We use composition (has-a) rather than inheritance (is-a) with GenesisApp because:
+        #
+        # 1. FLEXIBILITY: GenesisApp accepts an optional 'participant' argument, allowing
+        #    multiple components to share a single DDS participant if needed (e.g., for
+        #    testing or resource-constrained environments). With inheritance, each agent
+        #    would BE a DDS application, making participant sharing impossible.
+        #    Current usage: Each agent creates its own GenesisApp with its own participant,
+        #    but the architecture supports sharing if needed in the future.
+        #
+        # 2. MULTIPLE COMPONENT TYPES: GenesisApp provides DDS infrastructure to different
+        #    component types (GenesisAgent, GenesisInterface, GenesisRPCService, etc.).
+        #    These components are fundamentally different and can't all inherit from the
+        #    same base class using single inheritance in Python.
+        #
+        # 3. SEPARATION OF CONCERNS: GenesisApp = "DDS infrastructure provider"
+        #    (participant, publishers, subscribers, function registry).
+        #    GenesisAgent = "LLM-powered request processor" (orchestration, tool routing).
+        #    These are orthogonal concerns that compose well but shouldn't be in the
+        #    same inheritance hierarchy.
+        #
+        # This follows the "favor composition over inheritance" principle - we delegate
+        # DDS infrastructure concerns to GenesisApp rather than being both an infrastructure
+        # provider AND a request processor simultaneously.
         logger.debug("===== DDS TRACE: Creating GenesisApp in GenesisAgent =====")
         self.app = GenesisApp(preferred_name=self.agent_name, agent_id=agent_id)
         logger.debug(f"===== DDS TRACE: GenesisApp created with agent_id {self.app.agent_id} =====")
@@ -106,8 +129,6 @@ class GenesisAgent(ABC):
         self._auto_run_requested: bool = auto_run
 
 
-        # Legacy GenesisRegistration writer removed - now using unified Advertisement topic via AdvertisementBus
-        logger.debug("✅ TRACE: Agent will use unified Advertisement topic for announcements")
 
         # Create replier with data available listener
         class RequestListener(dds.DynamicData.DataReaderListener):
@@ -116,17 +137,15 @@ class GenesisAgent(ABC):
                 self.agent = agent
                 
             def on_data_available(self, reader):
-                # ALWAYS print to verify callback is invoked
-                print(f"🔔🔔🔔 PRINT: RequestListener.on_data_available() CALLED for {self.agent.agent_name}!")
-                logger.info(f"RequestListener.on_data_available() CALLED for {self.agent.agent_name}")
+                logger.debug(f"RequestListener.on_data_available() called for {self.agent.agent_name}")
                 
                 # Get all available samples
                 samples = self.agent.replier.take_requests()
-                print(f"📊 PRINT: RequestListener got {len(samples)} request samples")
+                logger.debug(f"RequestListener got {len(samples)} request samples")
                 
                 for request, info in samples:
                     if request is None or info.state.instance_state != dds.InstanceState.ALIVE:
-                        print(f"⏭️ PRINT: Skipping invalid request sample")
+                        logger.debug("Skipping invalid request sample")
                         continue
                         
                     # RPC v2: Content filtering based on target_service_guid
@@ -158,19 +177,18 @@ class GenesisAgent(ABC):
                         # If fields don't exist, fall back to processing (backward compat)
                         logger.warning(f"Could not read RPC v2 fields from request, processing anyway: {e}")
                         
-                    print(f"✅ PRINT: Processing valid Interface-to-Agent request")
+                    logger.debug("Processing valid Interface-to-Agent request")
                     logger.info(f"Received request: {request}")
                     
                     try:
                         # Create task to process request asynchronously
                         asyncio.run_coroutine_threadsafe(self._process_request(request, info), self.agent.loop)
                     except Exception as e:
-                        print(f"💥 PRINT: Error creating request processing task: {e}")
                         logger.error(f"Error creating request processing task: {e}")
                         logger.error(traceback.format_exc())
                         
             async def _process_request(self, request, info):
-                print(f"🚀 PRINT: _process_request() started for {self.agent.agent_name}")
+                logger.debug(f"_process_request() started for {self.agent.agent_name}")
                 try:
                     request_dict = {}
                     if hasattr(self.agent.request_type, 'members') and callable(self.agent.request_type.members):
@@ -196,14 +214,12 @@ class GenesisAgent(ABC):
                         # It's better to let it fail or send an error reply if conversion is impossible.
                         raise TypeError("Failed to introspect request_type members for DDS-to-dict conversion.")
 
-                    print(f"📝 PRINT: Converted request to dict: {request_dict}")
+                    logger.debug(f"Converted request to dict: {request_dict}")
                     # Get reply data from concrete implementation, passing the dictionary
-                    print(f"🔄 PRINT: Calling process_request()...")
                     reply_data = await self.agent.process_request(request_dict)
-                    print(f"✅ PRINT: process_request() returned: {reply_data}")
+                    logger.debug(f"process_request() returned: {reply_data}")
                     
                     # Create reply - explicitly set all required fields including RPC v2 fields
-                    print(f"📤 PRINT: Creating DDS reply...")
                     reply = dds.DynamicData(self.agent.reply_type)
                     reply["message"] = str(reply_data.get("message", ""))
                     reply["status"] = int(reply_data.get("status", 0))
@@ -216,10 +232,8 @@ class GenesisAgent(ABC):
                     service_tag = request_dict.get("service_instance_tag", "")
                     reply["service_instance_tag"] = service_tag
                     
-                    print(f"📤 PRINT: Sending reply via replier...")
                     # Send reply
                     self.agent.replier.send_reply(reply, info)
-                    print(f"✅ PRINT: Reply sent successfully!")
                     logger.info(f"Sent reply: {reply}")
                 except Exception as e:
                     logger.error(f"Error processing request: {e}")
@@ -238,7 +252,7 @@ class GenesisAgent(ABC):
             request_type=self.request_type,
             reply_type=self.reply_type,
             participant=self.app.participant,
-            service_name=f"rti/connext/genesis/rpc/{self.rpc_service_name}"
+            service_name=f"rti/connext/genesis/rpc/{self.base_service_name}"
         )
         
         # Store replier GUID for RPC v2 targeted requests
@@ -263,7 +277,7 @@ class GenesisAgent(ABC):
         self.agent_classifier = None  # For intelligent request routing
         self.memory = memory_adapter or SimpleMemoryAdapter()
         if enable_agent_communication:
-            print(f"🚀 PRINT: Agent communication enabled for {self.agent_name}, calling _setup_agent_communication()")
+            logger.debug(f"Agent communication enabled for {self.agent_name}, calling _setup_agent_communication()")
             self._setup_agent_communication()
             # Initialize agent classifier for request routing with LLM support
             self.agent_classifier = AgentClassifier(
@@ -271,7 +285,7 @@ class GenesisAgent(ABC):
                 model_name="gpt-4o-mini"
             )
         else:
-            print(f"⏭️ PRINT: Agent communication disabled for {self.agent_name}")
+            logger.debug(f"Agent communication disabled for {self.agent_name}")
 
         # Optionally auto-start the agent service loop if an event loop is running.
         # This makes the agent discoverable without requiring users to call run().
@@ -309,7 +323,6 @@ class GenesisAgent(ABC):
     def _setup_agent_communication(self):
         """Initialize agent-to-agent communication capabilities"""
         try:
-            print(f"🚀 PRINT: _setup_agent_communication() starting for {self.agent_name}")
             logger.info(f"Setting up agent-to-agent communication for {self.agent_name}")
             
             # Create a communication mixin instance
@@ -320,8 +333,6 @@ class GenesisAgent(ABC):
                     # Share the app instance and agent attributes
                     self.app = parent_agent.app
                     self.base_service_name = parent_agent.base_service_name
-                    # Ensure RPC service name (with tag) is visible to the mixin
-                    self.rpc_service_name = getattr(parent_agent, 'rpc_service_name', None)
                     self.agent_name = parent_agent.agent_name
                     self.agent_type = getattr(parent_agent, 'agent_type', 'AGENT')
                     self.description = getattr(parent_agent, 'description', f'Agent {parent_agent.agent_name}')
@@ -335,61 +346,45 @@ class GenesisAgent(ABC):
                     return self.parent_agent.get_agent_capabilities()
             
             # Create the communication wrapper
-            print("🏗️ PRINT: Creating AgentCommunicationWrapper...")
             self.agent_communication = AgentCommunicationWrapper(self)
-            print("✅ PRINT: AgentCommunicationWrapper created")
             
             # Initialize RPC types
-            print("🏗️ PRINT: Initializing agent RPC types...")
             if self.agent_communication._initialize_agent_rpc_types():
-                print("✅ PRINT: Agent-to-agent RPC types loaded successfully")
                 logger.info("Agent-to-agent RPC types loaded successfully")
             else:
-                print("💥 PRINT: Failed to load agent-to-agent RPC types")
                 logger.warning("Failed to load agent-to-agent RPC types")
                 return
             
             # Set up agent discovery
-            print("🏗️ PRINT: Setting up agent discovery...")
             if self.agent_communication._setup_agent_discovery():
-                print("✅ PRINT: Agent discovery setup completed")
                 logger.info("Agent discovery setup completed")
             else:
-                print("💥 PRINT: Failed to set up agent discovery")
                 logger.warning("Failed to set up agent discovery")
                 return
             
             # Set up agent RPC service
-            print("🏗️ PRINT: Setting up agent RPC service...")
             if self.agent_communication._setup_agent_rpc_service():
-                print("✅ PRINT: Agent RPC service setup completed")
                 logger.info("Agent RPC service setup completed")
             else:
-                print("💥 PRINT: Failed to set up agent RPC service")
                 logger.warning("Failed to set up agent RPC service")
                 return
             
             # Set up agent capability publishing
-            print("🏗️ PRINT: Setting up agent capability publishing...")
             if self.agent_communication._setup_agent_capability_publishing():
-                print("✅ PRINT: Agent capability publishing setup completed")
                 logger.info("Agent capability publishing setup completed")
                 # Publish initial capability with enhanced information
                 agent_capabilities = self.get_agent_capabilities()
-                print(f"📊 PRINT: Publishing enhanced capabilities: {agent_capabilities}")
+                logger.debug(f"Publishing enhanced capabilities: {agent_capabilities}")
                 self.agent_communication.publish_agent_capability(agent_capabilities)
             else:
-                print("💥 PRINT: Failed to set up agent capability publishing")
                 logger.warning("Failed to set up agent capability publishing")
             
-            print(f"✅ PRINT: Agent-to-agent communication enabled for {self.agent_name}")
             logger.info(f"Agent-to-agent communication enabled for {self.agent_name}")
             
         except Exception as e:
-            print(f"💥 PRINT: Failed to set up agent communication: {e}")
             logger.error(f"Failed to set up agent communication: {e}")
             import traceback
-            print(f"💥 PRINT: Traceback: {traceback.format_exc()}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
             self.agent_communication = None
     
     async def process_agent_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
@@ -1540,15 +1535,13 @@ class GenesisAgent(ABC):
             except Exception:
                 self._run_task = None
 
-            print(f"🚀 PRINT: GenesisAgent.run() starting for {self.agent_name}")
+            logger.info(f"GenesisAgent.run() starting for {self.agent_name}")
             # Announce presence
-            print("📢 PRINT: About to announce agent presence...")
             logger.info("Announcing agent presence via unified advertisement...")
             await self.announce_self()
-            print("✅ PRINT: Agent presence announced successfully")
+            logger.info("Agent presence announced successfully")
             
             # Main loop - handle agent requests if enabled
-            print(f"👂 PRINT: {self.agent_name} listening for requests (Ctrl+C to exit)...")
             logger.info(f"{self.agent_name} listening for requests (Ctrl+C to exit)...")
             
             # Main event loop with agent request handling
@@ -1556,9 +1549,9 @@ class GenesisAgent(ABC):
             while True:
                 try:
                     loop_count += 1
-                    # Print every 100 iterations to verify loop is running
+                    # Log every 100 iterations to verify loop is running
                     if loop_count % 100 == 1:
-                        print(f"🔄 PRINT: Main event loop iteration #{loop_count}, agent_communication={self.agent_communication is not None}")
+                        logger.debug(f"Main event loop iteration #{loop_count}, agent_communication={self.agent_communication is not None}")
                     
                     # Handle agent-to-agent requests if communication is enabled
                     if self.agent_communication:
@@ -1568,7 +1561,7 @@ class GenesisAgent(ABC):
                     await asyncio.sleep(0.1)
                     
                 except KeyboardInterrupt:
-                    print(f"\n🛑 PRINT: KeyboardInterrupt in main loop, breaking...")
+                    logger.info("KeyboardInterrupt in main loop, breaking...")
                     break
                 except Exception as e:
                     logger.error(f"Error in main agent loop: {e}")
@@ -1576,8 +1569,7 @@ class GenesisAgent(ABC):
                     await asyncio.sleep(1)
                 
         except KeyboardInterrupt:
-            print(f"\n🛑 PRINT: KeyboardInterrupt in GenesisAgent.run(), shutting down {self.agent_name}...")
-            logger.info(f"\nShutting down {self.agent_name}...")
+            logger.info(f"KeyboardInterrupt in GenesisAgent.run(), shutting down {self.agent_name}...")
             await self.close()
             sys.exit(0)
         finally:
@@ -1615,20 +1607,9 @@ class GenesisAgent(ABC):
             logger.error(f"Error closing GenesisAgent: {str(e)}")
             logger.error(traceback.format_exc())
 
-    # Sync version of close for backward compatibility
-    def close_sync(self):
-        """Synchronous version of close for backward compatibility"""
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(self.close())
-        finally:
-            loop.close()
-
     async def announce_self(self):
         """Publish a unified GenesisAdvertisement(kind=AGENT) for this agent."""
         try:
-            print(f"🚀 PRINT: Starting announce_self for agent {self.agent_name}")
             logger.info(f"Starting announce_self for agent {self.agent_name}")
 
             # Use shared advertisement bus (reuses topic/writer per participant)
@@ -1642,7 +1623,7 @@ class GenesisAgent(ABC):
             ad["kind"] = 1  # AGENT
             ad["name"] = self.agent_name
             ad["description"] = self.base_service_name or ""
-            ad["service_name"] = self.rpc_service_name
+            ad["service_name"] = self.base_service_name
             ad["provider_id"] = str(writer.instance_handle)
             ad["last_seen"] = int(time.time() * 1000)
             payload = {
@@ -1659,7 +1640,6 @@ class GenesisAgent(ABC):
             logger.info("Successfully announced agent presence via GenesisAdvertisement")
 
         except Exception as e:
-            print(f"💥 PRINT: Error in announce_self: {e}")
             logger.error(f"Error in announce_self: {e}")
             logger.error(traceback.format_exc())
 
