@@ -281,11 +281,12 @@ class GraphSubscriber:
                                     metadata = {}
                                 
                                 if kind == 0:  # NODE
-                                    # Extract node fields from metadata
+                                    # Extract node fields from top-level and metadata
                                     node_id = element_id
-                                    node_type = metadata.get("node_type", "UNKNOWN")
-                                    node_name = metadata.get("node_name", node_id)
-                                    node_state = metadata.get("node_state", "UNKNOWN")
+                                    # component_type and component_name are at top level, not in metadata
+                                    node_type = str(data["component_type"]) if data["component_type"] is not None else "UNKNOWN"
+                                    node_name = str(data["component_name"]) if data["component_name"] is not None else node_id
+                                    node_state = str(data["state"]) if data["state"] is not None else "UNKNOWN"
                                     caps = metadata.get("capabilities", {})
                                     
                                     # Track handle for removals

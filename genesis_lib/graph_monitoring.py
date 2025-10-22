@@ -35,10 +35,19 @@ if not logger.hasHandlers():
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
-# Shared topic registry for unified monitoring topics (V2)
-# Multiple components (GraphMonitor, MonitoredInterface, MonitoredAgent) in the same process
-# share the same participant and must reuse topic references. Key: (participant_id, topic_name)
-_UNIFIED_TOPIC_REGISTRY = {}
+# ===== TOPIC REGISTRY FOR SAME-PARTICIPANT SHARING =====
+#
+# Process-wide topic registry for sharing DDS topics within a single participant.
+# Keyed by (participant_id, topic_name) to handle multiple Genesis components
+# (Interface, Agent, Services) coexisting in the same process.
+#
+# KEY INSIGHT: The problem isn't creation (solvable with try-except), it's cleanup.
+# Without this registry, we'd need reference counting to know when to delete shared topics.
+# With this registry + no explicit cleanup, DDS participant.close() handles everything.
+#
+# See monitored_agent.py _setup_monitoring() for detailed architectural discussion.
+# ===== END TOPIC REGISTRY =====
+_TOPIC_REGISTRY = {}
 
 # Enum constants for component types
 COMPONENT_TYPE = {
@@ -91,9 +100,8 @@ class _DDSWriters:
         self.participant = participant
         self.publisher = dds.Publisher(self.participant)
         
-        # UNIFIED MONITORING TOPICS (Phase 7: V2 Only)
-        # Multiple components in the same process share the same participant.
-        # Use shared topic registry to avoid "topic name not unique" errors.
+        # UNIFIED MONITORING TOPICS
+        # Multiple components in the same process share topics via registry
         
         participant_id = id(self.participant)
         
@@ -106,16 +114,16 @@ class _DDSWriters:
         
         # GraphTopology (durable) - consolidates GenesisGraphNode + GenesisGraphEdge
         self.graph_topology_type = self.type_provider.type("genesis_lib", "GraphTopology")
-        topology_key = (participant_id, "GraphTopology")
+        topology_key = (participant_id, "rti/connext/genesis/monitoring/GraphTopology")
         
-        if topology_key in _UNIFIED_TOPIC_REGISTRY:
-            self.graph_topology_topic = _UNIFIED_TOPIC_REGISTRY[topology_key]
+        if topology_key in _TOPIC_REGISTRY:
+            self.graph_topology_topic = _TOPIC_REGISTRY[topology_key]
             logger.debug("GraphMonitor: Reusing GraphTopology topic from registry")
         else:
             self.graph_topology_topic = dds.DynamicData.Topic(
-                self.participant, "rti/connext/genesis/monitoring/GraphTopology", self.graph_topology_type
+                self.participant, topology_key[1], self.graph_topology_type
             )
-            _UNIFIED_TOPIC_REGISTRY[topology_key] = self.graph_topology_topic
+            _TOPIC_REGISTRY[topology_key] = self.graph_topology_topic
             logger.debug("GraphMonitor: Created and registered GraphTopology topic")
         
         self.graph_topology_writer = dds.DynamicData.DataWriter(
@@ -124,16 +132,16 @@ class _DDSWriters:
         
         # Event (volatile) - consolidates ChainEvent + ComponentLifecycleEvent + MonitoringEvent
         self.monitoring_event_unified_type = self.type_provider.type("genesis_lib", "MonitoringEventUnified")
-        event_key = (participant_id, "Event")
+        event_key = (participant_id, "rti/connext/genesis/monitoring/Event")
         
-        if event_key in _UNIFIED_TOPIC_REGISTRY:
-            self.monitoring_event_unified_topic = _UNIFIED_TOPIC_REGISTRY[event_key]
+        if event_key in _TOPIC_REGISTRY:
+            self.monitoring_event_unified_topic = _TOPIC_REGISTRY[event_key]
             logger.debug("GraphMonitor: Reusing Event topic from registry")
         else:
             self.monitoring_event_unified_topic = dds.DynamicData.Topic(
-                self.participant, "rti/connext/genesis/monitoring/Event", self.monitoring_event_unified_type
+                self.participant, event_key[1], self.monitoring_event_unified_type
             )
-            _UNIFIED_TOPIC_REGISTRY[event_key] = self.monitoring_event_unified_topic
+            _TOPIC_REGISTRY[event_key] = self.monitoring_event_unified_topic
             logger.debug("GraphMonitor: Created and registered Event topic")
         
         volatile_qos = dds.QosProvider.default.datawriter_qos

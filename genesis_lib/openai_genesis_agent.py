@@ -170,9 +170,13 @@ class OpenAIGenesisAgent(MonitoredAgent):
     def __init__(self, model_name="gpt-4o", classifier_model_name="gpt-4o-mini", 
                  domain_id: int = 0, agent_name: str = "OpenAIAgent", 
                  base_service_name: str = "OpenAIChat",
-                 description: str = None, enable_tracing: bool = False, 
-                 enable_agent_communication: bool = True, memory_adapter=None,
-                 auto_run: bool = True, service_instance_tag: str = ""):
+                 description: str = None, 
+                 enable_tracing: bool = False,
+                 enable_monitoring: bool = True,
+                 enable_agent_communication: bool = True, 
+                 memory_adapter=None,
+                 auto_run: bool = True, 
+                 service_instance_tag: str = ""):
         """
         Initialize OpenAI-based Genesis agent.
         
@@ -208,6 +212,10 @@ class OpenAIGenesisAgent(MonitoredAgent):
             
             enable_tracing: Enable detailed debug logging (use in development only)
                            Logs: LLM calls, tool calls, responses, state transitions
+                           
+            enable_monitoring: Enable monitoring and observability features (default True)
+                              When False: No GraphMonitor created, no state tracking, no events published
+                              Use False for: lightweight testing, performance benchmarking, minimal deployments
                            
             enable_agent_communication: Allow this agent to discover and call other agents
                                        Disable for: specialized tools, security boundaries
@@ -247,6 +255,7 @@ class OpenAIGenesisAgent(MonitoredAgent):
             description=description or f"An OpenAI-powered agent using {model_name} model, providing {base_service_name} service",
             domain_id=domain_id,
             enable_agent_communication=enable_agent_communication,
+            enable_monitoring=enable_monitoring,
             memory_adapter=memory_adapter,
             auto_run=auto_run,
             service_instance_tag=service_instance_tag

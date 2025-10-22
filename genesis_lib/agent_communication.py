@@ -49,6 +49,10 @@ class AgentCommunicationMixin:
         self.discovered_agents: Dict[str, Dict[str, Any]] = {}
         logger.debug("✅ TRACE: discovered_agents dict initialized")
         
+        # Agent discovery callbacks (similar to function discovery callbacks)
+        self.agent_discovery_callbacks: List = []
+        logger.debug("✅ TRACE: agent_discovery_callbacks list initialized")
+        
         # Unified advertisement writer/reader for all discovery
         self.advertisement_writer = None
         self.advertisement_reader = None
@@ -127,6 +131,18 @@ class AgentCommunicationMixin:
     def get_discovered_agents(self) -> Dict[str, Dict[str, Any]]:
         """Return dictionary of discovered agents"""
         return self.discovered_agents.copy()
+    
+    def add_agent_discovery_callback(self, callback):
+        """
+        Register a callback to be called when a new agent is discovered.
+        Callback will receive agent_info dict as parameter.
+        
+        Args:
+            callback: Function to call when agent discovered, signature: callback(agent_info)
+        """
+        if callback not in self.agent_discovery_callbacks:
+            self.agent_discovery_callbacks.append(callback)
+            logger.debug(f"Registered agent discovery callback: {callback}")
     
     def is_agent_discovered(self, agent_id: str) -> bool:
         """Check if a specific agent has been discovered"""
@@ -328,6 +344,13 @@ class AgentCommunicationMixin:
             if is_new_agent:
                 print(f"🎉 PRINT: Discovered new agent via Advertisement: {name} ({agent_id}) service={service_name}")
                 logger.info(f"Discovered new agent via Advertisement: {name} ({agent_id}) service={service_name}")
+                
+                # Call agent discovery callbacks (for monitoring/graph topology)
+                for callback in self.agent_discovery_callbacks:
+                    try:
+                        callback(agent_info)
+                    except Exception as e:
+                        logger.error(f"Error in agent discovery callback: {e}")
         except Exception as e:
             logger.error(f"Error processing agent advertisement: {e}")
     

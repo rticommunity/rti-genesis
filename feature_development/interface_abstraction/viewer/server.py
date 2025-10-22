@@ -24,8 +24,32 @@ def create_app() -> tuple[Flask, SocketIO, GraphService]:
     app.config['SECRET_KEY'] = 'graph_viewer_secret'
     socketio = SocketIO(app, async_mode='threading', cors_allowed_origins="*", logger=False, engineio_logger=False)
 
-    graph = GraphService(domain_id=int(os.getenv("GENESIS_DOMAIN", "0")))
+    domain_id = int(os.getenv("GENESIS_DOMAIN", "0"))
+    print(f"[SERVER] Creating GraphService on domain {domain_id}")
+    graph = GraphService(domain_id=domain_id)
     graph.start()
+    
+    # Wait a moment for initial discovery
+    import time
+    time.sleep(2)
+    
+    # Check what we see initially
+    cyto_data = graph.to_cytoscape()
+    nodes = cyto_data.get('elements', {}).get('nodes', [])
+    edges = cyto_data.get('elements', {}).get('edges', [])
+    print(f"[SERVER] Initial graph state: {len(nodes)} nodes, {len(edges)} edges")
+    
+    if len(nodes) > 0:
+        from collections import defaultdict
+        node_types = defaultdict(int)
+        for node in nodes:
+            node_type = node.get('data', {}).get('type', 'unknown')
+            node_types[node_type] += 1
+        print(f"[SERVER] Node breakdown:")
+        for ntype, count in sorted(node_types.items()):
+            print(f"[SERVER]   {ntype}: {count}")
+    else:
+        print(f"[SERVER] WARNING: No nodes discovered! Check if services/agents are running.")
 
     # Register the reusable viewer blueprint under /genesis-graph (also attaches Socket.IO bridge)
     register_graph_viewer(app, socketio, graph, url_prefix="/genesis-graph")

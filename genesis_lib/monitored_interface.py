@@ -78,7 +78,7 @@ class MonitoredInterface(GenesisInterface):
         self._agent_found_event = asyncio.Event()
         self._connected_agent_id: Optional[str] = None
         self._last_complete_event: Optional[asyncio.Event] = None
-        # Unified monitoring event writer for ChainEvents (Phase 7: V2 Only)
+        # Unified monitoring event writer for ChainEvents
         self._unified_event_writer = None
         try:
             import rti.connextdds as dds  # type: ignore
@@ -86,8 +86,8 @@ class MonitoredInterface(GenesisInterface):
             provider = dds.QosProvider(get_datamodel_path())
             
             # Create unified monitoring event writer (Event)
-            # Use shared topic registry to avoid creating the same topic twice.
-            from genesis_lib.graph_monitoring import _UNIFIED_TOPIC_REGISTRY
+            # Use process-wide registry to share topics
+            from genesis_lib.graph_monitoring import _TOPIC_REGISTRY
             
             writer_qos = dds.QosProvider.default.datawriter_qos
             writer_qos.durability.kind = dds.DurabilityKind.VOLATILE
@@ -95,16 +95,16 @@ class MonitoredInterface(GenesisInterface):
             
             unified_type = provider.type("genesis_lib", "MonitoringEventUnified")
             participant_id = id(self.app.participant)
-            event_key = (participant_id, "Event")
+            event_key = (participant_id, "rti/connext/genesis/monitoring/Event")
             
-            if event_key in _UNIFIED_TOPIC_REGISTRY:
-                unified_topic = _UNIFIED_TOPIC_REGISTRY[event_key]
-                logger.debug("MonitoredInterface: Reusing Event topic from shared registry")
+            if event_key in _TOPIC_REGISTRY:
+                unified_topic = _TOPIC_REGISTRY[event_key]
+                logger.debug("MonitoredInterface: Reusing Event topic from registry")
             else:
                 unified_topic = dds.DynamicData.Topic(
-                    self.app.participant, "rti/connext/genesis/monitoring/Event", unified_type
+                    self.app.participant, event_key[1], unified_type
                 )
-                _UNIFIED_TOPIC_REGISTRY[event_key] = unified_topic
+                _TOPIC_REGISTRY[event_key] = unified_topic
                 logger.debug("MonitoredInterface: Created and registered Event topic")
             
             self._unified_event_type = unified_type

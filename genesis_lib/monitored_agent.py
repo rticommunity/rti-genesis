@@ -1,11 +1,212 @@
 #!/usr/bin/env python3
 """
-MonitoredAgent Base Class for Genesis Agents (Unified Graph Monitoring)
+MonitoredAgent - Monitoring Decorator Layer for Genesis Agents
 
-This module defines the MonitoredAgent class, which extends the GenesisAgent
-base class to provide standardized monitoring capabilities for agents operating
-within the Genesis network. It now uses the unified GraphMonitor for all node/edge
-monitoring events, supporting robust graph-based monitoring and DDS compatibility.
+This module provides the MonitoredAgent class, which adds automatic monitoring, observability,
+and graph topology tracking to all Genesis agents. It sits between GenesisAgent and provider
+implementations (OpenAIGenesisAgent, AnthropicGenesisAgent) as a transparent decorator layer.
+
+=================================================================================================
+ARCHITECTURE OVERVIEW - Understanding the Inheritance Hierarchy
+=================================================================================================
+
+GenesisAgent (genesis_lib/agent.py)
+├─ Provider-Agnostic Business Logic:
+│  ├─ process_request() - Main request processing flow
+│  ├─ _orchestrate_tool_request() - Multi-turn conversation orchestration
+│  ├─ _route_tool_call() - Routes tool calls to functions/agents/internal tools
+│  ├─ _call_function() - Executes external function via RPC
+│  ├─ _call_agent() - Executes agent-to-agent call via RPC
+│  └─ Abstract methods for LLM provider implementations
+│
+    ↓ inherits
+│
+MonitoredAgent (THIS FILE - genesis_lib/monitored_agent.py)
+├─ Monitoring Decorator Layer (AUTOMATIC - Transparent to Providers):
+│  ├─ __init__() - Wraps initialization with monitoring setup
+│  ├─ process_request() - Wraps with state transitions (READY→BUSY→READY)
+│  ├─ close() - Wraps with OFFLINE state publishing
+│  ├─ _call_function() - Wraps with function call start/complete events
+│  ├─ _call_agent() - Wraps with agent-to-agent communication events
+│  └─ _orchestrate_tool_request() - Wraps with LLM call tracking
+│
+    ↓ inherits
+│
+OpenAIGenesisAgent (genesis_lib/openai_genesis_agent.py)
+└─ Provider-Specific Implementation:
+   ├─ Implements 7 abstract methods for OpenAI API
+   ├─ All monitoring is AUTOMATIC from MonitoredAgent
+   └─ No monitoring code needed - just implement LLM provider interface
+
+=================================================================================================
+WHAT YOU GET FOR FREE - Automatic Monitoring Without Writing Code
+=================================================================================================
+
+When you create a provider that inherits from MonitoredAgent (which all providers do),
+you automatically get ALL of this monitoring without writing any monitoring code:
+
+1. **State Machine Tracking** (via process_request() wrapper):
+   - DISCOVERING → Agent initializing and discovering network capabilities
+   - READY → Agent idle and ready to process requests
+   - BUSY → Agent actively processing a request
+   - DEGRADED → Agent encountered an error (with auto-recovery)
+   - OFFLINE → Agent shutting down
+
+2. **Graph Topology Publishing** (via __init__() and discovery callbacks):
+   - Agent nodes: Lifecycle events, state transitions, capabilities
+   - Function nodes: Discovered external functions from services
+   - Service nodes: RPC service endpoints
+   - Edges: Agent→Function, Agent→Agent, Service→Function connections
+   - Consumed by: Network visualization UI, topology analyzers
+
+3. **Chain Event Tracking** (via method wrappers):
+   - LLM call start/complete events (every LLM API call)
+   - Function call start/complete events (every RPC function call)
+   - Agent-to-agent call events (every agent communication)
+   - Classification events (when selecting relevant functions)
+   - Consumed by: Distributed tracing, performance monitoring, debugging
+
+4. **Error Handling & Recovery** (via process_request() exception handling):
+   - Automatic DEGRADED state on exceptions
+   - Automatic recovery attempts to READY
+   - Error event publishing for alerting
+   - Graceful degradation without crashes
+
+5. **Discovery Integration** (via FunctionRegistry callbacks):
+   - Automatic topology updates when functions are discovered
+   - Automatic edge creation when services are found
+   - Real-time network graph updates as system evolves
+
+=================================================================================================
+THE DECORATOR PATTERN - How MonitoredAgent Wraps GenesisAgent
+=================================================================================================
+
+MonitoredAgent uses the DECORATOR PATTERN to add monitoring to existing functionality.
+It overrides parent methods to wrap them with monitoring, then calls super() to execute
+the original business logic.
+
+Pattern Example (simplified):
+
+    class GenesisAgent:
+        async def process_request(self, request):
+            # Business logic: LLM orchestration, tool calls, etc.
+            return result
+    
+    class MonitoredAgent(GenesisAgent):
+        async def process_request(self, request):
+            # BEFORE: Publish BUSY state
+            self.graph.publish_node(state=BUSY)
+            
+            try:
+                # EXECUTE: Call parent's business logic
+                result = await super().process_request(request)
+                
+                # AFTER (success): Publish READY state
+                self.graph.publish_node(state=READY)
+                return result
+                
+            except Exception as e:
+                # AFTER (error): Publish DEGRADED state, attempt recovery
+                self.graph.publish_node(state=DEGRADED)
+                self.graph.publish_node(state=READY)  # Recovery attempt
+                raise
+
+Decorated Methods (What Gets Monitoring Automatically):
+
+    1. __init__() - Initialization wrapper
+       - Calls super().__init__() to create GenesisAgent
+       - Sets up GraphMonitor for topology publishing
+       - Publishes DISCOVERING state (discovery starting)
+       - Sets up monitoring infrastructure (Event topic writer)
+       - Publishes READY state (agent ready for requests)
+       
+    2. process_request() - Request processing wrapper
+       - Publishes BUSY state before processing
+       - Calls super().process_request() for actual work
+       - Publishes READY state on success
+       - Publishes DEGRADED→READY on error (with recovery)
+       
+    3. close() - Shutdown wrapper
+       - Publishes OFFLINE state before cleanup
+       - Calls super().close() for actual cleanup
+       - Publishes DEGRADED state on error
+       
+    4. _call_function() - Function call wrapper
+       - Publishes FUNCTION_CALL_START event
+       - Calls super()._call_function() for actual RPC
+       - Publishes FUNCTION_CALL_COMPLETE event
+       - Tracks: function_id, provider_id, chain_id, call_id
+       
+    5. _call_agent() - Agent call wrapper
+       - Publishes AGENT_TO_AGENT_START event
+       - Calls super()._call_agent() for actual RPC
+       - Publishes AGENT_TO_AGENT_COMPLETE event
+       - Tracks: target_agent_id, chain_id, call_id
+       
+    6. _orchestrate_tool_request() - Tool orchestration wrapper
+       - Publishes LLM_CALL_START event before LLM calls
+       - Calls super()._orchestrate_tool_request() for orchestration
+       - Publishes LLM_CALL_COMPLETE event after LLM responds
+       - Tracks: chain_id, call_id, model identifier
+
+Helper Methods (Not Decorators - Monitoring-Specific Functionality):
+
+    - publish_discovered_functions() - Publish function topology to graph
+    - publish_monitoring_event() - Publish general monitoring events
+    - _publish_llm_call_start/complete() - LLM call event publishers
+    - _publish_function_call_start/complete() - Function call event publishers
+    - _publish_agent_to_agent_start/complete() - Agent call event publishers
+    - _publish_classification_result() - Function classification events
+    - _on_function_discovered() - Callback when FunctionRegistry finds functions
+    - _on_agent_discovered() - Callback when agent communication finds agents
+
+=================================================================================================
+WHAT PROVIDERS DON'T NEED TO WORRY ABOUT - Monitoring is Transparent
+=================================================================================================
+
+When implementing a new LLM provider (e.g., AnthropicGenesisAgent), you:
+
+✅ DO implement: 7 abstract methods for your LLM API (_call_llm, _format_messages, etc.)
+❌ DON'T implement: Any monitoring code whatsoever
+
+MonitoredAgent handles:
+- State transitions (READY/BUSY/DEGRADED/OFFLINE)
+- Topology publishing (nodes, edges, discovery)
+- Chain event tracking (LLM calls, function calls, agent calls)
+- Error handling and recovery
+- Performance metrics and tracing
+
+Your provider just implements the LLM interface, and monitoring "just works".
+
+=================================================================================================
+TOPIC REGISTRY IMPLEMENTATION DETAIL - Why We Need It
+=================================================================================================
+
+ONE EXCEPTION: The _TOPIC_REGISTRY is NOT a decorator - it's an implementation detail
+for solving a DDS constraint. See detailed architectural note in _setup_monitoring() method.
+
+TL;DR: Multiple Genesis components (Interface + Agent + Services) can share a DDS Participant
+for efficiency. DDS requires topic names to be unique per participant. The registry prevents
+"topic already exists" errors and ensures proper cleanup (delegated to participant.close()).
+
+This is internal implementation - providers and users never interact with it directly.
+
+=================================================================================================
+STATE MACHINE - Agent Lifecycle States
+=================================================================================================
+
+DISCOVERING → READY → BUSY → READY (normal request flow)
+                    ↓
+                 DEGRADED → READY (error recovery)
+                    ↓
+                 OFFLINE (shutdown)
+
+States:
+- DISCOVERING: Agent initializing, discovering network capabilities
+- READY: Idle, ready to accept requests
+- BUSY: Processing a request
+- DEGRADED: Error occurred (auto-recovery attempted)
+- OFFLINE: Shutting down
 
 Copyright (c) 2025, RTI & Jason Upchurch
 """
@@ -18,6 +219,7 @@ from typing import Any, Dict, Optional, List
 from datetime import datetime
 import asyncio
 import traceback
+import rti.connextdds as dds
 
 from .agent import GenesisAgent
 from genesis_lib.generic_function_client import GenericFunctionClient
@@ -26,7 +228,9 @@ from genesis_lib.graph_monitoring import (
     COMPONENT_TYPE,
     STATE,
     EDGE_TYPE,
+    _TOPIC_REGISTRY,
 )
+from genesis_lib.utils import get_datamodel_path
 
 logger = logging.getLogger(__name__)
 
@@ -64,10 +268,60 @@ class MonitoredAgent(GenesisAgent):
     def __init__(self, agent_name: str, base_service_name: str,
                  agent_type: str = "AGENT",
                  agent_id: str = None, description: str = None, domain_id: int = 0,
-                 enable_agent_communication: bool = False, memory_adapter=None,
+                 enable_agent_communication: bool = False, 
+                 enable_monitoring: bool = True,
+                 memory_adapter=None,
                  auto_run: bool = True, service_instance_tag: str = ""):
+        """
+        Initialize a MonitoredAgent with full observability and graph monitoring.
+        
+        Args:
+            agent_name: Human-readable name for the agent (e.g., "WeatherAgent")
+            base_service_name: DDS service name for RPC topics (e.g., "OpenAIChatService")
+            agent_type: Type of agent - "AGENT" for primary or "SPECIALIZED_AGENT" for specialized
+            agent_id: Optional unique ID; auto-generated if None
+            description: Human-readable description of agent capabilities
+            domain_id: DDS domain ID (default 0)
+            enable_agent_communication: Enable agent-to-agent communication via DDS
+            enable_monitoring: Enable monitoring and observability features (default True)
+                              When False: No GraphMonitor created, no state tracking, no events published
+                              Use False for: lightweight testing, performance benchmarking, minimal deployments
+            memory_adapter: Optional memory backend for conversation history
+            auto_run: Whether to automatically start the RPC listener loop
+            service_instance_tag: Optional tag for content filtering (e.g., "production", "staging")
+        
+        Initialization Sequence:
+            1. Store attributes needed for state publishing before super().__init__
+            2. Call super().__init__() → creates GenesisApp → creates FunctionRegistry with active listeners
+            3. Initialize function client (for calling external functions)
+            4. Create GraphMonitor for publishing topology events
+            5. Publish DISCOVERING state (announce "I have active DDS listeners")
+            6. Setup monitoring infrastructure (DDS readers/writers for events)
+            7. Publish READY state (announce "I can accept requests")
+            
+        State Semantics:
+            - DISCOVERING: Indicates active DDS listeners continuously discovering capabilities
+                          This is an ongoing passive state, not a one-time phase
+            - READY: Indicates the agent can accept and process requests
+                     The agent is both DISCOVERING and READY simultaneously
+            - BUSY: Published during request processing (by process_request wrapper)
+            - DEGRADED: Published on errors with automatic recovery attempts
+        """
         logger.info(f"🚀 TRACE: MonitoredAgent {agent_name} STARTING initializing with agent_id {agent_id}")
 
+        # ===== Step 1: Store attributes before super().__init__() =====
+        # These are needed for state publishing after GraphMonitor creation
+        self.enable_monitoring = enable_monitoring
+        self.agent_type = agent_type
+        self.description = description or f"A {agent_type} providing {base_service_name} service"
+        self.domain_id = domain_id
+
+        # ===== Step 2: Initialize base GenesisAgent =====
+        # This creates:
+        #   - GenesisApp with DDS participant
+        #   - FunctionRegistry with ACTIVE discovery listeners
+        #   - RPC replier for handling incoming requests
+        # After this call returns, discovery is already happening asynchronously!
         super().__init__(
             agent_name=agent_name,
             base_service_name=base_service_name,
@@ -79,81 +333,219 @@ class MonitoredAgent(GenesisAgent):
         )
         logger.info(f"✅ TRACE: MonitoredAgent {agent_name} initialized with base class")
 
-        self.agent_type = agent_type
-        self.description = description or f"A {agent_type} providing {base_service_name} service"
-        self.domain_id = domain_id
-        self.monitor = None
-        self.subscription = None
+        # Note: At this point, FunctionRegistry listeners are already active and
+        # passively discovering function advertisements from the network
 
-        self._initialize_function_client()
-        self.function_cache: Dict[str, Dict[str, Any]] = {}
+        # ===== Step 3: Initialize function client and caching =====
+        self.monitor = None  # Legacy monitoring (unused)
+        self.subscription = None  # Legacy monitoring (unused)
 
+        self._initialize_function_client()  # Sets up GenericFunctionClient (no active discovery yet)
+        self.function_cache: Dict[str, Dict[str, Any]] = {}  # Cache for discovered functions
+        
+        # Register callback for agent discovery (if agent communication enabled)
+        if hasattr(self, 'agent_communication') and self.agent_communication:
+            logger.info(f"🔗 Registering agent discovery callback for {agent_name}")
+            self.agent_communication.add_agent_discovery_callback(self._on_agent_discovered)
+
+        # Agent capabilities metadata for advertisements
         self.agent_capabilities = {
             "agent_type": agent_type,
             "service": base_service_name,
-            "functions": [],
-            "supported_tasks": [],
+            "functions": [],  # Populated dynamically as functions are discovered
+            "supported_tasks": [],  # Can be populated by subclasses
             "prefered_name": self.agent_name,
             "agent_name": self.agent_name,
         }
 
-        # Unified graph monitor
-        self.graph = GraphMonitor(self.app.participant)
-        
-        # Set up monitoring infrastructure
-        self._setup_monitoring()
+        # ===== Step 4: Create unified graph monitor (if monitoring enabled) =====
+        # Uses the DDS participant from GenesisApp for publishing topology events
+        if self.enable_monitoring:
+            self.graph = GraphMonitor(self.app.participant)
+            
+            # ===== Step 5: Publish DISCOVERING state =====
+            # Announces to the network: "I have active DDS listeners discovering capabilities"
+            # This is an ongoing state - the agent continuously discovers as new advertisements arrive
+            logger.debug(f"MonitoredAgent __init__: publishing DISCOVERING for {agent_name} ({self.app.agent_id})")
+            self.graph.publish_node(
+                component_id=self.app.agent_id,
+                component_type=COMPONENT_TYPE["AGENT_PRIMARY"] if agent_type == "AGENT" else COMPONENT_TYPE["AGENT_SPECIALIZED"],
+                state=STATE["DISCOVERING"],
+                attrs={
+                    "agent_type": agent_type,
+                    "service": base_service_name,
+                    "description": self.description,
+                    "agent_id": self.app.agent_id,
+                    "prefered_name": self.agent_name,
+                    "agent_name": self.agent_name,
+                    "reason": f"Agent {agent_name} is discovering network capabilities"
+                }
+            )
+            
+            # ===== Step 6: Setup monitoring infrastructure =====
+            # Creates DDS readers/writers for Event topic (unified monitoring)
+            self._setup_monitoring()
 
-        # Publish agent node (discovery and ready)
-        print(f"MonitoredAgent __init__: publishing DISCOVERING and READY for {agent_name} ({self.app.agent_id})")
-        self.graph.publish_node(
-            component_id=self.app.agent_id,
-            component_type=COMPONENT_TYPE["AGENT_PRIMARY"] if agent_type == "AGENT" else COMPONENT_TYPE["AGENT_SPECIALIZED"],
-            state=STATE["DISCOVERING"],
-            attrs={
-                "agent_type": agent_type,
-                "service": base_service_name,
-                "description": self.description,
-                "agent_id": self.app.agent_id,
-                "prefered_name": self.agent_name,
-                "agent_name": self.agent_name,
-                "reason": f"Agent {agent_name} discovered"
-            }
-        )
-        self.graph.publish_node(
-            component_id=self.app.agent_id,
-            component_type=COMPONENT_TYPE["AGENT_PRIMARY"] if agent_type == "AGENT" else COMPONENT_TYPE["AGENT_SPECIALIZED"],
-            state=STATE["READY"],
-            attrs={
-                "agent_type": agent_type,
-                "service": base_service_name,
-                "description": self.description,
-                "agent_id": self.app.agent_id,
-                "prefered_name": self.agent_name,
-                "agent_name": self.agent_name,
-                "reason": f"{agent_name} ready for requests"
-            }
-        )
+            # ===== Step 7: Publish READY state =====
+            # Announces to the network: "I am ready to accept and process requests"
+            # The agent is now both DISCOVERING (passive listeners) and READY (can handle RPC)
+            logger.debug(f"MonitoredAgent __init__: publishing READY for {agent_name} ({self.app.agent_id})")
+            self.graph.publish_node(
+                component_id=self.app.agent_id,
+                component_type=COMPONENT_TYPE["AGENT_PRIMARY"] if agent_type == "AGENT" else COMPONENT_TYPE["AGENT_SPECIALIZED"],
+                state=STATE["READY"],
+                attrs={
+                    "agent_type": agent_type,
+                    "service": base_service_name,
+                    "description": self.description,
+                    "agent_id": self.app.agent_id,
+                    "prefered_name": self.agent_name,
+                    "agent_name": self.agent_name,
+                    "reason": f"{agent_name} ready for requests"
+                }
+            )
 
-        self.current_state = "READY"
-        self.last_state_change = datetime.now()
-        self.state_history = []
-        self.event_correlation = {}
+            # ===== Step 8: Initialize state tracking =====
+            self.current_state = "READY"  # Track current state for state machine
+            self.last_state_change = datetime.now()  # Timestamp of last state transition
+            self.state_history = []  # Historical record of state transitions
+            self.event_correlation = {}  # Map of correlated monitoring events
+        else:
+            self.graph = None
+            self.current_state = None
+            self.last_state_change = None
+            self.state_history = []
+            self.event_correlation = {}
+            logger.info(f"Monitoring disabled for {agent_name}")
 
         logger.info(f"✅ TRACE: Monitored agent {agent_name} initialized with type {agent_type}, agent_id={self.app.agent_id}, dds_guid={getattr(self.app, 'dds_guid', None)}")
 
     def _initialize_function_client(self) -> None:
-        if not self.app or not self.app.participant:
-            logger.error("Cannot initialize function client: DDS Participant not available.")
+        """
+        Initialize function client and register discovery callback.
+        
+        Note: self.app and self.app.participant are guaranteed to exist here because
+        super().__init__() would have raised an exception if they failed to create.
+        """
+        # Register callback to publish graph topology when functions are discovered
+        # This is critical for network monitoring and visualization
+        if self.enable_monitoring and hasattr(self.app, 'function_registry') and self.app.function_registry:
+            logger.info(f"✅ Registering discovery callback for agent {self.agent_name} (ID: {self.app.agent_id})")
+            self.app.function_registry.add_discovery_callback(self._on_function_discovered)
+        elif not self.enable_monitoring:
+            logger.debug(f"Monitoring disabled - skipping discovery callback registration for {self.agent_name}")
+        else:
+            logger.error(f"❌ CRITICAL: Cannot register discovery callback - function_registry not available for agent {self.agent_name}")
+    
+    def _on_function_discovered(self, function_id: str, function_info: Dict[str, Any]):
+        """
+        Callback invoked by FunctionRegistry when a new function is discovered via DDS.
+        Publishes graph topology events (nodes and edges) for monitoring/visualization.
+        
+        This bridges the gap between DDS discovery (source of truth) and graph monitoring
+        (visualization/management layer).
+        
+        Args:
+            function_id: Unique identifier for the discovered function
+            function_info: Dict with keys: name, description, provider_id, schema, capabilities, etc.
+        """
+        if not self.enable_monitoring:
             return
+            
+        logger.info(f"🔔 _on_function_discovered callback invoked for {function_info.get('name', 'unknown')} (ID: {function_id[:8]}...)")
+        try:
+            # Convert single function to list format expected by publish_discovered_functions
+            functions_list = [{
+                'function_id': function_id,
+                'name': function_info.get('name', 'unknown'),
+                'description': function_info.get('description', ''),
+                'provider_id': function_info.get('provider_id', ''),
+                'schema': function_info.get('schema', {}),
+                'capabilities': function_info.get('capabilities', []),
+                'service_name': function_info.get('service_name', 'UnknownService')
+            }]
+            
+            # Publish to graph topology (creates nodes and edges)
+            self.publish_discovered_functions(functions_list)
+            
+        except Exception as e:
+            logger.error(f"Error in _on_function_discovered callback: {e}")
+    
+    def _on_agent_discovered(self, agent_info: Dict[str, Any]) -> None:
+        """
+        Callback invoked when a new agent is discovered via DDS Advertisement.
+        Publishes graph topology edge from this agent to the discovered agent.
+        
+        This is critical for visualizing agent-to-agent communication patterns
+        in the monitoring UI. Without this, agent discovery happens but no edges
+        are shown in the graph.
+        
+        Args:
+            agent_info: Dict with keys: agent_id, name, prefered_name, service_name, 
+                       agent_type, description, capabilities, etc.
+        """
+        if not self.enable_monitoring:
+            return
+            
+        agent_id = agent_info.get('agent_id', 'unknown')
+        agent_name = agent_info.get('prefered_name') or agent_info.get('name', 'Unknown')
+        logger.info(f"🤝 _on_agent_discovered callback invoked for {agent_name} ({agent_id[:8]}...)")
+        
+        # Publish edge: this agent → discovered agent
+        try:
+            self.graph.publish_edge(
+                source_id=self.app.agent_id,
+                target_id=agent_id,
+                edge_type=EDGE_TYPE["AGENT_COMMUNICATION"],
+                attrs={
+                    "edge_type": "agent_to_agent",
+                    "source_agent": self.agent_name,
+                    "target_agent": agent_name,
+                    "reason": f"Agent {self.agent_name} discovered agent {agent_name}"
+                },
+                component_type=COMPONENT_TYPE["AGENT_PRIMARY"] if self.agent_type == "AGENT" else COMPONENT_TYPE["AGENT_SPECIALIZED"]
+            )
+            logger.info(f"✅ Published agent→agent edge: {self.agent_name} → {agent_name}")
+        except Exception as e:
+            logger.error(f"Error publishing agent discovery edge: {e}")
+            logger.error(traceback.format_exc())
     
     def _setup_monitoring(self) -> None:
         """
-        Set up monitoring resources (Phase 7: V2 Only).
+        Set up monitoring resources for publishing agent lifecycle events.
+        
+        Creates DDS readers/writers for the Event topic (unified monitoring).
+        
+        **Topic Sharing Pattern**:
+        Genesis allows multiple components (e.g., Interface + Agent + Services) to run
+        in the same process and share a single DDS Participant. Each component needs to
+        publish to the same monitoring topics.
+        
+        DDS Constraint: Within a single DDS Participant, each topic name must be unique.
+        You cannot create the same topic twice, even if it has the same configuration.
+        
+        Solution: Use a process-wide topic registry keyed by (participant_id, topic_name):
+        - First component creates the topic and caches it
+        - Subsequent components reuse from registry
+        - Simple and efficient for same-process sharing
+        
+        Example Scenario:
+            Process contains:
+            1. OpenAIGenesisAgent (needs "Event" topic)
+            2. SimpleGenesisInterface (also needs "Event" topic)
+            3. Both share the same DDS Participant
+            
+            First to initialize: Creates topic via dds.DynamicData.Topic()
+            Second to initialize: Looks up existing topic, reuses it
+        
+        **Failure Handling**:
+        Gracefully handles DDS setup failures by setting monitoring attributes to None,
+        allowing the agent to function without monitoring if DDS infrastructure is unavailable.
+        
+        Raises:
+            No exceptions - failures are logged but don't propagate
         """
         try:
-            from genesis_lib.utils import get_datamodel_path
-            import rti.connextdds as dds
-            
             # Get types from XML
             config_path = get_datamodel_path()
             self.type_provider = dds.QosProvider(config_path)
@@ -166,24 +558,75 @@ class MonitoredAgent(GenesisAgent):
                 qos=publisher_qos
             )
             
-            # Create unified monitoring event writer (Event)
-            # Use shared topic registry to avoid creating the same topic twice.
-            from genesis_lib.graph_monitoring import _UNIFIED_TOPIC_REGISTRY
+            # ===== ARCHITECTURAL NOTE: Topic Registry Pattern =====
+            # 
+            # WHY WE NEED _TOPIC_REGISTRY:
+            # Genesis allows multiple components (Interface, Agent, Services) to coexist in the
+            # same process and share a single DDS Participant for efficiency. Each component
+            # needs to publish to the same monitoring topics ("Event", "GraphTopology").
+            #
+            # THE REAL PROBLEM: CLEANUP, NOT CREATION
+            # We COULD handle duplicate topic creation with try-except and find_topic().
+            # The REAL issue is: Who is responsible for cleaning up the topic?
+            #
+            # SCENARIO WITHOUT REGISTRY:
+            #   1. Interface creates "Event" topic
+            #   2. Agent tries to create, catches error, uses find_topic() to reuse
+            #   3. Interface closes and deletes topic → Agent's topic is now invalid!
+            #   OR
+            #   3. Interface closes but doesn't delete (Agent might need it)
+            #   4. Agent closes but doesn't delete (Interface might have already deleted)
+            #   → Topic leaks or crashes
+            #
+            # THE CLEANUP PROBLEM:
+            # Without a registry, each component must ask:
+            # - "Am I the last one using this topic?"
+            # - "Should I delete it on cleanup?"
+            # - "Has someone else already deleted it?"
+            # This requires reference counting or lifecycle coordination - complex and error-prone.
+            #
+            # THE SOLUTION:
+            # _TOPIC_REGISTRY + No Explicit Cleanup = Simple & Correct
+            # - First component: Creates topic, stores in registry
+            # - Subsequent components: Check registry, reuse existing topic
+            # - ALL components: Don't call topic.close() - let participant handle it
+            # - Cleanup: Automatic when participant.close() is called (closes ALL topics)
+            #
+            # DDS CLEANUP BEHAVIOR:
+            # When participant.close() is called, DDS automatically closes all topics,
+            # readers, and writers created on that participant. No manual cleanup needed.
+            #
+            # SCOPE & VISIBILITY:
+            # - Process-local: Only affects components in the same Python runtime
+            # - Participant-scoped: Different participants = different registries (no collision)
+            # - Library-internal: Completely transparent to Genesis developers
+            #
+            # ALTERNATIVES CONSIDERED:
+            # - Try-create-catch + manual cleanup: Requires reference counting to know when to delete
+            # - Weak references: Over-engineered, participant.close() already handles cleanup
+            # - Track "I created this": Still doesn't solve "should I delete this?" on cleanup
+            # 
+            # CONCLUSION:
+            # The registry enables a simple lifecycle model: create once, reuse freely, cleanup
+            # automatically. Without it, we'd need complex reference counting or risk leaks/crashes.
+            # ===== END ARCHITECTURAL NOTE =====
             
+            # Create unified monitoring event writer (Event)
+            # Use process-wide registry to share topics
             self.unified_event_type = self.type_provider.type("genesis_lib", "MonitoringEventUnified")
             participant_id = id(self.app.participant)
-            event_key = (participant_id, "Event")
+            event_key = (participant_id, "rti/connext/genesis/monitoring/Event")
             
-            if event_key in _UNIFIED_TOPIC_REGISTRY:
-                self.unified_event_topic = _UNIFIED_TOPIC_REGISTRY[event_key]
-                logger.debug("MonitoredAgent: Reusing Event topic from shared registry")
+            if event_key in _TOPIC_REGISTRY:
+                self.unified_event_topic = _TOPIC_REGISTRY[event_key]
+                logger.debug("MonitoredAgent: Reusing Event topic from registry")
             else:
                 self.unified_event_topic = dds.DynamicData.Topic(
                     self.app.participant,
-                    "rti/connext/genesis/monitoring/Event",
+                    event_key[1],
                     self.unified_event_type
                 )
-                _UNIFIED_TOPIC_REGISTRY[event_key] = self.unified_event_topic
+                _TOPIC_REGISTRY[event_key] = self.unified_event_topic
                 logger.debug("MonitoredAgent: Created and registered Event topic")
             
             volatile_qos = dds.QosProvider.default.datawriter_qos
@@ -205,12 +648,76 @@ class MonitoredAgent(GenesisAgent):
             self.unified_event_type = None
 
     async def process_request(self, request: Any) -> Dict[str, Any]:
-        print(f"MonitoredAgent.process_request called for {self.agent_type} ({self.app.agent_id}) with request: {request}")
+        """
+        Process incoming request with automatic state machine monitoring.
+        
+        **DECORATOR PATTERN - Monitoring Wrapper Only**:
+        This method ONLY adds observability around the parent's process_request().
+        All actual request processing logic lives in GenesisAgent.process_request().
+        
+        **What This Method Does** (Monitoring Only):
+        1. Publish READY state if agent was in another state
+        2. Publish BUSY state when processing starts
+        3. Call parent's process_request() ← ACTUAL WORK HAPPENS HERE
+        4. Publish READY state when processing completes successfully
+        5. On error: Publish DEGRADED → attempt recovery to READY
+        
+        **What The Parent Does** (Actual Work):
+        GenesisAgent.process_request() handles:
+        - Internal tool discovery (@genesis_tool methods)
+        - External function discovery (DDS advertisements)
+        - Agent-to-agent tool discovery
+        - System prompt selection
+        - Tool schema generation (provider-specific format)
+        - LLM orchestration with multi-turn tool execution
+        - Memory management (conversation history)
+        
+        **Call Chain**:
+        ```
+        User Request
+            ↓
+        MonitoredAgent.process_request()     ← THIS METHOD (monitoring wrapper)
+            ↓
+            super().process_request()        ← Calls parent
+            ↓
+        GenesisAgent.process_request()       ← Actual business logic
+            ↓
+            _call_llm()                      ← Abstract method
+            ↓
+        OpenAIGenesisAgent._call_llm()       ← Provider implementation
+        ```
+        
+        **Inheritance Chain**:
+        - GenesisAgent: Defines abstract process_request with business logic
+        - MonitoredAgent (THIS CLASS): Wraps with state machine monitoring
+        - OpenAIGenesisAgent: Inherits monitored version, implements _call_llm()
+        
+        **State Transitions**:
+        - Success: READY → BUSY → READY
+        - Failure: READY → BUSY → DEGRADED → READY (recovery attempt)
+        
+        **Graph Events Published**:
+        - Node state changes (visible in network topology UI)
+        - Includes: component_id, state, reason, timestamp
+        - Consumed by: GraphState, monitoring dashboards, visualization tools
+        
+        Args:
+            request: Request dict with at minimum a 'message' key
+                    May include: conversation_id, source_agent, service_instance_tag
+        
+        Returns:
+            Response dict with 'message' and 'status' keys
+            Status: 0 = success, non-zero = error
+        
+        Raises:
+            Exception: Re-raises any exception from parent after publishing DEGRADED state
+        """
+        logger.debug(f"MonitoredAgent.process_request called for {self.agent_type} ({self.app.agent_id}) with request: {request}")
         chain_id = str(uuid.uuid4())
         call_id = str(uuid.uuid4())
 
         try:
-            if self.current_state != "READY":
+            if self.enable_monitoring and self.current_state != "READY":
                 self.graph.publish_node(
                     component_id=self.app.agent_id,
                     component_type=COMPONENT_TYPE["AGENT_PRIMARY"] if self.agent_type == "AGENT" else COMPONENT_TYPE["AGENT_SPECIALIZED"],
@@ -227,59 +734,27 @@ class MonitoredAgent(GenesisAgent):
                 )
                 self.current_state = "READY"
 
-            self.graph.publish_node(
-                component_id=self.app.agent_id,
-                component_type=COMPONENT_TYPE["AGENT_PRIMARY"] if self.agent_type == "AGENT" else COMPONENT_TYPE["AGENT_SPECIALIZED"],
-                state=STATE["BUSY"],
-                attrs={
-                    "agent_type": self.agent_type,
-                    "service": self.base_service_name,
-                    "description": self.description,
-                    "agent_id": self.app.agent_id,
-                    "prefered_name": self.agent_name,
-                    "agent_name": self.agent_name,
-                    "reason": f"Processing request: {str(request)}"
-                }
-            )
-            self.current_state = "BUSY"
+            if self.enable_monitoring:
+                self.graph.publish_node(
+                    component_id=self.app.agent_id,
+                    component_type=COMPONENT_TYPE["AGENT_PRIMARY"] if self.agent_type == "AGENT" else COMPONENT_TYPE["AGENT_SPECIALIZED"],
+                    state=STATE["BUSY"],
+                    attrs={
+                        "agent_type": self.agent_type,
+                        "service": self.base_service_name,
+                        "description": self.description,
+                        "agent_id": self.app.agent_id,
+                        "prefered_name": self.agent_name,
+                        "agent_name": self.agent_name,
+                        "reason": f"Processing request: {str(request)}"
+                    }
+                )
+                self.current_state = "BUSY"
 
             # Call parent's process_request (from GenesisAgent)
             result = await super().process_request(request)
 
-            self.graph.publish_node(
-                component_id=self.app.agent_id,
-                component_type=COMPONENT_TYPE["AGENT_PRIMARY"] if self.agent_type == "AGENT" else COMPONENT_TYPE["AGENT_SPECIALIZED"],
-                state=STATE["READY"],
-                attrs={
-                    "agent_type": self.agent_type,
-                    "service": self.base_service_name,
-                    "description": self.description,
-                    "agent_id": self.app.agent_id,
-                    "prefered_name": self.agent_name,
-                    "agent_name": self.agent_name,
-                    "reason": f"Request processed successfully: {str(result)}"
-                }
-            )
-            self.current_state = "READY"
-            return result
-
-        except Exception as e:
-            self.graph.publish_node(
-                component_id=self.app.agent_id,
-                component_type=COMPONENT_TYPE["AGENT_PRIMARY"] if self.agent_type == "AGENT" else COMPONENT_TYPE["AGENT_SPECIALIZED"],
-                state=STATE["DEGRADED"],
-                attrs={
-                    "agent_type": self.agent_type,
-                    "service": self.base_service_name,
-                    "description": self.description,
-                    "agent_id": self.app.agent_id,
-                    "prefered_name": self.agent_name,
-                    "agent_name": self.agent_name,
-                    "reason": f"Error processing request: {str(e)}"
-                }
-            )
-            self.current_state = "DEGRADED"
-            try:
+            if self.enable_monitoring:
                 self.graph.publish_node(
                     component_id=self.app.agent_id,
                     component_type=COMPONENT_TYPE["AGENT_PRIMARY"] if self.agent_type == "AGENT" else COMPONENT_TYPE["AGENT_SPECIALIZED"],
@@ -291,44 +766,171 @@ class MonitoredAgent(GenesisAgent):
                         "agent_id": self.app.agent_id,
                         "prefered_name": self.agent_name,
                         "agent_name": self.agent_name,
-                        "reason": "Attempting recovery to READY state"
+                        "reason": f"Request processed successfully: {str(result)}"
                     }
                 )
                 self.current_state = "READY"
+            return result
+
+        except Exception as e:
+            if self.enable_monitoring:
+                self.graph.publish_node(
+                    component_id=self.app.agent_id,
+                    component_type=COMPONENT_TYPE["AGENT_PRIMARY"] if self.agent_type == "AGENT" else COMPONENT_TYPE["AGENT_SPECIALIZED"],
+                    state=STATE["DEGRADED"],
+                    attrs={
+                        "agent_type": self.agent_type,
+                        "service": self.base_service_name,
+                        "description": self.description,
+                        "agent_id": self.app.agent_id,
+                        "prefered_name": self.agent_name,
+                        "agent_name": self.agent_name,
+                        "reason": f"Error processing request: {str(e)}"
+                    }
+                )
+                self.current_state = "DEGRADED"
+            try:
+                if self.enable_monitoring:
+                    self.graph.publish_node(
+                        component_id=self.app.agent_id,
+                        component_type=COMPONENT_TYPE["AGENT_PRIMARY"] if self.agent_type == "AGENT" else COMPONENT_TYPE["AGENT_SPECIALIZED"],
+                        state=STATE["READY"],
+                        attrs={
+                            "agent_type": self.agent_type,
+                            "service": self.base_service_name,
+                            "description": self.description,
+                            "agent_id": self.app.agent_id,
+                            "prefered_name": self.agent_name,
+                            "agent_name": self.agent_name,
+                            "reason": "Attempting recovery to READY state"
+                        }
+                    )
+                    self.current_state = "READY"
             except Exception as recovery_error:
                 logger.error(f"Failed to recover from DEGRADED state: {recovery_error}")
             raise
 
     async def close(self) -> None:
+        """
+        Gracefully shut down the agent with automatic state notification.
+        
+        **DECORATOR PATTERN - Monitoring Wrapper Only**:
+        Similar to process_request(), this method wraps the parent's cleanup logic
+        with monitoring state transitions.
+        
+        **Shutdown Sequence**:
+        1. Publish OFFLINE state to network (announces agent is shutting down)
+        2. Clear internal state tracking (state_history, event_correlation)
+        3. Call parent's close() ← ACTUAL CLEANUP HAPPENS HERE
+           - GenesisApp.close() shuts down DDS participant, RPC service, etc.
+        
+        **Why OFFLINE State Matters**:
+        - Notifies network topology that agent is no longer available
+        - Allows monitoring systems to update agent status in real-time
+        - Enables clean removal from network graphs/dashboards
+        - Prevents routing requests to dead agents
+        
+        **What Gets Cleaned Up** (in parent GenesisApp.close()):
+        - DDS Participant (closes all topics, readers, writers)
+        - RPC Replier (stops accepting requests)
+        - Function Registry (cleanup discovery listeners)
+        - Memory adapter (if using persistent storage)
+        
+        **State Transition**:
+        - Normal: ANY_STATE → OFFLINE
+        - On error: ANY_STATE → DEGRADED (then raises exception)
+        
+        **Graph Events Published**:
+        - Node state: OFFLINE with reason "Shutting down monitoring"
+        - Consumed by: Network topology viewers for agent lifecycle tracking
+        
+        Raises:
+            Exception: Re-raises any exception from cleanup after setting DEGRADED state
+        """
         try:
-            print(f"MonitoredAgent.close: publishing OFFLINE for {self.agent_type} ({self.app.agent_id})")
-            self.graph.publish_node(
-                component_id=self.app.agent_id,
-                component_type=COMPONENT_TYPE["AGENT_PRIMARY"] if self.agent_type == "AGENT" else COMPONENT_TYPE["AGENT_SPECIALIZED"],
-                state=STATE["OFFLINE"],
-                attrs={
-                    "agent_type": self.agent_type,
-                    "service": self.base_service_name,
-                    "description": self.description,
-                    "agent_id": self.app.agent_id,
-                    "prefered_name": self.agent_name,
-                    "agent_name": self.agent_name,
-                    "reason": "Shutting down monitoring"
-                }
-            )
-            self.current_state = "OFFLINE"
-            self.last_state_change = datetime.now()
-            self.state_history = []
-            self.event_correlation = {}
+            if self.enable_monitoring:
+                logger.debug(f"MonitoredAgent.close: publishing OFFLINE for {self.agent_type} ({self.app.agent_id})")
+                self.graph.publish_node(
+                    component_id=self.app.agent_id,
+                    component_type=COMPONENT_TYPE["AGENT_PRIMARY"] if self.agent_type == "AGENT" else COMPONENT_TYPE["AGENT_SPECIALIZED"],
+                    state=STATE["OFFLINE"],
+                    attrs={
+                        "agent_type": self.agent_type,
+                        "service": self.base_service_name,
+                        "description": self.description,
+                        "agent_id": self.app.agent_id,
+                        "prefered_name": self.agent_name,
+                        "agent_name": self.agent_name,
+                        "reason": "Shutting down monitoring"
+                    }
+                )
+                self.current_state = "OFFLINE"
+                self.last_state_change = datetime.now()
+                self.state_history = []
+                self.event_correlation = {}
             if hasattr(self, 'app'):
                 await self.app.close()
         except Exception as e:
             logger.error(f"Error during monitoring shutdown: {e}")
-            self.current_state = "DEGRADED"
+            if self.enable_monitoring:
+                self.current_state = "DEGRADED"
             raise
 
     def publish_discovered_functions(self, functions: List[Dict[str, Any]]) -> None:
+        """
+        Publish graph topology events for discovered functions.
+        
+        **CRITICAL FOR NETWORK MONITORING**:
+        This method is the bridge between DDS discovery (source of truth) and
+        graph topology visualization (management layer). Without this, the
+        monitoring UI would only see agents but no functions or connections.
+        
+        **When This Is Called**:
+        - Automatically via _on_function_discovered() callback when FunctionRegistry
+          discovers functions via DDS advertisements
+        - Each function discovery triggers this individually
+        
+        **What Gets Published to Graph**:
+        1. Function nodes (with metadata: name, description, schema, provider_id)
+        2. AGENT→SERVICE edges (this agent can call functions from this service)
+           - Note: We publish agent->service edges instead of agent->function edges
+           - This prevents edge explosion (10 agents × 20 services × 4 functions = 800 edges)
+           - Service->function edges are already published by EnhancedServiceBase
+        3. REQUESTER→PROVIDER edges (DDS RPC connection topology)
+        4. EXPLICIT_CONNECTION edges (direct connections)
+        5. Final READY state for agent (with discovered function count)
+        
+        **Why This Matters**:
+        In a large distributed system with 20 services and 80 functions:
+        - Operators need to see what functions are available
+        - Debugging requires knowing which agents can call which functions
+        - Network topology visualization shows service dependencies
+        - Without this: Only agents visible, no functions/services/connections!
+        
+        **Architecture**:
+        ```
+        Service advertises → DDS → FunctionRegistry.handle_advertisement()
+                                   → Calls discovery_callbacks
+                                   → _on_function_discovered()
+                                   → publish_discovered_functions()  ← THIS METHOD
+                                   → GraphMonitor publishes nodes/edges
+                                   → Monitoring UI shows topology
+        ```
+        
+        Args:
+            functions: List of function dicts, each containing:
+                      - function_id: Unique identifier
+                      - name: Function name
+                      - description: Human-readable description
+                      - provider_id: GUID of service providing this function
+                      - schema: JSON schema for parameters
+                      - capabilities: List of capability tags
+        """
         logger.debug(f"Publishing {len(functions)} discovered functions as monitoring events")
+        
+        if not self.enable_monitoring:
+            return
+            
         function_requester_guid = None
         if hasattr(self, 'function_client'):
             function_requester_guid = self._get_requester_guid(self.function_client)
@@ -337,6 +939,8 @@ class MonitoredAgent(GenesisAgent):
 
         provider_guids = set()
         function_provider_guid = None
+        # Track services discovered to avoid duplicate agent->service edges
+        services_discovered = set()
 
         for func in functions:
             if 'provider_id' in func and func['provider_id']:
@@ -351,7 +955,7 @@ class MonitoredAgent(GenesisAgent):
             function_name = func.get('name', 'unknown')
             provider_id = func.get('provider_id', '')
 
-            # Node for function
+            # Node for function (still publish for visualization/debugging)
             self.graph.publish_node(
                 component_id=function_id,
                 component_type=COMPONENT_TYPE["FUNCTION"],
@@ -366,19 +970,25 @@ class MonitoredAgent(GenesisAgent):
                     "reason": f"Function discovered: {function_name} ({function_id})"
                 }
             )
-            # Edge: agent can call function
-            self.graph.publish_edge(
-                source_id=self.app.agent_id,
-                target_id=function_id,
-                edge_type=EDGE_TYPE["FUNCTION_CONNECTION"],
-                attrs={
-                    "edge_type": "agent_function",
-                    "function_id": function_id,
-                    "function_name": function_name,
-                    "reason": f"Agent {self.agent_name} can call function {function_name}"
-                },
-                component_type=COMPONENT_TYPE["AGENT_PRIMARY"] if self.agent_type == "AGENT" else COMPONENT_TYPE["AGENT_SPECIALIZED"]
-            )
+            
+            # VISUALIZATION SIMPLIFICATION: Instead of agent->function edges,
+            # publish agent->service edges. The service->function edges are
+            # already published by EnhancedServiceBase, so the path is implied.
+            # This prevents edge explosion in large topologies (10 agents × 20 services × 4 functions = 800 edges).
+            if provider_id and provider_id not in services_discovered:
+                services_discovered.add(provider_id)
+                self.graph.publish_edge(
+                    source_id=self.app.agent_id,
+                    target_id=provider_id,
+                    edge_type=EDGE_TYPE["FUNCTION_CONNECTION"],
+                    attrs={
+                        "edge_type": "agent_service",
+                        "service_id": provider_id,
+                        "service_name": func.get('provider_name', 'unknown'),
+                        "reason": f"Agent {self.agent_name} discovered service {func.get('provider_name', 'unknown')}"
+                    },
+                    component_type=COMPONENT_TYPE["AGENT_PRIMARY"] if self.agent_type == "AGENT" else COMPONENT_TYPE["AGENT_SPECIALIZED"]
+                )
 
         if function_requester_guid:
             for provider_guid in provider_guids:
@@ -431,6 +1041,9 @@ class MonitoredAgent(GenesisAgent):
         )
 
     def create_requester_provider_edge(self, requester_guid: str, provider_guid: str):
+        if not self.enable_monitoring:
+            return True
+            
         try:
             self.graph.publish_edge(
                 source_id=requester_guid,
@@ -458,17 +1071,19 @@ class MonitoredAgent(GenesisAgent):
             self.agent_capabilities["supported_tasks"] = supported_tasks
         if additional_capabilities:
             self.agent_capabilities.update(additional_capabilities)
-        self.graph.publish_node(
-            component_id=self.app.agent_id,
-            component_type=COMPONENT_TYPE["AGENT_PRIMARY"] if self.agent_type == "AGENT" else COMPONENT_TYPE["AGENT_SPECIALIZED"],
-            state=STATE["READY"],
-            attrs={
-                **self.agent_capabilities,
-                "prefered_name": self.agent_name,
-                "agent_name": self.agent_name,
-                "reason": "Agent capabilities updated"
-            }
-        )
+        
+        if self.enable_monitoring:
+            self.graph.publish_node(
+                component_id=self.app.agent_id,
+                component_type=COMPONENT_TYPE["AGENT_PRIMARY"] if self.agent_type == "AGENT" else COMPONENT_TYPE["AGENT_SPECIALIZED"],
+                state=STATE["READY"],
+                attrs={
+                    **self.agent_capabilities,
+                    "prefered_name": self.agent_name,
+                    "agent_name": self.agent_name,
+                    "reason": "Agent capabilities updated"
+                }
+            )
 
     # ChainEvent and agent-to-agent monitoring logic is unchanged and remains below.
     # ... (rest of the class unchanged, including agent communication, ChainEvent, etc.)
@@ -478,6 +1093,8 @@ class MonitoredAgent(GenesisAgent):
     def _publish_agent_chain_event(self, chain_id: str, call_id: str, event_type: str,
                                    source_id: str, target_id: str, status: int = 0):
         """Publish chain event for agent-to-agent interactions to Event"""
+        if not self.enable_monitoring:
+            return
         if not hasattr(self, "unified_event_writer") or not self.unified_event_writer:
             return
         try:
@@ -511,6 +1128,8 @@ class MonitoredAgent(GenesisAgent):
 
     def _publish_llm_call_start(self, chain_id: str, call_id: str, model_identifier: str):
         """Publish chain event for LLM call start to Event"""
+        if not self.enable_monitoring:
+            return
         if not hasattr(self, "unified_event_writer") or not self.unified_event_writer:
             return
         try:
@@ -543,6 +1162,8 @@ class MonitoredAgent(GenesisAgent):
 
     def _publish_llm_call_complete(self, chain_id: str, call_id: str, model_identifier: str):
         """Publish chain event for LLM call completion to Event"""
+        if not self.enable_monitoring:
+            return
         if not hasattr(self, "unified_event_writer") or not self.unified_event_writer:
             return
         try:
@@ -575,6 +1196,8 @@ class MonitoredAgent(GenesisAgent):
 
     def _publish_classification_result(self, chain_id: str, call_id: str, classified_function_name: str, classified_function_id: str):
         """Publish chain event for function classification result to Event"""
+        if not self.enable_monitoring:
+            return
         if not hasattr(self, "unified_event_writer") or not self.unified_event_writer:
             return
         try:
@@ -607,6 +1230,8 @@ class MonitoredAgent(GenesisAgent):
 
     def _publish_classification_node(self, func_name: str, func_desc: str, reason: str):
         """Publish classification node to graph for monitoring/visualization"""
+        if not self.enable_monitoring:
+            return
         try:
             self.graph.publish_node(
                 component_id=self.app.agent_id,
@@ -623,6 +1248,8 @@ class MonitoredAgent(GenesisAgent):
 
     def _publish_function_call_start(self, chain_id: str, call_id: str, function_name: str, function_id: str, target_provider_id: str = None):
         """Publish chain event for function call start to Event"""
+        if not self.enable_monitoring:
+            return
         if not hasattr(self, "unified_event_writer") or not self.unified_event_writer:
             return
         try:
@@ -682,6 +1309,8 @@ class MonitoredAgent(GenesisAgent):
 
     def _publish_function_call_complete(self, chain_id: str, call_id: str, function_name: str, function_id: str, source_provider_id: str = None):
         """Publish chain event for function call completion to Event"""
+        if not self.enable_monitoring:
+            return
         if not hasattr(self, "unified_event_writer") or not self.unified_event_writer:
             return
         try:
@@ -738,18 +1367,55 @@ class MonitoredAgent(GenesisAgent):
         except Exception:
             pass
 
-    async def execute_function_with_monitoring(self,
-                                               function_name: str,
-                                               function_id: str,
-                                               provider_id: str | None,
-                                               tool_args: dict,
-                                               chain_id: str,
-                                               call_id: str):
-        """Centralized function execution + ChainEvent emission.
-        
-        All subclasses should call this instead of emitting ChainEvents directly.
+    async def _call_function(self, function_name: str, **kwargs) -> Any:
         """
-        # Start events (currently disabled in Phase 7)
+        DECORATOR PATTERN - Monitoring Wrapper for Function Calls
+        
+        Overrides GenesisAgent._call_function() to add chain event monitoring.
+        This is where agent→service→function interactions are tracked.
+        
+        **What This Method Does** (Monitoring Layer):
+        1. Generate chain_id and call_id for distributed tracing
+        2. Lookup function metadata (function_id, provider_id) from registry
+        3. Publish FUNCTION_CALL_START event (agent→function)
+        4. Publish AGENT_TO_SERVICE_START event (agent→service) if provider known
+        5. Call parent implementation (actual RPC function call)
+        6. Publish FUNCTION_CALL_COMPLETE event (function→agent)
+        7. Publish AGENT_TO_SERVICE_COMPLETE event (service→agent) if provider known
+        
+        **What the Parent Does** (Business Logic - GenesisAgent._call_function):
+        - Validates function exists in registry
+        - Makes actual RPC call via GenericFunctionClient
+        - Returns function result
+        
+        **Chain Event Flow**:
+        ```
+        Interface → Agent (INTERFACE_REQUEST)
+          ├─ Agent → Service (AGENT_TO_SERVICE_START)    ← This method publishes
+          │  └─ Service → Function (execution)
+          │     └─ Function → Result
+          └─ Service → Agent (AGENT_TO_SERVICE_COMPLETE) ← This method publishes
+        Agent → Interface (INTERFACE_REPLY)
+        ```
+        
+        Args:
+            function_name: Name of the function to call
+            **kwargs: Function arguments
+            
+        Returns:
+            Function result (from parent implementation)
+        """
+        # Generate IDs for distributed tracing
+        chain_id = str(uuid.uuid4())
+        call_id = str(uuid.uuid4())
+        
+        # Lookup function metadata from registry
+        available_functions = self._get_available_functions()
+        function_metadata = available_functions.get(function_name, {})
+        function_id = function_metadata.get('function_id', function_name)
+        provider_id = function_metadata.get('provider_id', None)
+        
+        # Publish start events
         self._publish_function_call_start(
             chain_id=chain_id,
             call_id=call_id,
@@ -757,9 +1423,191 @@ class MonitoredAgent(GenesisAgent):
             function_id=function_id,
             target_provider_id=provider_id,
         )
-        # Execute underlying function via subclass implementation
-        result = await self._call_function(function_name, **tool_args)
-        # Complete events (currently disabled in Phase 7)
+        
+        try:
+            # Call parent implementation (actual RPC function call)
+            result = await super()._call_function(function_name, **kwargs)
+            
+            # Publish complete events
+            self._publish_function_call_complete(
+                chain_id=chain_id,
+                call_id=call_id,
+                function_name=function_name,
+                function_id=function_id,
+                source_provider_id=provider_id,
+            )
+            
+            return result
+        except Exception as e:
+            # Publish error event but still raise the exception
+            logger.error(f"Function call failed: {function_name} - {e}")
+            # TODO: Publish error event to monitoring
+            raise
+    
+    async def _call_agent(self, agent_tool_name: str, **kwargs) -> Any:
+        """
+        DECORATOR PATTERN - Monitoring Wrapper for Agent-to-Agent Calls
+        
+        Overrides GenesisAgent._call_agent() to add chain event monitoring.
+        This is where agent→agent interactions are tracked.
+        
+        **What This Method Does** (Monitoring Layer):
+        1. Generate chain_id and call_id for distributed tracing
+        2. Lookup agent metadata (agent_id) from registry
+        3. Publish AGENT_TO_AGENT_START event
+        4. Call parent implementation (actual agent RPC call)
+        5. Publish AGENT_TO_AGENT_COMPLETE event
+        
+        **What the Parent Does** (Business Logic - GenesisAgent._call_agent):
+        - Validates agent exists in registry
+        - Makes actual RPC call via agent communication
+        - Returns agent response
+        
+        **Chain Event Flow**:
+        ```
+        Agent A → Agent B (AGENT_TO_AGENT_START)    ← This method publishes
+          └─ Agent B processes request
+             └─ Agent B → Result
+        Agent B → Agent A (AGENT_TO_AGENT_COMPLETE) ← This method publishes
+        ```
+        
+        Args:
+            agent_tool_name: Name of the agent tool to call
+            **kwargs: Agent arguments (expects 'message' key)
+            
+        Returns:
+            Agent response (from parent implementation)
+        """
+        # Generate IDs for distributed tracing
+        chain_id = str(uuid.uuid4())
+        call_id = str(uuid.uuid4())
+        
+        # Lookup agent metadata from registry
+        available_agent_tools = self._get_available_agent_tools()
+        agent_metadata = available_agent_tools.get(agent_tool_name, {})
+        target_agent_id = agent_metadata.get('agent_id', agent_tool_name)
+        
+        # Publish start event
+        self._publish_agent_to_agent_start(
+            chain_id=chain_id,
+            call_id=call_id,
+            agent_name=agent_tool_name,
+            target_agent_id=target_agent_id,
+        )
+        
+        try:
+            # Call parent implementation (actual agent RPC call)
+            result = await super()._call_agent(agent_tool_name, **kwargs)
+            
+            # Publish complete event
+            self._publish_agent_to_agent_complete(
+                chain_id=chain_id,
+                call_id=call_id,
+                agent_name=agent_tool_name,
+                target_agent_id=target_agent_id,
+            )
+            
+            return result
+        except Exception as e:
+            # Publish error event but still raise the exception
+            logger.error(f"Agent call failed: {agent_tool_name} - {e}")
+            # TODO: Publish error event to monitoring
+            raise
+    
+    def _publish_agent_to_agent_start(self, chain_id: str, call_id: str, agent_name: str, target_agent_id: str):
+        """Publish chain event for agent-to-agent call start"""
+        if not self.enable_monitoring:
+            return
+        if not hasattr(self, "unified_event_writer") or not self.unified_event_writer:
+            return
+        try:
+            import rti.connextdds as dds
+            unified_event = dds.DynamicData(self.unified_event_type)
+            unified_event["event_id"] = call_id
+            unified_event["kind"] = 0  # CHAIN
+            unified_event["timestamp"] = int(time.time() * 1000)
+            unified_event["component_id"] = self.app.agent_id
+            unified_event["severity"] = "INFO"
+            unified_event["message"] = "AGENT_TO_AGENT_START"
+            chain_payload = {
+                "chain_id": chain_id,
+                "call_id": call_id,
+                "interface_id": str(self.app.participant.instance_handle),
+                "primary_agent_id": self.app.agent_id,
+                "specialized_agent_ids": target_agent_id,
+                "function_id": "",
+                "query_id": str(uuid.uuid4()),
+                "event_type": "AGENT_TO_AGENT_START",
+                "source_id": self.app.agent_id,
+                "target_id": target_agent_id,
+                "status": 0
+            }
+            unified_event["payload"] = json.dumps(chain_payload)
+            self.unified_event_writer.write(unified_event)
+            self.unified_event_writer.flush()
+        except Exception as e:
+            logger.debug(f"Error publishing agent-to-agent start event: {e}")
+    
+    def _publish_agent_to_agent_complete(self, chain_id: str, call_id: str, agent_name: str, target_agent_id: str):
+        """Publish chain event for agent-to-agent call completion"""
+        if not self.enable_monitoring:
+            return
+        if not hasattr(self, "unified_event_writer") or not self.unified_event_writer:
+            return
+        try:
+            import rti.connextdds as dds
+            unified_event = dds.DynamicData(self.unified_event_type)
+            unified_event["event_id"] = call_id
+            unified_event["kind"] = 0  # CHAIN
+            unified_event["timestamp"] = int(time.time() * 1000)
+            unified_event["component_id"] = target_agent_id
+            unified_event["severity"] = "INFO"
+            unified_event["message"] = "AGENT_TO_AGENT_COMPLETE"
+            chain_payload = {
+                "chain_id": chain_id,
+                "call_id": call_id,
+                "interface_id": str(self.app.participant.instance_handle),
+                "primary_agent_id": self.app.agent_id,
+                "specialized_agent_ids": target_agent_id,
+                "function_id": "",
+                "query_id": str(uuid.uuid4()),
+                "event_type": "AGENT_TO_AGENT_COMPLETE",
+                "source_id": target_agent_id,
+                "target_id": self.app.agent_id,
+                "status": 0
+            }
+            unified_event["payload"] = json.dumps(chain_payload)
+            self.unified_event_writer.write(unified_event)
+            self.unified_event_writer.flush()
+        except Exception as e:
+            logger.debug(f"Error publishing agent-to-agent complete event: {e}")
+    
+    async def execute_function_with_monitoring(self,
+                                               function_name: str,
+                                               function_id: str,
+                                               provider_id: str | None,
+                                               tool_args: dict,
+                                               chain_id: str,
+                                               call_id: str):
+        """DEPRECATED: Use _call_function() override instead.
+        
+        This method was the original approach for monitoring function calls,
+        but it required callers to explicitly use it. The new approach overrides
+        _call_function() directly so ALL function calls are automatically monitored.
+        
+        Kept for backward compatibility but should not be used going forward.
+        """
+        # Start events
+        self._publish_function_call_start(
+            chain_id=chain_id,
+            call_id=call_id,
+            function_name=function_name,
+            function_id=function_id,
+            target_provider_id=provider_id,
+        )
+        # Execute underlying function via parent implementation
+        result = await super()._call_function(function_name, **tool_args)
+        # Complete events
         self._publish_function_call_complete(
             chain_id=chain_id,
             call_id=call_id,
@@ -865,7 +1713,7 @@ class MonitoredAgent(GenesisAgent):
                                status_data: Optional[Dict[str, Any]] = None,
                                request_info: Optional[Any] = None) -> None:
         """
-        Publish a monitoring event to Event (Phase 7: V2 Only).
+        Publish a monitoring event to Event topic.
         
         Args:
             event_type: Type of event (AGENT_DISCOVERY, AGENT_REQUEST, etc.)
@@ -875,6 +1723,9 @@ class MonitoredAgent(GenesisAgent):
             status_data: Data about the agent status (if applicable)
             request_info: Request information containing client ID
         """
+        if not self.enable_monitoring:
+            return
+            
         try:
             # Check if monitoring is set up
             if not hasattr(self, 'unified_event_writer') or not self.unified_event_writer:
