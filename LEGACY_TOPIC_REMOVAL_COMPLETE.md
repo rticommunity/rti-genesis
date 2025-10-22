@@ -70,7 +70,7 @@
 - **Removed:** `_on_agent_capability_received()` method
 - **Impact:** All agent discovery now via Advertisement (kind=AGENT)
 
-#### `genesis_lib/agent.py`
+#### `genesis_lib/genesis_agent.py`
 - **Removed:** `registration_writer` class variable
 - **Removed:** Writer creation code and QoS setup
 - **Impact:** Agents use Advertisement via AdvertisementBus

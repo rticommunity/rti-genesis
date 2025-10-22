@@ -8,7 +8,7 @@ The monitoring visualization was only showing request/reply activations from **i
 
 The `MonitoredAgent` class had helper methods for publishing chain events (`_publish_function_call_start`, `_publish_function_call_complete`), but these were never being called because:
 
-1. **Base Agent Implementation**: The `GenesisAgent._call_function()` method (in `genesis_lib/agent.py`) directly calls functions via the `GenericFunctionClient` without any monitoring.
+1. **Base Agent Implementation**: The `GenesisAgent._call_function()` method (in `genesis_lib/genesis_agent.py`) directly calls functions via the `GenericFunctionClient` without any monitoring.
 
 2. **No Override in MonitoredAgent**: The `MonitoredAgent` class didn't override `_call_function()`, so when agents called functions, the base implementation was used with no monitoring events published.
 

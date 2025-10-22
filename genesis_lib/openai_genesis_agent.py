@@ -10,7 +10,7 @@ a fully functional agent with minimal code (~500 lines vs 2000+ without the fram
 ARCHITECTURE OVERVIEW - Understanding the Inheritance Hierarchy
 =================================================================================================
 
-GenesisAgent (genesis_lib/agent.py)
+GenesisAgent (genesis_lib/genesis_agent.py)
 ├─ Provider-Agnostic Business Logic:
 │  ├─ process_request() - Main request processing flow
 │  ├─ process_agent_request() - Agent-to-agent communication wrapper

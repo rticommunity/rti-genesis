@@ -29,7 +29,7 @@ These methods:
 
 ### 1. Moved to `GenesisAgent` with Provider-Agnostic Implementation
 
-**File:** `genesis_lib/agent.py`
+**File:** `genesis_lib/genesis_agent.py`
 
 ```python
 def _trace_llm_call(self, context: str, tools: List[Dict], user_message: str, 
@@ -172,7 +172,7 @@ agent = OpenAIGenesisAgent(enable_tracing=False)
 
 ## Files Modified
 
-1. **`genesis_lib/agent.py`**
+1. **`genesis_lib/genesis_agent.py`**
    - Added `_trace_llm_call()` (~35 lines)
    - Added `_trace_llm_response()` (~35 lines)
    - Integrated tracing into `_orchestrate_tool_request()`

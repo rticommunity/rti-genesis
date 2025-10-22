@@ -10,7 +10,7 @@ implementations (OpenAIGenesisAgent, AnthropicGenesisAgent) as a transparent dec
 ARCHITECTURE OVERVIEW - Understanding the Inheritance Hierarchy
 =================================================================================================
 
-GenesisAgent (genesis_lib/agent.py)
+GenesisAgent (genesis_lib/genesis_agent.py)
 ├─ Provider-Agnostic Business Logic:
 │  ├─ process_request() - Main request processing flow
 │  ├─ _orchestrate_tool_request() - Multi-turn conversation orchestration
@@ -221,7 +221,7 @@ import asyncio
 import traceback
 import rti.connextdds as dds
 
-from .agent import GenesisAgent
+from .genesis_agent import GenesisAgent
 from genesis_lib.generic_function_client import GenericFunctionClient
 from genesis_lib.graph_monitoring import (
     GraphMonitor,

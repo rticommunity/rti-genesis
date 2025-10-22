@@ -97,7 +97,7 @@ Successfully refactored the Genesis agent architecture to separate provider-agno
 
 ## Files Modified
 
-1. **`genesis_lib/agent.py`**
+1. **`genesis_lib/genesis_agent.py`**
    - Added 5 abstract methods for provider implementations
    - Added `_orchestrate_tool_request()` (~100 lines)
    - Enhanced `_route_tool_call()` for unified tool routing

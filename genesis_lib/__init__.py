@@ -13,7 +13,7 @@ import logging
 logger = logging.getLogger(__name__) # or logging.getLogger("genesis_lib")
 
 from .genesis_app import GenesisApp
-from .agent import GenesisAgent
+from .genesis_agent import GenesisAgent
 from .interface import GenesisInterface
 from .function_discovery import (
     FunctionRegistry,
