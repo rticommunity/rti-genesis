@@ -102,6 +102,145 @@ automatically get ALL of this functionality without writing any code:
    - Request/reply pattern handling
    - Content filtering by service instance tags
 
+8. **User-Defined Capabilities** (from GenesisAgent) - **OPTIONAL**:
+   - define_capabilities() - Programmatic capability definition
+   - add_capability() - Add individual capabilities
+   - add_specialization() - Add domain specializations
+   - set_performance_metric() - Set performance characteristics
+   - get_agent_capabilities() - Override for custom logic
+   - Class-level CAPABILITIES attribute support
+   - Rich metadata for agent discovery and routing
+   - **If not used**: Automatic intelligent capability generation (model-based → heuristic)
+
+=================================================================================================
+USER-DEFINED CAPABILITIES - Rich Agent Metadata System (OPTIONAL)
+=================================================================================================
+
+The Genesis framework provides a comprehensive capability definition system that allows
+you to define rich, structured metadata for your agents. This enables better agent
+discovery, routing, and classification within the Genesis network.
+
+**IMPORTANT: This is completely OPTIONAL!**
+
+- **If you define capabilities**: Your custom definitions are used
+- **If you don't define capabilities**: Automatic intelligent generation (model-based → heuristic)
+- **All existing agents continue to work unchanged** - no breaking changes
+- **Backward compatible**: Current examples work exactly as before
+
+CAPABILITY DEFINITION METHODS (Available on all provider agents):
+
+1. **define_capabilities()** - Comprehensive capability definition:
+   ```python
+   agent.define_capabilities(
+       agent_type="specialist",
+       specializations=["weather", "meteorology"],
+       capabilities=["weather_forecasting", "climate_analysis"],
+       classification_tags=["weather", "forecast", "climate"],
+       performance_metrics={
+           "estimated_response_time": "fast",
+           "complexity_handling": "moderate"
+       },
+       strengths=["Accurate weather data", "Multi-day forecasting"],
+       limitations=["Requires location input", "Weather domain only"],
+       default_capable=False
+   )
+   ```
+
+2. **Convenience Methods** - Dynamic capability management:
+   ```python
+   agent.add_capability("advanced_weather_analysis")
+   agent.add_specialization("atmospheric_science")
+   agent.set_performance_metric("accuracy", "high")
+   ```
+
+3. **Method Override** - Custom capability logic:
+   ```python
+   def get_agent_capabilities(self) -> dict:
+       return {
+           'agent_type': 'specialist',
+           'specializations': ['finance', 'investment'],
+           'capabilities': ['stock_analysis', 'portfolio_optimization'],
+           # ... more fields
+       }
+   ```
+
+4. **Class-Level Definition** - Static capability definitions:
+   ```python
+   class MyAgent(OpenAIGenesisAgent):
+       CAPABILITIES = {
+           'agent_type': 'specialist',
+           'specializations': ['mathematics', 'statistics'],
+           'capabilities': ['calculations', 'statistical_analysis'],
+           # ... more fields
+       }
+   ```
+
+CAPABILITY SCHEMA FIELDS:
+
+Required Fields:
+- agent_type: "general" | "specialist" | "tool_agent" | "conversational"
+- specializations: List[str] - Domain expertise areas
+- capabilities: List[str] - Specific capabilities the agent can perform
+- classification_tags: List[str] - Tags for categorization and discovery
+- default_capable: bool - Whether agent can handle general requests
+
+Optional Fields:
+- model_info: Dict - Information about underlying models
+- performance_metrics: Dict - Performance characteristics
+- interaction_patterns: List[str] - How the agent typically interacts
+- strengths: List[str] - Key strengths
+- limitations: List[str] - Known limitations
+
+PRIORITY ORDER:
+1. User-defined capabilities (highest priority)
+2. Model-based generation (if available)
+3. Heuristic approach (fallback)
+
+BENEFITS:
+- **Consistent Metadata**: Standardized capability definitions across all agents
+- **Rich Discovery**: Better agent classification and routing
+- **Performance Metrics**: Detailed performance characteristics
+- **Domain Specialization**: Clear specialization and limitation information
+- **Dynamic Updates**: Runtime capability management
+- **Provider Agnostic**: Works with any LLM provider
+
+EXAMPLES BY DOMAIN:
+
+Weather Agent:
+```python
+agent.define_capabilities(
+    agent_type="specialist",
+    specializations=["weather", "meteorology", "climate"],
+    capabilities=["weather_forecasting", "climate_analysis"],
+    classification_tags=["weather", "forecast", "climate"],
+    performance_metrics={"estimated_response_time": "fast"},
+    default_capable=False
+)
+```
+
+Finance Agent:
+```python
+agent.define_capabilities(
+    agent_type="specialist", 
+    specializations=["finance", "investment", "trading"],
+    capabilities=["stock_analysis", "portfolio_optimization"],
+    classification_tags=["finance", "investment", "stocks"],
+    performance_metrics={"complexity_handling": "complex"},
+    default_capable=False
+)
+```
+
+General Assistant:
+```python
+agent.define_capabilities(
+    agent_type="general",
+    specializations=["general_assistance"],
+    capabilities=["conversation", "task_assistance"],
+    classification_tags=["general", "assistant", "conversation"],
+    default_capable=True
+)
+```
+
 =================================================================================================
 WHAT YOU MUST IMPLEMENT - The 7 Abstract Methods
 =================================================================================================
@@ -134,6 +273,103 @@ Example: Creating AnthropicGenesisAgent
 7. Test using existing test suite (just swap the agent class)
 
 That's it! Your new agent will automatically integrate with all existing infrastructure.
+
+CAPABILITY DEFINITION FOR NEW PROVIDERS:
+
+When creating a new provider, you can define capabilities in several ways:
+
+1. **In __init__()** - Define capabilities during agent creation:
+   ```python
+   def __init__(self, model_name="claude-3-5-sonnet-20241022", ...):
+       super().__init__(...)
+       
+       # Define capabilities for your provider
+       self.define_capabilities(
+           agent_type="specialist",
+           specializations=["anthropic", "claude"],
+           capabilities=["advanced_reasoning", "code_generation"],
+           classification_tags=["anthropic", "claude", "reasoning"],
+           performance_metrics={"reasoning_capability": "advanced"}
+       )
+   ```
+
+2. **Class-Level Definition** - Define capabilities at class level:
+   ```python
+   class AnthropicGenesisAgent(MonitoredAgent):
+       CAPABILITIES = {
+           'agent_type': 'specialist',
+           'specializations': ['anthropic', 'claude'],
+           'capabilities': ['advanced_reasoning', 'code_generation'],
+           'classification_tags': ['anthropic', 'claude', 'reasoning']
+       }
+   ```
+
+3. **Method Override** - Override get_agent_capabilities() for custom logic:
+   ```python
+   def get_agent_capabilities(self) -> dict:
+       base_caps = super().get_agent_capabilities()
+       # Add provider-specific capabilities
+       base_caps['model_info']['provider'] = 'anthropic'
+       base_caps['performance_metrics']['reasoning_capability'] = 'advanced'
+       return base_caps
+   ```
+
+4. **Dynamic Capabilities** - Add capabilities based on configuration:
+   ```python
+   def __init__(self, enable_advanced_features=False, ...):
+       super().__init__(...)
+       
+       if enable_advanced_features:
+           self.add_capability("advanced_reasoning")
+           self.add_capability("code_generation")
+           self.set_performance_metric("reasoning_capability", "advanced")
+   ```
+
+BEST PRACTICES FOR PROVIDER CAPABILITIES:
+
+1. **Provider-Specific Metadata**: Include provider information in model_info
+2. **Performance Characteristics**: Define provider-specific performance metrics
+3. **Model Information**: Include model names and capabilities
+4. **Specialization**: Define what makes your provider unique
+5. **Limitations**: Be honest about provider limitations
+
+Example Provider Capability Definition:
+```python
+def __init__(self, model_name="claude-3-5-sonnet-20241022", ...):
+    super().__init__(...)
+    
+    self.define_capabilities(
+        agent_type="specialist",
+        specializations=["anthropic", "claude", "reasoning"],
+        capabilities=[
+            "advanced_reasoning",
+            "code_generation", 
+            "mathematical_problem_solving",
+            "creative_writing"
+        ],
+        classification_tags=["anthropic", "claude", "reasoning", "code", "math"],
+        performance_metrics={
+            "reasoning_capability": "advanced",
+            "code_generation": "expert",
+            "mathematical_ability": "high"
+        },
+        model_info={
+            "provider": "anthropic",
+            "model": model_name,
+            "reasoning_capability": "advanced"
+        },
+        strengths=[
+            "Advanced reasoning capabilities",
+            "Excellent code generation",
+            "Strong mathematical problem solving"
+        ],
+        limitations=[
+            "Requires Anthropic API key",
+            "Rate limited by Anthropic",
+            "No real-time data access"
+        ]
+    )
+```
 
 =================================================================================================
 
@@ -247,7 +483,7 @@ class OpenAIGenesisAgent(MonitoredAgent):
         }
         
         # Initialize parent class (MonitoredAgent → GenesisAgent)
-        # This sets up: DDS participant, RPC service, monitoring, memory, etc.
+        # Pass classifier provider and model - GenesisAgent will create the LLM via LLMFactory
         super().__init__(
             agent_name=agent_name,
             base_service_name=base_service_name,
@@ -258,7 +494,9 @@ class OpenAIGenesisAgent(MonitoredAgent):
             enable_monitoring=enable_monitoring,
             memory_adapter=memory_adapter,
             auto_run=auto_run,
-            service_instance_tag=service_instance_tag
+            service_instance_tag=service_instance_tag,
+            classifier_provider="openai" if enable_agent_communication else None,
+            classifier_model=classifier_model_name if enable_agent_communication else None
         )
         
         # Get provider API key from environment

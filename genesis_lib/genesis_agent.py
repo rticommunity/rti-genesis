@@ -27,6 +27,7 @@ import logging
 import os
 import json
 import asyncio
+import threading
 import traceback
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, List
@@ -35,6 +36,7 @@ import rti.rpc as rpc
 from .genesis_app import GenesisApp
 from .llm import ChatAgent, AnthropicChatAgent
 from .utils import get_datamodel_path
+from .utils.guid_utils import format_guid
 from genesis_lib.advertisement_bus import AdvertisementBus
 from .agent_communication import AgentCommunicationMixin
 from .agent_classifier import AgentClassifier
@@ -43,6 +45,18 @@ from genesis_lib.memory import SimpleMemoryAdapter
 # Get logger
 logger = logging.getLogger(__name__)
 
+# Constants for agent capabilities
+class AgentCapabilities:
+    """Constants for agent capability definitions."""
+    DEFAULT_TYPE = "general"
+    DEFAULT_CAPABILITIES = ["general_assistance"]
+    DEFAULT_TAGS = ["general", "assistant"]
+    DEFAULT_SPECIALIZATIONS = []
+    DEFAULT_INTERACTION_PATTERNS = []
+    DEFAULT_STRENGTHS = []
+    DEFAULT_LIMITATIONS = []
+    DEFAULT_PERFORMANCE_METRICS = {}
+
 class GenesisAgent(ABC):
     """Base class for all Genesis agents"""
     # registration_writer removed - now using unified Advertisement topic via AdvertisementBus
@@ -50,7 +64,8 @@ class GenesisAgent(ABC):
     def __init__(self, agent_name: str, base_service_name: str, 
                  agent_id: str = None,
                  enable_agent_communication: bool = False, memory_adapter=None,
-                 auto_run: bool = True, service_instance_tag: str = ""):
+                 auto_run: bool = True, service_instance_tag: str = "",
+                 classifier_llm=None, classifier_provider: str = "openai", classifier_model: str = "gpt-5-mini"):
         """
         Initialize the agent.
         
@@ -63,6 +78,12 @@ class GenesisAgent(ABC):
             auto_run: Whether to automatically start the agent's run loop
             service_instance_tag: Optional tag for content filtering (e.g., "production", "staging", "v2")
                                  Used for migrations and A/B testing via content filtering, not topic names
+            classifier_llm: Optional LLM instance for agent classification (AnthropicChatAgent, or similar).
+                           If provided, this takes precedence over classifier_provider/classifier_model.
+            classifier_provider: Provider name for classifier (default: "openai").
+                                Set to None to auto-detect from available API keys.
+            classifier_model: Model name for classifier (default: "gpt-5-mini").
+                             Set to None to use provider's default classifier model.
         
         Note:
             RPC v2 uses unified topics with GUID-based targeting. All agents of the same
@@ -139,7 +160,6 @@ class GenesisAgent(ABC):
             def on_data_available(self, reader):
                 logger.debug(f"RequestListener.on_data_available() called for {self.agent.agent_name}")
                 
-                # Get all available samples
                 samples = self.agent.replier.take_requests()
                 logger.debug(f"RequestListener got {len(samples)} request samples")
                 
@@ -147,105 +167,195 @@ class GenesisAgent(ABC):
                     if request is None or info.state.instance_state != dds.InstanceState.ALIVE:
                         logger.debug("Skipping invalid request sample")
                         continue
-                        
-                    # RPC v2: Content filtering based on target_service_guid
-                    # Extract target_service_guid from request if present
-                    try:
-                        target_guid = request.get_string("target_service_guid")
-                        service_tag = request.get_string("service_instance_tag")
-                        
-                        # Check if this is a broadcast (empty target_guid) or targeted to us
-                        is_broadcast = not target_guid or target_guid == ""
-                        is_targeted_to_us = target_guid == self.agent.replier_guid
-                        
-                        # Check if service_instance_tag matches (if set)
-                        tag_matches = True
-                        if service_tag and hasattr(self.agent, 'service_instance_tag'):
-                            tag_matches = service_tag == self.agent.service_instance_tag
-                        
-                        if not is_broadcast and not is_targeted_to_us:
-                            logger.debug(f"⏭️ Skipping request targeted to different agent (target: {target_guid}, us: {self.agent.replier_guid})")
-                            continue
-                            
-                        if not tag_matches:
-                            logger.debug(f"⏭️ Skipping request with non-matching service_instance_tag")
-                            continue
-                            
-                        logger.debug(f"✅ Processing request ({'broadcast' if is_broadcast else 'targeted'}, tag: {service_tag or 'none'})")
-                        
-                    except Exception as e:
-                        # If fields don't exist, fall back to processing (backward compat)
-                        logger.warning(f"Could not read RPC v2 fields from request, processing anyway: {e}")
-                        
-                    logger.debug("Processing valid Interface-to-Agent request")
+                    
+                    # RPC v2: Filter requests based on target_service_guid and service_instance_tag
+                    if not self._should_process_request(request):
+                        continue
+                    
                     logger.info(f"Received request: {request}")
                     
                     try:
-                        # Create task to process request asynchronously
-                        asyncio.run_coroutine_threadsafe(self._process_request(request, info), self.agent.loop)
+                        asyncio.run_coroutine_threadsafe(
+                            self._process_request(request, info), 
+                            self.agent.loop
+                        )
                     except Exception as e:
                         logger.error(f"Error creating request processing task: {e}")
                         logger.error(traceback.format_exc())
+            
+            def _should_process_request(self, request) -> bool:
+                """
+                Determine if this agent should process the given request based on
+                RPC v2 targeting (target_service_guid) and optional tag filtering.
+                
+                Returns True if:
+                - Request is broadcast (empty target_guid), OR
+                - Request is targeted to this agent's replier_guid
+                AND
+                - Service instance tag matches (if tags are being used)
+                """
+                try:
+                    target_guid = request.get_string("target_service_guid")
+                    service_tag = request.get_string("service_instance_tag")
+                    
+                    # Check GUID targeting
+                    is_broadcast = not target_guid
+                    is_for_us = (is_broadcast or target_guid == self.agent.replier_guid)
+                    
+                    if not is_for_us:
+                        logger.debug(
+                            f"Skipping request targeted to {target_guid}, "
+                            f"we are {self.agent.replier_guid}"
+                        )
+                        return False
+                    
+                    # Check service instance tag if configured
+                    if service_tag and hasattr(self.agent, 'service_instance_tag'):
+                        if service_tag != self.agent.service_instance_tag:
+                            logger.debug(
+                                f"Skipping request with tag '{service_tag}', "
+                                f"we require '{self.agent.service_instance_tag}'"
+                            )
+                            return False
+                    
+                    logger.debug(
+                        f"Accepting {'broadcast' if is_broadcast else 'targeted'} request "
+                        f"(tag: {service_tag or 'none'})"
+                    )
+                    return True
+                    
+                except Exception as e:
+                    # If RPC v2 fields are missing, accept the request
+                    # (allows graceful handling of legacy or malformed requests)
+                    logger.warning(
+                        f"Could not read RPC v2 targeting fields, accepting request: {e}"
+                    )
+                    return True
                         
             async def _process_request(self, request, info):
-                logger.debug(f"_process_request() started for {self.agent.agent_name}")
+                """
+                Process an incoming DDS request and send a reply.
+                
+                This internal method:
+                1. Converts the DDS request to a Python dict
+                2. Calls the agent's process_request() method
+                3. Converts the reply dict back to DDS format
+                4. Sends the reply via the replier
+                
+                Args:
+                    request: DDS DynamicData request object
+                    info: DDS SampleInfo for the request
+                    
+                Note: Errors are caught and returned as error replies rather than
+                propagating, ensuring the caller always gets a response.
+                """
+                logger.debug(f"Processing request for {self.agent.agent_name}")
+                
                 try:
-                    request_dict = {}
-                    if hasattr(self.agent.request_type, 'members') and callable(self.agent.request_type.members):
-                        for member in self.agent.request_type.members():
-                            member_name = member.name
-                            try:
-                                # Check member type and use appropriate getter
-                                # Assuming InterfaceAgentRequest has only string members for now
-                                # A more robust solution would check member.type.kind
-                                if member.type.kind == dds.TypeKind.STRING_TYPE:
-                                    request_dict[member_name] = request.get_string(member_name)
-                                # TODO: Add handling for other types (INT32, BOOLEAN, etc.) if InterfaceAgentRequest evolves
-                                else:
-                                    logger.warning(f"Unsupported member type for '{member_name}' during DDS-to-dict conversion. Attempting direct assignment (may fail).")
-                                    # This part is risky and likely incorrect for non-basic types if not handled properly
-                                    request_dict[member_name] = request[member_name] 
-                            except Exception as e:
-                                logger.warning(f"Could not convert member '{member_name}' from DDS request to dict: {e}")
-                    else:
-                        logger.error("Cannot convert DDS request to dict: self.agent.request_type does not have a members() method. THIS IS A PROBLEM.")
-                        # If we can't determine members, we can't reliably convert.
-                        # Passing the raw request here would be inconsistent with agents expecting a dict.
-                        # It's better to let it fail or send an error reply if conversion is impossible.
-                        raise TypeError("Failed to introspect request_type members for DDS-to-dict conversion.")
-
-                    logger.debug(f"Converted request to dict: {request_dict}")
-                    # Get reply data from concrete implementation, passing the dictionary
+                    # Convert DDS request to dict
+                    request_dict = self._convert_request_to_dict(request)
+                    
+                    # Process the request through the concrete agent implementation
                     reply_data = await self.agent.process_request(request_dict)
-                    logger.debug(f"process_request() returned: {reply_data}")
                     
-                    # Create reply - explicitly set all required fields including RPC v2 fields
-                    reply = dds.DynamicData(self.agent.reply_type)
-                    reply["message"] = str(reply_data.get("message", ""))
-                    reply["status"] = int(reply_data.get("status", 0))
-                    reply["conversation_id"] = str(reply_data.get("conversation_id", ""))
-                    
-                    # RPC v2: Include our replier_guid for subsequent targeted requests
-                    reply["replier_service_guid"] = self.agent.replier_guid
-                    
-                    # Echo back the service_instance_tag if present in request
-                    service_tag = request_dict.get("service_instance_tag", "")
-                    reply["service_instance_tag"] = service_tag
-                    
-                    # Send reply
+                    # Create and send success reply
+                    reply = self._create_reply(reply_data, request_dict)
                     self.agent.replier.send_reply(reply, info)
                     logger.info(f"Sent reply: {reply}")
+                    
                 except Exception as e:
                     logger.error(f"Error processing request: {e}")
                     logger.error(traceback.format_exc())
-                    # Send error reply - explicitly set all required fields including RPC v2 fields
-                    reply = dds.DynamicData(self.agent.reply_type)
-                    reply["message"] = f"Error: {str(e)}"
-                    reply["status"] = 1  # Error status
-                    reply["conversation_id"] = ""  # Empty conversation ID for errors
-                    reply["replier_service_guid"] = self.agent.replier_guid  # RPC v2
-                    reply["service_instance_tag"] = ""  # RPC v2
+                    
+                    # Create and send error reply
+                    reply = self._create_error_reply(str(e))
                     self.agent.replier.send_reply(reply, info)
+            
+            def _convert_request_to_dict(self, request) -> Dict[str, Any]:
+                """
+                Convert a DDS DynamicData request to a Python dictionary.
+                
+                Raises:
+                    TypeError: If request type cannot be introspected
+                    ValueError: If member conversion fails
+                """
+                if not hasattr(self.agent.request_type, 'members') or \
+                   not callable(self.agent.request_type.members):
+                    raise TypeError(
+                        "Request type does not support member introspection. "
+                        "Cannot convert DDS request to dict."
+                    )
+                
+                request_dict = {}
+                for member in self.agent.request_type.members():
+                    member_name = member.name
+                    try:
+                        # Use appropriate getter based on type
+                        if member.type.kind == dds.TypeKind.STRING_TYPE:
+                            request_dict[member_name] = request.get_string(member_name)
+                        elif member.type.kind == dds.TypeKind.INT32_TYPE:
+                            request_dict[member_name] = request.get_int32(member_name)
+                        elif member.type.kind == dds.TypeKind.BOOLEAN_TYPE:
+                            request_dict[member_name] = request.get_boolean(member_name)
+                        elif member.type.kind == dds.TypeKind.INT64_TYPE:
+                            request_dict[member_name] = request.get_int64(member_name)
+                        else:
+                            logger.warning(
+                                f"Unsupported type {member.type.kind} for member '{member_name}', "
+                                f"attempting generic access"
+                            )
+                            request_dict[member_name] = request[member_name]
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to convert member '{member_name}': {e}. "
+                            f"Setting to None."
+                        )
+                        request_dict[member_name] = None
+                
+                return request_dict
+            
+            def _create_reply(self, reply_data: Dict[str, Any], 
+                             request_dict: Dict[str, Any]) -> dds.DynamicData:
+                """
+                Create a DDS reply from the agent's response data.
+                
+                Args:
+                    reply_data: Dict returned from process_request()
+                    request_dict: Original request dict (for echoing tags)
+                    
+                Returns:
+                    DDS DynamicData reply object
+                """
+                reply = dds.DynamicData(self.agent.reply_type)
+                
+                # Standard reply fields
+                reply["message"] = str(reply_data.get("message", ""))
+                reply["status"] = int(reply_data.get("status", 0))  # 0 = success
+                reply["conversation_id"] = str(reply_data.get("conversation_id", ""))
+                
+                # RPC v2 fields
+                reply["replier_service_guid"] = self.agent.replier_guid
+                reply["service_instance_tag"] = request_dict.get("service_instance_tag", "")
+                
+                return reply
+            
+            def _create_error_reply(self, error_message: str) -> dds.DynamicData:
+                """
+                Create a DDS error reply.
+                
+                Args:
+                    error_message: Human-readable error description
+                    
+                Returns:
+                    DDS DynamicData reply object with error status
+                """
+                reply = dds.DynamicData(self.agent.reply_type)
+                reply["message"] = f"Error: {error_message}"
+                reply["status"] = 1  # 1 = error
+                reply["conversation_id"] = ""
+                reply["replier_service_guid"] = self.agent.replier_guid
+                reply["service_instance_tag"] = ""
+                return reply
         
         # Create replier with listener using unified RPC v2 naming
         self.replier = rpc.Replier(
@@ -256,7 +366,6 @@ class GenesisAgent(ABC):
         )
         
         # Store replier GUID for RPC v2 targeted requests
-        from genesis_lib.utils.guid_utils import format_guid
         self.replier_guid = format_guid(self.replier.reply_datawriter.instance_handle)
         logger.info(f"Agent {self.agent_name} replier_guid: {self.replier_guid}")
         
@@ -265,127 +374,194 @@ class GenesisAgent(ABC):
         mask = dds.StatusMask.DATA_AVAILABLE
         self.replier.request_datareader.set_listener(self.request_listener, mask)
         
-        # Store discovered functions
-        # self.discovered_functions = [] # Removed as per event-driven plan
-        
         # Initialize internal tools cache for @genesis_tool decorated methods
         self.internal_tools_cache = {}
         
-        # Initialize agent-to-agent communication if enabled
+        # Initialize agent-to-agent communication components
         self.enable_agent_communication = enable_agent_communication
         self.agent_communication = None
-        self.agent_classifier = None  # For intelligent request routing
+        self.agent_classifier = None
         self.memory = memory_adapter or SimpleMemoryAdapter()
+        
         if enable_agent_communication:
-            logger.debug(f"Agent communication enabled for {self.agent_name}, calling _setup_agent_communication()")
+            logger.debug(f"Agent communication enabled for {self.agent_name}")
             self._setup_agent_communication()
-            # Initialize agent classifier for request routing with LLM support
+            
+            # Initialize agent classifier for intelligent request routing
+            # Pass provider/model config or custom LLM - AgentClassifier handles LLM creation
             self.agent_classifier = AgentClassifier(
-                openai_api_key=os.getenv('OPENAI_API_KEY'),
-                model_name="gpt-4o-mini"
+                provider=classifier_provider,
+                model=classifier_model,
+                custom_llm=classifier_llm
             )
         else:
             logger.debug(f"Agent communication disabled for {self.agent_name}")
 
-        # Optionally auto-start the agent service loop if an event loop is running.
-        # This makes the agent discoverable without requiring users to call run().
+        # Auto-start the agent's run loop if requested and an event loop is available
+        # This allows the agent to begin listening for requests immediately
         if self._auto_run_requested:
             try:
                 running_loop = asyncio.get_running_loop()
-                # Schedule background run; run() is idempotent and will no-op if already started.
+                # Schedule run() as a background task (idempotent - won't start twice)
                 self._run_task = running_loop.create_task(self.run())
                 logger.info(f"Auto-started run() for {self.agent_name} in background task")
             except RuntimeError:
-                # No running loop yet (common in sync contexts). User can still call `await run()` later.
-                logger.debug("No running event loop at construction; deferring auto-start of run().")
+                # No event loop running yet - common in synchronous contexts
+                # User must call `await agent.run()` explicitly
+                logger.debug("No running event loop detected; deferring agent.run() until explicitly called")
 
     def enable_mcp(self, 
-                   port=8000, 
-                   toolname="ask_genesis_agent",
-                   tooldesc="Ask the Genesis agent a question and get a response"):
+                   port: int = 8000, 
+                   toolname: str = "ask_genesis_agent",
+                   tooldesc: str = "Ask the Genesis agent a question and get a response") -> None:
+        """
+        Enable Model Context Protocol (MCP) server for this agent.
+        
+        MCP allows external applications (like IDEs, chat applications, or other tools)
+        to interact with this agent through a standardized protocol. Once enabled, the
+        agent will expose its `process_message` method as an MCP tool that can be called
+        by MCP clients.
+        
+        The MCP server runs in a background daemon thread and uses streamable-http
+        transport for communication. The server will automatically shut down when the
+        main application exits.
+        
+        Args:
+            port: Port number for the MCP server (default: 8000)
+            toolname: Name of the exposed MCP tool (default: "ask_genesis_agent")
+            tooldesc: Description of the MCP tool for clients (default: "Ask the Genesis agent a question and get a response")
+        
+        Raises:
+            ImportError: If the mcp package is not installed (install with: pip install mcp)
+            RuntimeError: If the server fails to start or port is already in use
+        
+        Example:
+            ```python
+            agent = HelloWorldAgent()
+            agent.enable_mcp(port=8000)
+            # Agent is now accessible via MCP at http://localhost:8000
+            ```
+        
+        Note:
+            - Calling this method multiple times is safe - it will only create one server
+            - The server runs as a daemon thread and will not prevent application shutdown
+            - Requires the 'mcp' package: pip install mcp
+        """
         try:
             from mcp.server.fastmcp import FastMCP
         except ImportError:
-            raise ImportError("FastMCP module not found. Install with: pip install fastmcp")
-        try:
-            import threading
-        except ImportError:
-            raise ImportError("Threading module not found")
+            raise ImportError(
+                "FastMCP module not found. Install with: pip install mcp\n"
+                "MCP (Model Context Protocol) enables external tools to interact with this agent.\n"
+                "See: https://github.com/modelcontextprotocol"
+            )
+        
+        # Only create server if not already initialized
         if not self.mcp_server:
-            self.mcp_server = FastMCP(self.agent_name, port=port)
-            self.mcp_server.add_tool(
-                self.process_message,
-                name=toolname,
-                description=tooldesc)
-            self._mcp_thread = threading.Thread(target=self.mcp_server.run, kwargs={"transport": "streamable-http"}, daemon=True)
-            self._mcp_thread.start()
+            try:
+                self.mcp_server = FastMCP(self.agent_name, port=port)
+                self.mcp_server.add_tool(
+                    self.process_message,
+                    name=toolname,
+                    description=tooldesc
+                )
+                
+                # Start server in daemon thread (auto-terminates with main process)
+                self._mcp_thread = threading.Thread(
+                    target=self.mcp_server.run, 
+                    kwargs={"transport": "streamable-http"}, 
+                    daemon=True
+                )
+                self._mcp_thread.start()
+                
+                logger.info(
+                    f"MCP server enabled for '{self.agent_name}' on port {port} "
+                    f"with tool '{toolname}'"
+                )
+            except Exception as e:
+                logger.error(f"Failed to start MCP server: {e}")
+                self.mcp_server = None
+                raise RuntimeError(f"Failed to start MCP server on port {port}: {e}")
+        else:
+            logger.debug(f"MCP server already enabled for '{self.agent_name}'")
 
     def _setup_agent_communication(self):
-        """Initialize agent-to-agent communication capabilities"""
+        """
+        Initialize agent-to-agent communication capabilities.
+        
+        Sets up:
+        1. Communication mixin wrapper
+        2. RPC types for agent-to-agent messaging
+        3. Agent discovery (listening for other agents)
+        4. Agent RPC service (handling incoming agent requests)
+        5. Capability publishing (advertising this agent's skills)
+        """
+        logger.info(f"Setting up agent-to-agent communication for {self.agent_name}")
+        
         try:
-            logger.info(f"Setting up agent-to-agent communication for {self.agent_name}")
+            # Create communication wrapper that shares our DDS infrastructure
+            self.agent_communication = self._create_agent_communication_wrapper()
             
-            # Create a communication mixin instance
-            class AgentCommunicationWrapper(AgentCommunicationMixin):
-                def __init__(self, parent_agent):
-                    super().__init__()
-                    self.parent_agent = parent_agent
-                    # Share the app instance and agent attributes
-                    self.app = parent_agent.app
-                    self.base_service_name = parent_agent.base_service_name
-                    self.agent_name = parent_agent.agent_name
-                    self.agent_type = getattr(parent_agent, 'agent_type', 'AGENT')
-                    self.description = getattr(parent_agent, 'description', f'Agent {parent_agent.agent_name}')
-                
-                async def process_agent_request(self, request):
-                    """Delegate to parent agent's process_agent_request method"""
-                    return await self.parent_agent.process_agent_request(request)
-                
-                def get_agent_capabilities(self):
-                    """Delegate to parent agent's get_agent_capabilities method"""
-                    return self.parent_agent.get_agent_capabilities()
+            # Execute setup steps in order - each returns boolean success
+            setup_steps = [
+                ("RPC types", self.agent_communication._initialize_agent_rpc_types),
+                ("agent discovery", self.agent_communication._setup_agent_discovery),
+                ("agent RPC service", self.agent_communication._setup_agent_rpc_service),
+                ("capability publishing", self.agent_communication._setup_agent_capability_publishing),
+            ]
             
-            # Create the communication wrapper
-            self.agent_communication = AgentCommunicationWrapper(self)
+            for step_name, setup_func in setup_steps:
+                if not setup_func():
+                    logger.error(f"Failed to set up {step_name} - agent communication disabled")
+                    self.agent_communication = None
+                    return
+                logger.info(f"✓ {step_name.capitalize()} setup completed")
             
-            # Initialize RPC types
-            if self.agent_communication._initialize_agent_rpc_types():
-                logger.info("Agent-to-agent RPC types loaded successfully")
-            else:
-                logger.warning("Failed to load agent-to-agent RPC types")
-                return
+            # Publish initial capabilities now that everything is set up
+            agent_capabilities = self.get_agent_capabilities()
+            logger.debug(f"Publishing initial capabilities: {agent_capabilities}")
+            self.agent_communication.publish_agent_capability(agent_capabilities)
             
-            # Set up agent discovery
-            if self.agent_communication._setup_agent_discovery():
-                logger.info("Agent discovery setup completed")
-            else:
-                logger.warning("Failed to set up agent discovery")
-                return
-            
-            # Set up agent RPC service
-            if self.agent_communication._setup_agent_rpc_service():
-                logger.info("Agent RPC service setup completed")
-            else:
-                logger.warning("Failed to set up agent RPC service")
-                return
-            
-            # Set up agent capability publishing
-            if self.agent_communication._setup_agent_capability_publishing():
-                logger.info("Agent capability publishing setup completed")
-                # Publish initial capability with enhanced information
-                agent_capabilities = self.get_agent_capabilities()
-                logger.debug(f"Publishing enhanced capabilities: {agent_capabilities}")
-                self.agent_communication.publish_agent_capability(agent_capabilities)
-            else:
-                logger.warning("Failed to set up agent capability publishing")
-            
-            logger.info(f"Agent-to-agent communication enabled for {self.agent_name}")
+            logger.info(f"✓ Agent-to-agent communication fully enabled for {self.agent_name}")
             
         except Exception as e:
             logger.error(f"Failed to set up agent communication: {e}")
-            import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
+            logger.error(traceback.format_exc())
             self.agent_communication = None
+    
+    def _create_agent_communication_wrapper(self):
+        """
+        Create a communication mixin wrapper that shares our DDS infrastructure.
+        
+        This wrapper allows AgentCommunicationMixin to access our DDS participant,
+        agent metadata, and delegate request handling back to us.
+        
+        Returns:
+            AgentCommunicationWrapper instance
+        """
+        class AgentCommunicationWrapper(AgentCommunicationMixin):
+            """Wrapper that connects AgentCommunicationMixin to parent agent."""
+            
+            def __init__(wrapper_self, parent_agent):
+                super().__init__()
+                wrapper_self.parent_agent = parent_agent
+                
+                # Share DDS infrastructure from parent
+                wrapper_self.app = parent_agent.app
+                wrapper_self.base_service_name = parent_agent.base_service_name
+                wrapper_self.agent_name = parent_agent.agent_name
+                wrapper_self.agent_type = getattr(parent_agent, 'agent_type', 'AGENT')
+                wrapper_self.description = getattr(parent_agent, 'description', f'Agent {parent_agent.agent_name}')
+            
+            async def process_agent_request(wrapper_self, request):
+                """Delegate agent requests to parent's handler."""
+                return await wrapper_self.parent_agent.process_agent_request(request)
+            
+            def get_agent_capabilities(wrapper_self):
+                """Delegate capability queries to parent."""
+                return wrapper_self.parent_agent.get_agent_capabilities()
+        
+        return AgentCommunicationWrapper(self)
     
     async def process_agent_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -406,193 +582,193 @@ class GenesisAgent(ABC):
             "conversation_id": request.get("conversation_id", "")
         }
     
-    # Agent-to-agent communication convenience methods
+    # ========================================================================
+    # Agent-to-Agent Communication API
+    # ========================================================================
+    # 
+    # These methods provide a clean public API for agent-to-agent communication
+    # by delegating to AgentCommunicationMixin when enabled. This delegation
+    # pattern offers several benefits:
+    #
+    # 1. GRACEFUL DEGRADATION: Methods return sensible defaults (empty lists, None)
+    #    when agent communication is disabled, avoiding AttributeErrors.
+    #
+    # 2. TYPE SAFETY: Each method has explicit type hints, enabling IDE 
+    #    autocomplete and static type checking.
+    #
+    # 3. DISCOVERABILITY: Methods appear on GenesisAgent, making the API easy
+    #    to explore via dir() or IDE inspection.
+    #
+    # 4. DOCUMENTATION: Each method can have its own docstring explaining
+    #    its specific purpose and return values.
+    #
+    # 5. STABLE API: If AgentCommunicationMixin changes internally, these
+    #    wrapper methods provide a stable interface for users.
+    #
+    # The alternative approaches (e.g., __getattr__ magic, direct exposure)
+    # sacrifice type safety and clarity for reduced boilerplate. For RTI's
+    # use case where API stability and discoverability are critical, the
+    # explicit delegation pattern is preferred despite the repetition.
+    #
+    # Design note: These are intentionally simple one-liners rather than using
+    # a helper method, as the pattern is immediately clear to readers and
+    # optimizes for readability over DRY (Don't Repeat Yourself).
+    # ========================================================================
+    
     async def send_agent_request(self, target_agent_id: str, message: str, 
                                conversation_id: Optional[str] = None,
                                timeout_seconds: float = 10.0) -> Optional[Dict[str, Any]]:
-        """Send a request to another agent (if agent communication is enabled)"""
-        if not self.agent_communication:
-            logger.error("Agent communication not enabled")
-            return None
+        """
+        Send a request to another agent.
         
+        Args:
+            target_agent_id: UUID of the target agent
+            message: Message to send to the agent
+            conversation_id: Optional conversation tracking ID
+            timeout_seconds: Request timeout in seconds
+            
+        Returns:
+            Response dict from the agent, or None if communication disabled or request failed
+        """
         return await self.agent_communication.send_agent_request(
             target_agent_id, message, conversation_id, timeout_seconds
-        )
+        ) if self.agent_communication else None
     
     async def wait_for_agent(self, agent_id: str, timeout_seconds: float = 30.0) -> bool:
-        """Wait for a specific agent to be discovered (if agent communication is enabled)"""
-        if not self.agent_communication:
-            logger.error("Agent communication not enabled")
-            return False
+        """
+        Wait for a specific agent to be discovered.
         
-        return await self.agent_communication.wait_for_agent(agent_id, timeout_seconds)
+        Args:
+            agent_id: UUID of the agent to wait for
+            timeout_seconds: How long to wait before giving up
+            
+        Returns:
+            True if agent was discovered, False otherwise
+        """
+        return await self.agent_communication.wait_for_agent(agent_id, timeout_seconds) \
+               if self.agent_communication else False
     
     def get_discovered_agents(self) -> Dict[str, Dict[str, Any]]:
-        """Get list of discovered agents (if agent communication is enabled)"""
-        if not self.agent_communication:
-            return {}
-        
-        return self.agent_communication.get_discovered_agents()
-    
-    # Enhanced Discovery Methods (delegate to AgentCommunicationMixin)
-    
-    def find_agents_by_capability(self, capability: str) -> List[str]:
-        """Find agents that advertise a specific capability"""
-        if self.agent_communication:
-            return self.agent_communication.find_agents_by_capability(capability)
-        return []
-    
-    def find_agents_by_specialization(self, domain: str) -> List[str]:
-        """Find agents with expertise in a specific domain"""
-        if self.agent_communication:
-            return self.agent_communication.find_agents_by_specialization(domain)
-        return []
-    
-    def find_general_agents(self) -> List[str]:
-        """Find agents that can handle general requests"""
-        if self.agent_communication:
-            return self.agent_communication.find_general_agents()
-        return []
-    
-    def find_specialized_agents(self) -> List[str]:
-        """Find agents that are specialized"""
-        if self.agent_communication:
-            return self.agent_communication.find_specialized_agents()
-        return []
-    
-    async def get_best_agent_for_request(self, request: str) -> Optional[str]:
-        """Use the classifier to find the best agent for a specific request"""
-        if self.agent_communication:
-            return await self.agent_communication.get_best_agent_for_request(request)
-        return None
-    
-    def get_agents_by_performance_metric(self, metric_name: str, min_value: Optional[float] = None, max_value: Optional[float] = None) -> List[str]:
-        """Find agents based on performance metrics"""
-        if self.agent_communication:
-            return self.agent_communication.get_agents_by_performance_metric(metric_name, min_value, max_value)
-        return []
-    
-    def get_agent_info_by_capability(self, capability: str) -> List[Dict[str, Any]]:
-        """Get full agent information for agents with a specific capability"""
-        if self.agent_communication:
-            return self.agent_communication.get_agent_info_by_capability(capability)
-        return []
-    
-    def get_agents_by_model_type(self, model_type: str) -> List[str]:
-        """Find agents using a specific model type"""
-        if self.agent_communication:
-            return self.agent_communication.get_agents_by_model_type(model_type)
-        return []
-    
-    def _auto_generate_capabilities(self) -> Dict[str, Any]:
         """
-        Auto-generate capability metadata from @genesis_tool methods and init fields.
-        Subclasses can override get_agent_capabilities for custom behavior.
-        """
-        try:
-            tool_methods: List[Dict[str, Any]] = []
-            for attr_name in dir(self):
-                if attr_name.startswith('_'):
-                    continue
-                attr = getattr(self, attr_name)
-                if callable(attr) and hasattr(attr, '__is_genesis_tool__'):
-                    meta = getattr(attr, '__genesis_tool_meta__', {}) or {}
-                    if meta:
-                        tool_methods.append(meta)
-            # Build capabilities list from function names and operation types
-            capability_items: List[str] = []
-            classification_tags: List[str] = []
-            for meta in tool_methods:
-                func_name = meta.get('function_name')
-                if func_name:
-                    capability_items.append(func_name)
-                    classification_tags.extend(str(func_name).lower().replace('_', ' ').split())
-                op_type = meta.get('operation_type')
-                if op_type:
-                    capability_items.append(str(op_type))
-                    classification_tags.extend(str(op_type).lower().split())
-                desc = meta.get('description')
-                if isinstance(desc, str) and desc:
-                    # Pick a few keywords from description (very lightweight heuristic)
-                    for token in desc.lower().split():
-                        if token.isalpha() and len(token) >= 4:
-                            classification_tags.append(token)
-            # Add context from init fields
-            base_service = getattr(self, 'base_service_name', None)
-            if isinstance(base_service, str) and base_service:
-                classification_tags.extend(base_service.lower().split('_'))
-            agent_name = getattr(self, 'agent_name', None)
-            if isinstance(agent_name, str) and agent_name:
-                classification_tags.extend(agent_name.lower().split('_'))
-            # Deduplicate while preserving order
-            def _dedupe(seq: List[str]) -> List[str]:
-                seen = set()
-                result: List[str] = []
-                for item in seq:
-                    if item not in seen:
-                        seen.add(item)
-                        result.append(item)
-                return result
-            capability_items = _dedupe([c for c in capability_items if isinstance(c, str) and c])
-            classification_tags = _dedupe([t for t in classification_tags if isinstance(t, str) and t])
-            # Heuristic specializations: common domains often occur in names/tags
-            specializations: List[str] = []
-            domain_hints = ['weather', 'finance', 'math', 'translation', 'graph', 'image', 'audio', 'diagnostic']
-            for hint in domain_hints:
-                if any(hint in t for t in classification_tags):
-                    specializations.append(hint)
-            specializations = _dedupe(specializations)
-            # Model info from common attributes
-            model_info: Optional[Dict[str, Any]] = None
-            model_name = getattr(self, 'model_name', None)
-            if isinstance(model_name, str) and model_name:
-                model_info = {
-                    'llm_model': model_name,
-                    'auto_discovery': bool(tool_methods)
-                }
-            # Default capable: true when we have no strong specialization hints
-            default_capable = not bool(specializations)
-            # Build result
-            return {
-                'agent_type': 'general',
-                'specializations': specializations,
-                'capabilities': capability_items if capability_items else ['general_assistance'],
-                'classification_tags': classification_tags if classification_tags else ['general', 'assistant'],
-                'model_info': model_info,
-                'default_capable': default_capable if capability_items else True,
-                'performance_metrics': None,
-            }
-        except Exception as e:
-            logger.warning(f"Auto capability generation failed, falling back to defaults: {e}")
-            return {
-                'agent_type': 'general',
-                'specializations': [],
-                'capabilities': ['general_assistance'],
-                'classification_tags': ['general', 'assistant'],
-                'model_info': None,
-                'default_capable': True,
-                'performance_metrics': None,
-            }
-
-    def get_agent_capabilities(self) -> Dict[str, Any]:
-        """
-        Define this agent's capabilities for advertisement.
-        
-        This method should be overridden by subclasses to provide specific
-        capability information for agent discovery and classification.
+        Get all currently discovered agents.
         
         Returns:
-            Dictionary containing agent capability information with keys:
-            - agent_type: "general" or "specialized"
-            - specializations: List of domain expertise areas
-            - capabilities: List of specific capabilities/skills
-            - classification_tags: List of keywords for request routing
-            - model_info: Information about underlying models (for AI agents)
-            - default_capable: Boolean indicating if agent can handle general requests
-            - performance_metrics: Optional performance information
+            Dict mapping agent_id to agent info (capabilities, specializations, etc.)
         """
-        # Default implementation for base GenesisAgent uses auto-generation.
-        return self._auto_generate_capabilities()
+        return self.agent_communication.get_discovered_agents() \
+               if self.agent_communication else {}
+    
+    # --- Agent Discovery by Capability/Specialization ---
+    
+    def find_agents_by_capability(self, capability: str) -> List[str]:
+        """
+        Find agents that advertise a specific capability.
+        
+        Args:
+            capability: Capability name to search for (e.g., "weather", "calculation")
+            
+        Returns:
+            List of agent IDs that have this capability
+        """
+        return self.agent_communication.find_agents_by_capability(capability) \
+               if self.agent_communication else []
+    
+    def find_agents_by_specialization(self, domain: str) -> List[str]:
+        """
+        Find agents with expertise in a specific domain.
+        
+        Args:
+            domain: Domain/specialization to search for (e.g., "finance", "medical")
+            
+        Returns:
+            List of agent IDs specialized in this domain
+        """
+        return self.agent_communication.find_agents_by_specialization(domain) \
+               if self.agent_communication else []
+    
+    def find_general_agents(self) -> List[str]:
+        """
+        Find agents that can handle general requests.
+        
+        Returns:
+            List of agent IDs marked as general-purpose
+        """
+        return self.agent_communication.find_general_agents() \
+               if self.agent_communication else []
+    
+    def find_specialized_agents(self) -> List[str]:
+        """
+        Find agents that are specialized (not general-purpose).
+        
+        Returns:
+            List of agent IDs marked as specialized
+        """
+        return self.agent_communication.find_specialized_agents() \
+               if self.agent_communication else []
+    
+    async def get_best_agent_for_request(self, request: str) -> Optional[str]:
+        """
+        Use the classifier to find the best agent for a specific request.
+        
+        Uses semantic LLM classification to intelligently route requests
+        based on agent capabilities, specializations, and request intent.
+        
+        Args:
+            request: The request text to classify
+            
+        Returns:
+            Agent ID of the best match, or None if no suitable agent found
+        """
+        return await self.agent_communication.get_best_agent_for_request(request) \
+               if self.agent_communication else None
+    
+    # --- Agent Discovery by Metadata ---
+    
+    def get_agents_by_performance_metric(self, metric_name: str, 
+                                        min_value: Optional[float] = None, 
+                                        max_value: Optional[float] = None) -> List[str]:
+        """
+        Find agents based on performance metrics.
+        
+        Args:
+            metric_name: Name of the metric (e.g., "response_time", "accuracy")
+            min_value: Optional minimum value for the metric
+            max_value: Optional maximum value for the metric
+            
+        Returns:
+            List of agent IDs matching the metric criteria
+        """
+        return self.agent_communication.get_agents_by_performance_metric(
+            metric_name, min_value, max_value
+        ) if self.agent_communication else []
+    
+    def get_agent_info_by_capability(self, capability: str) -> List[Dict[str, Any]]:
+        """
+        Get full agent information for agents with a specific capability.
+        
+        Args:
+            capability: Capability name to search for
+            
+        Returns:
+            List of agent info dicts (not just IDs) for matching agents
+        """
+        return self.agent_communication.get_agent_info_by_capability(capability) \
+               if self.agent_communication else []
+    
+    def get_agents_by_model_type(self, model_type: str) -> List[str]:
+        """
+        Find agents using a specific model type.
+        
+        Args:
+            model_type: LLM model type (e.g., "gpt-4", "claude-3")
+            
+        Returns:
+            List of agent IDs using this model type
+        """
+        return self.agent_communication.get_agents_by_model_type(model_type) \
+               if self.agent_communication else []
+    
+    # --- Intelligent Request Routing ---
     
     async def route_request_to_best_agent(self, request_message: str, 
                                         conversation_id: Optional[str] = None,
@@ -600,8 +776,8 @@ class GenesisAgent(ABC):
         """
         Intelligently route a request to the best available agent.
         
-        This method uses the agent classifier to determine which agent is best
-        suited to handle the request, then forwards the request accordingly.
+        Uses the agent classifier to determine which agent is best suited
+        to handle the request, then forwards the request accordingly.
         
         Args:
             request_message: The request to be processed
@@ -615,14 +791,11 @@ class GenesisAgent(ABC):
             logger.warning("Agent communication or classifier not available for routing")
             return None
         
-        # Get discovered agents
         discovered_agents = self.get_discovered_agents()
-        
         if not discovered_agents:
             logger.info("No agents discovered for routing")
             return None
         
-        # Use classifier to find best agent
         try:
             best_agent_id = await self.agent_classifier.classify_request(
                 request_message, discovered_agents
@@ -696,7 +869,777 @@ class GenesisAgent(ABC):
         
         # Fallback to local processing
         return await self.process_request(request)
+    
+    # ========================================================================
+    # End of Agent-to-Agent Communication API
+    # ========================================================================
+    
+    # ========================================================================
+    # Agent Capability Advertisement
+    # ========================================================================
+    # These methods define and expose THIS agent's capabilities for discovery
+    # by other agents. This is separate from discovering OTHER agents.
+    # ========================================================================
+    
+    def get_agent_capabilities(self) -> Dict[str, Any]:
+        """
+        Define this agent's capabilities for advertisement.
+        
+        This method should be overridden by subclasses to provide specific
+        capability information for agent discovery and classification.
+        
+        Returns:
+            Dictionary containing agent capability information with keys:
+            - agent_type: "general" or "specialized"
+            - specializations: List of domain expertise areas
+            - capabilities: List of specific capabilities/skills
+            - classification_tags: List of keywords for request routing
+            - model_info: Information about underlying models (for AI agents)
+            - default_capable: Boolean indicating if agent can handle general requests
+            - performance_metrics: Optional performance information
+        """
+        # Default implementation for base GenesisAgent uses auto-generation.
+        return self._auto_generate_capabilities()
+    
+    # ========================================================================
+    # Agent Capability System - Intelligent Metadata Generation
+    # ========================================================================
+    #
+    # ARCHITECTURAL OVERVIEW:
+    # ======================
+    #
+    # The Genesis capability system implements a three-tier intelligent approach
+    # that balances user control with automated intelligence:
+    #
+    # 1. USER-DEFINED CAPABILITIES (Highest Priority)
+    #    - Provides consistency across implementations
+    #    - Enables domain-specific terminology and branding
+    #    - Supports custom performance characteristics
+    #    - Multiple definition patterns: method override, instance attr, class attr
+    #
+    # 2. MODEL-BASED GENERATION (Intelligent Fallback)
+    #    - Uses agent's own model to analyze its capabilities
+    #    - Generates rich metadata from @genesis_tool methods
+    #    - Provides domain specialization detection
+    #    - Creates performance metrics and interaction patterns
+    #
+    # 3. HEURISTIC GENERATION (Final Fallback)
+    #    - Simple keyword extraction from method names
+    #    - Basic domain hint matching
+    #    - Ensures system always works
+    #    - Provides sensible defaults
+    #
+    # DESIGN PRINCIPLES:
+    # ==================
+    # - Backward Compatibility: Existing agents work unchanged
+    # - Progressive Enhancement: Optional rich metadata when needed
+    # - Graceful Degradation: Always provides working capabilities
+    # - User Control: Override any level when desired
+    # - Intelligent Defaults: Model-based analysis when available
+    #
+    # ========================================================================
+    # End of Agent Capability Advertisement
+    # ========================================================================
+    
+    def _auto_generate_capabilities(self) -> Dict[str, Any]:
+        """
+        Auto-generate capability metadata with intelligent fallback strategy.
+        
+        This method implements a three-tier capability generation system that balances
+        user control with intelligent automation:
+        
+        ARCHITECTURE RATIONALE:
+        =====================
+        
+        1. **User-Defined (Highest Priority)**: 
+           - Provides consistency across implementations
+           - Enables domain-specific terminology and branding
+           - Allows performance characteristics to be known ahead of time
+           - Supports custom interaction patterns and use cases
+        
+        2. **Model-Based Generation (Intelligent Fallback)**:
+           - Uses the agent's own model to analyze its capabilities
+           - Generates rich, contextual metadata from @genesis_tool methods
+           - Provides domain specialization detection
+           - Creates performance metrics and interaction patterns
+           - Falls back gracefully if model unavailable
+        
+        3. **Heuristic Generation (Final Fallback)**:
+           - Simple keyword extraction from method names and descriptions
+           - Basic domain hint matching (weather, finance, math, etc.)
+           - Ensures system always works even without model access
+           - Provides sensible defaults for all required fields
+        
+        DESIGN PRINCIPLES:
+        ==================
+        
+        - **Backward Compatibility**: Existing agents work unchanged
+        - **Progressive Enhancement**: Optional rich metadata when needed
+        - **Graceful Degradation**: Always provides working capabilities
+        - **User Control**: Override any level when desired
+        - **Intelligent Defaults**: Model-based analysis when available
+        
+        Returns:
+            Dict containing comprehensive agent capability metadata
+        """
+        # First, check for user-defined capabilities
+        user_capabilities = self._get_user_defined_capabilities()
+        if user_capabilities:
+            logger.debug("Using user-defined capabilities")
+            return user_capabilities
+        
+        # Second, try model-based generation
+        try:
+            model_capabilities = self._generate_capabilities_with_model()
+            if model_capabilities:
+                logger.debug("Using model-generated capabilities")
+                return model_capabilities
+        except Exception as e:
+            logger.debug(f"Model-based capability generation failed: {e}")
+        
+        # Fallback to heuristic approach
+        logger.debug("Using heuristic capability generation")
+        return self._generate_capabilities_heuristic()
+    
+    def _get_user_defined_capabilities(self) -> Optional[Dict[str, Any]]:
+        """
+        Check for user-defined capabilities using multiple discovery patterns.
+        
+        This method implements a comprehensive capability discovery system that
+        supports multiple user definition patterns for maximum flexibility:
+        
+        DISCOVERY PATTERNS (in priority order):
+        =====================================
+        
+        1. **Method Override Pattern**:
+           ```python
+           def get_agent_capabilities(self) -> dict:
+               return {'agent_type': 'specialist', ...}
+           ```
+           - Most explicit and flexible
+           - Supports dynamic logic and state-based capabilities
+           - Enables complex capability computation
+        
+        2. **Instance Attribute Pattern**:
+           ```python
+           self.capabilities = {'agent_type': 'specialist', ...}
+           # or
+           self.capabilities = lambda: {'agent_type': 'specialist', ...}
+           ```
+           - Simple and direct
+           - Supports both static dicts and callable functions
+           - Good for runtime capability updates
+        
+        3. **Class Attribute Pattern**:
+           ```python
+           class MyAgent(GenesisAgent):
+               CAPABILITIES = {'agent_type': 'specialist', ...}
+           ```
+           - Static, reusable definitions
+           - Perfect for agent templates and base classes
+           - Enables capability inheritance
+        
+        ARCHITECTURE BENEFITS:
+        =====================
+        
+        - **Multiple Interfaces**: Supports different user preferences and use cases
+        - **Graceful Fallback**: Each pattern checked independently
+        - **Error Isolation**: Failures in one pattern don't affect others
+        - **Validation**: All patterns go through same validation pipeline
+        - **Consistency**: Unified capability schema regardless of definition method
+        
+        Returns:
+            Validated user-defined capabilities dict or None if not defined
+        """
+        # Check if user overrode get_agent_capabilities
+        if hasattr(self, 'get_agent_capabilities') and self.get_agent_capabilities.__func__ != GenesisAgent.get_agent_capabilities:
+            try:
+                user_caps = self.get_agent_capabilities()
+                if user_caps and isinstance(user_caps, dict):
+                    return self._validate_user_capabilities(user_caps)
+            except Exception as e:
+                logger.warning(f"User-defined get_agent_capabilities() failed: {e}")
+        
+        # Check for self.capabilities attribute
+        if hasattr(self, 'capabilities') and self.capabilities:
+            try:
+                if isinstance(self.capabilities, dict):
+                    return self._validate_user_capabilities(self.capabilities)
+                elif callable(self.capabilities):
+                    user_caps = self.capabilities()
+                    if user_caps and isinstance(user_caps, dict):
+                        return self._validate_user_capabilities(user_caps)
+            except Exception as e:
+                logger.warning(f"User-defined capabilities attribute failed: {e}")
+        
+        # Check for class-level capabilities
+        if hasattr(self.__class__, 'CAPABILITIES') and self.__class__.CAPABILITIES:
+            try:
+                if isinstance(self.__class__.CAPABILITIES, dict):
+                    return self._validate_user_capabilities(self.__class__.CAPABILITIES)
+            except Exception as e:
+                logger.warning(f"Class-level CAPABILITIES failed: {e}")
+        
+        return None
+    
+    def _validate_user_capabilities(self, capabilities: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Validate and normalize user-defined capabilities.
+        
+        Ensures all required fields exist and are properly formatted.
+        """
+        # Define the complete capability schema
+        required_fields = {
+            'agent_type': 'general',
+            'specializations': [],
+            'capabilities': ['general_assistance'],
+            'classification_tags': ['general', 'assistant'],
+            'model_info': {},
+            'default_capable': True,
+            'performance_metrics': {},
+            'interaction_patterns': [],
+            'strengths': [],
+            'limitations': []
+        }
+        
+        # Start with defaults and merge user capabilities
+        result = required_fields.copy()
+        result.update(capabilities)
+        
+        # Validate and clean each field
+        result['agent_type'] = str(result.get('agent_type', 'general'))
+        
+        # Ensure lists are actually lists
+        list_fields = ['specializations', 'capabilities', 'classification_tags', 
+                      'interaction_patterns', 'strengths', 'limitations']
+        for field in list_fields:
+            if not isinstance(result[field], list):
+                result[field] = []
+        
+        # Ensure model_info is a dict
+        if not isinstance(result['model_info'], dict):
+            result['model_info'] = {}
+        
+        # Add model info from agent if available
+        if hasattr(self, 'model_name') and self.model_name:
+            result['model_info']['llm_model'] = self.model_name
+            result['model_info']['auto_discovery'] = bool(self._get_tool_methods())
+        
+        # Ensure boolean fields are boolean
+        result['default_capable'] = bool(result['default_capable'])
+        
+        # Ensure performance_metrics is a dict
+        if not isinstance(result['performance_metrics'], dict):
+            result['performance_metrics'] = {}
+        
+        logger.debug(f"Validated user capabilities: {len(result.get('capabilities', []))} capabilities, {len(result.get('specializations', []))} specializations")
+        
+        return result
+    
+    def _get_tool_methods(self) -> List[Dict[str, Any]]:
+        """Get list of @genesis_tool methods for capability analysis."""
+        tool_methods = []
+        for attr_name in dir(self):
+            if attr_name.startswith('_'):
+                continue
+            attr = getattr(self, attr_name)
+            if callable(attr) and hasattr(attr, '__is_genesis_tool__'):
+                meta = getattr(attr, '__genesis_tool_meta__', {}) or {}
+                if meta:
+                    tool_methods.append(meta)
+        return tool_methods
+    
+    def _generate_capabilities_with_model(self) -> Optional[Dict[str, Any]]:
+        """
+        Use the agent's own model to generate rich, accurate capability metadata.
+        
+        This method implements intelligent capability analysis by leveraging the
+        agent's own LLM to understand and describe its capabilities. This approach
+        provides several architectural advantages:
+        
+        INTELLIGENT ANALYSIS BENEFITS:
+        =============================
+        
+        1. **Contextual Understanding**: Model understands the agent's tools and methods
+        2. **Domain Specialization**: Automatically detects weather, finance, math, etc.
+        3. **Rich Metadata**: Generates performance metrics, interaction patterns
+        4. **Accurate Classification**: Better agent type and specialization detection
+        5. **Self-Describing**: Agent uses its own intelligence to describe itself
+        
+        ANALYSIS PROCESS:
+        =================
+        
+        1. **Agent Introspection**: Collects @genesis_tool methods, class info, attributes
+        2. **Structured Prompting**: Creates focused analysis prompt for the model
+        3. **Model Analysis**: Uses agent's model to analyze its own capabilities
+        4. **Response Parsing**: Extracts and validates JSON capability metadata
+        5. **Schema Validation**: Ensures all required fields with proper types
+        
+        FALLBACK BEHAVIOR:
+        ==================
+        
+        - Returns None if model unavailable (graceful degradation)
+        - Returns None if model call fails (error isolation)
+        - Returns None if response parsing fails (robust validation)
+        - System automatically falls back to heuristic generation
+        
+        Returns:
+            Rich capability metadata dict or None if model analysis fails
+        """
+        try:
+            # Collect agent information for model analysis
+            agent_info = self._collect_agent_info_for_analysis()
+            
+            # Create a focused prompt for capability analysis
+            analysis_prompt = self._create_capability_analysis_prompt(agent_info)
+            
+            # Use the model to analyze capabilities
+            messages = [
+                {"role": "system", "content": "You are an expert at analyzing AI agent capabilities and generating structured metadata."},
+                {"role": "user", "content": analysis_prompt}
+            ]
+            
+            # Call the model (this will use the agent's own model)
+            response = asyncio.run(self._call_llm(messages, tools=None, tool_choice="none"))
+            text_response = self._extract_text_response(response)
+            
+            # Parse the model's response into structured capabilities
+            capabilities = self._parse_model_capability_response(text_response, agent_info)
+            
+            if capabilities:
+                logger.debug("Successfully generated capabilities using model")
+                return capabilities
+                
+        except Exception as e:
+            logger.debug(f"Model-based capability generation failed: {e}")
+        
+        return None
+    
+    def _collect_agent_info_for_analysis(self) -> Dict[str, Any]:
+        """Collect comprehensive agent information for model analysis."""
+        agent_info = {
+            'class_name': self.__class__.__name__,
+            'module_name': self.__class__.__module__,
+            'agent_name': getattr(self, 'agent_name', 'Unknown'),
+            'base_service_name': getattr(self, 'base_service_name', 'Unknown'),
+            'model_name': getattr(self, 'model_name', None),
+            'tools': [],
+            'methods': [],
+            'attributes': {}
+        }
+        
+        # Collect @genesis_tool methods
+        for attr_name in dir(self):
+            if attr_name.startswith('_'):
+                continue
+            attr = getattr(self, attr_name)
+            if callable(attr) and hasattr(attr, '__is_genesis_tool__'):
+                meta = getattr(attr, '__genesis_tool_meta__', {}) or {}
+                if meta:
+                    agent_info['tools'].append({
+                        'name': meta.get('function_name', attr_name),
+                        'description': meta.get('description', ''),
+                        'operation_type': meta.get('operation_type', ''),
+                        'parameters': meta.get('parameters', {}),
+                        'method_name': attr_name
+                    })
+        
+        # Collect other public methods (non-tool)
+        for attr_name in dir(self):
+            if attr_name.startswith('_'):
+                continue
+            attr = getattr(self, attr_name)
+            if callable(attr) and not hasattr(attr, '__is_genesis_tool__'):
+                if attr_name not in ['process_request', 'get_agent_capabilities', '_auto_generate_capabilities']:
+                    agent_info['methods'].append({
+                        'name': attr_name,
+                        'docstring': getattr(attr, '__doc__', '') or ''
+                    })
+        
+        # Collect relevant attributes
+        relevant_attrs = ['agent_name', 'base_service_name', 'model_name', 'system_prompt']
+        for attr_name in relevant_attrs:
+            if hasattr(self, attr_name):
+                value = getattr(self, attr_name)
+                if value is not None:
+                    agent_info['attributes'][attr_name] = str(value)
+        
+        return agent_info
+    
+    def _create_capability_analysis_prompt(self, agent_info: Dict[str, Any]) -> str:
+        """Create a focused prompt for the model to analyze agent capabilities."""
+        tools_text = ""
+        if agent_info['tools']:
+            tools_text = "\n\nAvailable Tools:\n"
+            for tool in agent_info['tools']:
+                tools_text += f"- {tool['name']}: {tool['description']}\n"
+                if tool['operation_type']:
+                    tools_text += f"  Type: {tool['operation_type']}\n"
+                if tool['parameters']:
+                    tools_text += f"  Parameters: {tool['parameters']}\n"
+        
+        methods_text = ""
+        if agent_info['methods']:
+            methods_text = "\n\nOther Methods:\n"
+            for method in agent_info['methods']:
+                methods_text += f"- {method['name']}: {method['docstring'][:100]}...\n"
+        
+        attributes_text = ""
+        if agent_info['attributes']:
+            attributes_text = "\n\nAgent Attributes:\n"
+            for key, value in agent_info['attributes'].items():
+                attributes_text += f"- {key}: {value}\n"
+        
+        return f"""Analyze this AI agent and generate comprehensive capability metadata.
 
+Agent Information:
+- Class: {agent_info['class_name']}
+- Name: {agent_info['agent_name']}
+- Service: {agent_info['base_service_name']}
+- Model: {agent_info['model_name']}{tools_text}{methods_text}{attributes_text}
+
+Please analyze this agent and provide a JSON response with the following structure:
+
+{{
+    "agent_type": "string (e.g., 'specialist', 'general', 'tool_agent', 'conversational')",
+    "specializations": ["list of domain specializations like 'weather', 'finance', 'math', etc."],
+    "capabilities": ["list of specific capabilities the agent can perform"],
+    "classification_tags": ["list of tags for categorization and discovery"],
+    "model_info": {{
+        "llm_model": "model name if available",
+        "auto_discovery": true/false,
+        "reasoning_capability": "basic|intermediate|advanced"
+    }},
+    "default_capable": true/false,
+    "performance_metrics": {{
+        "estimated_response_time": "fast|medium|slow",
+        "complexity_handling": "simple|moderate|complex",
+        "domain_expertise": "general|specialized|expert"
+    }},
+    "interaction_patterns": ["list of how this agent typically interacts"],
+    "strengths": ["list of key strengths"],
+    "limitations": ["list of known limitations"]
+}}
+
+Focus on:
+1. What domains/specializations this agent excels in
+2. What specific tasks it can perform well
+3. How it should be categorized for discovery
+4. What its interaction patterns are
+5. What its strengths and limitations are
+
+Be specific and accurate based on the actual tools and methods available."""
+    
+    def _parse_model_capability_response(self, response_text: str, agent_info: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Parse the model's response into structured capability metadata."""
+        try:
+            import json
+            import re
+            
+            # Extract JSON from response (handle cases where model adds extra text)
+            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+                capabilities = json.loads(json_str)
+                
+                # Validate and clean the response
+                return self._validate_and_clean_capabilities(capabilities, agent_info)
+            
+        except Exception as e:
+            logger.debug(f"Failed to parse model capability response: {e}")
+        
+        return None
+    
+    def _validate_and_clean_capabilities(self, capabilities: Dict[str, Any], agent_info: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate and clean the model-generated capabilities."""
+        # Ensure required fields exist with defaults
+        result = {
+            'agent_type': capabilities.get('agent_type', 'general'),
+            'specializations': capabilities.get('specializations', []),
+            'capabilities': capabilities.get('capabilities', ['general_assistance']),
+            'classification_tags': capabilities.get('classification_tags', ['general', 'assistant']),
+            'model_info': capabilities.get('model_info', {}),
+            'default_capable': capabilities.get('default_capable', True),
+            'performance_metrics': capabilities.get('performance_metrics', {}),
+            'interaction_patterns': capabilities.get('interaction_patterns', []),
+            'strengths': capabilities.get('strengths', []),
+            'limitations': capabilities.get('limitations', [])
+        }
+        
+        # Ensure model_info has the right structure
+        if not isinstance(result['model_info'], dict):
+            result['model_info'] = {}
+        
+        # Add model info from agent if available
+        if agent_info.get('model_name'):
+            result['model_info']['llm_model'] = agent_info['model_name']
+            result['model_info']['auto_discovery'] = bool(agent_info.get('tools'))
+        
+        # Ensure lists are actually lists
+        for key in ['specializations', 'capabilities', 'classification_tags', 'interaction_patterns', 'strengths', 'limitations']:
+            if not isinstance(result[key], list):
+                result[key] = []
+        
+        # Ensure boolean fields are boolean
+        result['default_capable'] = bool(result['default_capable'])
+        
+        return result
+    
+    def _generate_capabilities_heuristic(self) -> Dict[str, Any]:
+        """
+        Fallback heuristic-based capability generation.
+        This is the original implementation for when model-based generation fails.
+        """
+        try:
+            tool_methods: List[Dict[str, Any]] = []
+            for attr_name in dir(self):
+                if attr_name.startswith('_'):
+                    continue
+                attr = getattr(self, attr_name)
+                if callable(attr) and hasattr(attr, '__is_genesis_tool__'):
+                    meta = getattr(attr, '__genesis_tool_meta__', {}) or {}
+                    if meta:
+                        tool_methods.append(meta)
+            # Build capabilities list from function names and operation types
+            capability_items: List[str] = []
+            classification_tags: List[str] = []
+            for meta in tool_methods:
+                func_name = meta.get('function_name')
+                if func_name:
+                    capability_items.append(func_name)
+                    classification_tags.extend(str(func_name).lower().replace('_', ' ').split())
+                op_type = meta.get('operation_type')
+                if op_type:
+                    capability_items.append(str(op_type))
+                    classification_tags.extend(str(op_type).lower().split())
+                desc = meta.get('description')
+                if isinstance(desc, str) and desc:
+                    # Pick a few keywords from description (very lightweight heuristic)
+                    for token in desc.lower().split():
+                        if token.isalpha() and len(token) >= 4:
+                            classification_tags.append(token)
+            # Add context from init fields
+            base_service = getattr(self, 'base_service_name', None)
+            if isinstance(base_service, str) and base_service:
+                classification_tags.extend(base_service.lower().split('_'))
+            agent_name = getattr(self, 'agent_name', None)
+            if isinstance(agent_name, str) and agent_name:
+                classification_tags.extend(agent_name.lower().split('_'))
+            # Deduplicate while preserving order
+            def _dedupe(seq: List[str]) -> List[str]:
+                seen = set()
+                result: List[str] = []
+                for item in seq:
+                    if item not in seen:
+                        seen.add(item)
+                        result.append(item)
+                return result
+            capability_items = _dedupe([c for c in capability_items if isinstance(c, str) and c])
+            classification_tags = _dedupe([t for t in classification_tags if isinstance(t, str) and t])
+            # Heuristic specializations: common domains often occur in names/tags
+            specializations: List[str] = []
+            domain_hints = ['weather', 'finance', 'math', 'translation', 'graph', 'image', 'audio', 'diagnostic']
+            for hint in domain_hints:
+                if any(hint in t for t in classification_tags):
+                    specializations.append(hint)
+            specializations = _dedupe(specializations)
+            # Model info from common attributes
+            model_info: Optional[Dict[str, Any]] = None
+            model_name = getattr(self, 'model_name', None)
+            if isinstance(model_name, str) and model_name:
+                model_info = {
+                    'llm_model': model_name,
+                    'auto_discovery': bool(tool_methods)
+                }
+            # Default capable: true when we have no strong specialization hints
+            default_capable = not bool(specializations)
+            # Build result
+            return {
+                'agent_type': AgentCapabilities.DEFAULT_TYPE,
+                'specializations': specializations,
+                'capabilities': capability_items if capability_items else AgentCapabilities.DEFAULT_CAPABILITIES,
+                'classification_tags': classification_tags if classification_tags else AgentCapabilities.DEFAULT_TAGS,
+                'model_info': model_info,
+                'default_capable': default_capable if capability_items else True,
+                'performance_metrics': AgentCapabilities.DEFAULT_PERFORMANCE_METRICS,
+            }
+        except Exception as e:
+            logger.warning(f"Auto capability generation failed, falling back to defaults: {e}")
+            return {
+                'agent_type': AgentCapabilities.DEFAULT_TYPE,
+                'specializations': AgentCapabilities.DEFAULT_SPECIALIZATIONS,
+                'capabilities': AgentCapabilities.DEFAULT_CAPABILITIES,
+                'classification_tags': AgentCapabilities.DEFAULT_TAGS,
+                'model_info': None,
+                'default_capable': True,
+                'performance_metrics': AgentCapabilities.DEFAULT_PERFORMANCE_METRICS,
+            }
+
+    def get_agent_capabilities(self) -> Dict[str, Any]:
+        """
+        Define this agent's capabilities for advertisement.
+        
+        This method should be overridden by subclasses to provide specific
+        capability information for agent discovery and classification.
+        
+        Returns:
+            Dictionary containing agent capability information with keys:
+            - agent_type: "general" or "specialized"
+            - specializations: List of domain expertise areas
+            - capabilities: List of specific capabilities/skills
+            - classification_tags: List of keywords for request routing
+            - model_info: Information about underlying models (for AI agents)
+            - default_capable: Boolean indicating if agent can handle general requests
+            - performance_metrics: Optional performance information
+        """
+        # Default implementation for base GenesisAgent uses auto-generation.
+        return self._auto_generate_capabilities()
+    
+    def define_capabilities(self, 
+                           agent_type: str = "general",
+                           specializations: List[str] = None,
+                           capabilities: List[str] = None,
+                           classification_tags: List[str] = None,
+                           performance_metrics: Dict[str, Any] = None,
+                           interaction_patterns: List[str] = None,
+                           strengths: List[str] = None,
+                           limitations: List[str] = None,
+                           default_capable: bool = True) -> None:
+        """
+        Define agent capabilities using a clean, structured interface.
+        
+        ARCHITECTURAL DECISION: Capability-Based Discovery
+        ==================================================
+        Agents advertise capabilities rather than names to enable intelligent
+        routing and discovery. This allows:
+        1. Dynamic agent selection based on task requirements
+        2. Better scalability as agent count grows
+        3. Natural language understanding of agent abilities
+        4. Automatic tool generation from capability descriptions
+        
+        This method provides the primary interface for user-defined capabilities,
+        offering a clean, type-safe way to define rich agent metadata without
+        needing to understand the underlying capability schema.
+        
+        ARCHITECTURAL BENEFITS:
+        ======================
+        
+        - **Type Safety**: Clear parameter types and validation
+        - **Structured Interface**: Organized, logical parameter grouping
+        - **Validation**: Automatic schema validation and normalization
+        - **Flexibility**: Supports both simple and complex capability definitions
+        - **Consistency**: Standardized interface across all agent types
+        
+        USAGE PATTERNS:
+        ===============
+        
+        1. **Simple Definition**: Basic agent type and capabilities
+        2. **Rich Definition**: Comprehensive metadata with performance metrics
+        3. **Domain Specialization**: Detailed specializations and limitations
+        4. **Runtime Updates**: Dynamic capability management
+        
+        This method stores capabilities as instance attributes for the discovery
+        system to find and use, taking priority over automatic generation.
+        
+        Args:
+            agent_type: Type of agent ("general", "specialist", "tool_agent", etc.)
+            specializations: List of domain specializations (e.g., ["weather", "finance"])
+            capabilities: List of specific capabilities the agent can perform
+            classification_tags: List of tags for categorization and discovery
+            performance_metrics: Dict with performance characteristics
+            interaction_patterns: List of how this agent typically interacts
+            strengths: List of key strengths
+            limitations: List of known limitations
+            default_capable: Whether this agent can handle general requests
+        
+        Example:
+            agent.define_capabilities(
+                agent_type="specialist",
+                specializations=["weather", "meteorology"],
+                capabilities=["weather_forecasting", "climate_analysis"],
+                classification_tags=["weather", "forecast", "climate"],
+                performance_metrics={
+                    "estimated_response_time": "fast",
+                    "complexity_handling": "moderate"
+                },
+                strengths=["Accurate weather data", "Multi-day forecasting"],
+                limitations=["Requires location input", "Weather domain only"]
+            )
+        """
+        capabilities_dict = {
+            'agent_type': agent_type,
+            'specializations': specializations or AgentCapabilities.DEFAULT_SPECIALIZATIONS,
+            'capabilities': capabilities or AgentCapabilities.DEFAULT_CAPABILITIES,
+            'classification_tags': classification_tags or AgentCapabilities.DEFAULT_TAGS,
+            'performance_metrics': performance_metrics or AgentCapabilities.DEFAULT_PERFORMANCE_METRICS,
+            'interaction_patterns': interaction_patterns or AgentCapabilities.DEFAULT_INTERACTION_PATTERNS,
+            'strengths': strengths or AgentCapabilities.DEFAULT_STRENGTHS,
+            'limitations': limitations or AgentCapabilities.DEFAULT_LIMITATIONS,
+            'default_capable': default_capable
+        }
+        
+        # Store as instance attribute for _get_user_defined_capabilities to find
+        self._store_capabilities(capabilities_dict)
+        self._log_capability_definition(capabilities_dict, agent_type)
+    
+    def _store_capabilities(self, capabilities_dict: Dict[str, Any]) -> None:
+        """Store capabilities as instance attribute."""
+        self.capabilities = capabilities_dict
+    
+    def _log_capability_definition(self, capabilities_dict: Dict[str, Any], agent_type: str) -> None:
+        """Log capability definition information."""
+        capability_count = len(capabilities_dict.get('capabilities', []))
+        logger.info(f"Defined capabilities for {self.__class__.__name__}: {agent_type} agent with {capability_count} capabilities")
+    
+    def add_capability(self, capability: str, description: str = None) -> None:
+        """
+        Add a single capability to the agent.
+        
+        Args:
+            capability: The capability name to add
+            description: Optional description of the capability
+        """
+        if not hasattr(self, 'capabilities') or not self.capabilities:
+            # Initialize with defaults
+            self.define_capabilities()
+        
+        if capability not in self.capabilities.get('capabilities', []):
+            self.capabilities['capabilities'].append(capability)
+            logger.debug(f"Added capability '{capability}' to {self.__class__.__name__}")
+    
+    def add_specialization(self, specialization: str) -> None:
+        """
+        Add a domain specialization to the agent.
+        
+        Args:
+            specialization: The specialization to add (e.g., "weather", "finance")
+        """
+        if not hasattr(self, 'capabilities') or not self.capabilities:
+            # Initialize with defaults
+            self.define_capabilities()
+        
+        if specialization not in self.capabilities.get('specializations', []):
+            self.capabilities['specializations'].append(specialization)
+            logger.debug(f"Added specialization '{specialization}' to {self.__class__.__name__}")
+    
+    def set_performance_metric(self, metric: str, value: Any) -> None:
+        """
+        Set a performance metric for the agent.
+        
+        Args:
+            metric: The metric name (e.g., "estimated_response_time", "complexity_handling")
+            value: The metric value
+        """
+        if not hasattr(self, 'capabilities') or not self.capabilities:
+            # Initialize with defaults
+            self.define_capabilities()
+        
+        if 'performance_metrics' not in self.capabilities:
+            self.capabilities['performance_metrics'] = {}
+        
+        self.capabilities['performance_metrics'][metric] = value
+        logger.debug(f"Set performance metric '{metric}' to '{value}' for {self.__class__.__name__}")
+    
     def _get_available_functions(self) -> Dict[str, Any]:
         """
         Get currently available functions from FunctionRegistry via GenericFunctionClient.
@@ -867,9 +1810,9 @@ class GenesisAgent(ABC):
                 "required": ["message"]
             })
             
-            logger.debug(f"===== TRACING: Generated universal schema for agent tool: {tool_name} =====")
+            logger.debug(f"Generated universal schema for agent tool: {tool_name}")
         
-        logger.debug(f"===== TRACING: Generated {len(agent_schemas)} universal agent tool schemas =====")
+        logger.debug(f"Generated {len(agent_schemas)} universal agent tool schemas")
         return agent_schemas
 
     async def _call_function(self, function_name: str, **kwargs) -> Any:
@@ -884,13 +1827,13 @@ class GenesisAgent(ABC):
         Returns:
             Function result (extracted from dict if present)
         """
-        logger.debug(f"===== TRACING: Calling function {function_name} =====")
-        logger.debug(f"===== TRACING: Function arguments: {json.dumps(kwargs, indent=2)} =====")
+        logger.debug(f"Function call started: {function_name}")
+        logger.debug(f"Function arguments: {json.dumps(kwargs, indent=2)}")
         
         available_functions = self._get_available_functions()
         if function_name not in available_functions:
             error_msg = f"Function not found: {function_name}"
-            logger.error(f"===== TRACING: {error_msg} =====")
+            logger.error(error_msg)
             raise ValueError(error_msg)
         
         try:
@@ -902,8 +1845,8 @@ class GenesisAgent(ABC):
             )
             end_time = time.time()
             
-            logger.debug(f"===== TRACING: Function call completed in {end_time - start_time:.2f} seconds =====")
-            logger.debug(f"===== TRACING: Function result: {result} =====")
+            logger.debug(f"Function call completed in {end_time - start_time:.2f} seconds")
+            logger.debug(f"Function result: {result}")
             
             # Extract result value if in dict format
             if isinstance(result, dict) and "result" in result:
@@ -911,7 +1854,7 @@ class GenesisAgent(ABC):
             return result
             
         except Exception as e:
-            logger.error(f"===== TRACING: Error calling function {function_name}: {str(e)} =====")
+            logger.error(f"Error calling function {function_name}: {str(e)}")
             logger.error(traceback.format_exc())
             raise
 
@@ -919,6 +1862,14 @@ class GenesisAgent(ABC):
         """
         Call an agent using the UNIVERSAL AGENT SCHEMA.
         Available to all agents regardless of LLM backend.
+        
+        ARCHITECTURAL DECISION: Universal Agent Schema
+        ==============================================
+        We use a simple message/response pattern for all agent communication
+        rather than custom schemas per agent. This enables:
+        1. Easier LLM integration (consistent interface)
+        2. Better agent discovery (capability-based, not name-based)
+        3. Reduced complexity in agent-to-agent communication
         
         All agents use the same simple interface:
         - Input: message (string)
@@ -933,13 +1884,13 @@ class GenesisAgent(ABC):
         Returns:
             Agent response (extracted from dict if present)
         """
-        logger.debug(f"===== TRACING: Calling agent tool {agent_tool_name} =====")
-        logger.debug(f"===== TRACING: Agent arguments: {json.dumps(kwargs, indent=2)} =====")
+        logger.debug(f"Agent call started: {agent_tool_name}")
+        logger.debug(f"Agent arguments: {json.dumps(kwargs, indent=2)}")
         
         available_agent_tools = self._get_available_agent_tools()
         if agent_tool_name not in available_agent_tools:
             error_msg = f"Agent tool not found: {agent_tool_name}"
-            logger.error(f"===== TRACING: {error_msg} =====")
+            logger.error(error_msg)
             raise ValueError(error_msg)
         
         agent_info = available_agent_tools[agent_tool_name]
@@ -959,7 +1910,7 @@ class GenesisAgent(ABC):
         try:
             # Use monitored agent communication if available
             if hasattr(self, 'send_agent_request_monitored'):
-                logger.debug(f"===== TRACING: Using monitored agent communication =====")
+                logger.debug("Using monitored agent communication")
                 start_time = time.time()
                 result = await self.send_agent_request_monitored(
                     target_agent_id=target_agent_id,
@@ -970,7 +1921,7 @@ class GenesisAgent(ABC):
                 end_time = time.time()
             else:
                 # Fallback to basic agent communication
-                logger.debug(f"===== TRACING: Using basic agent communication =====")
+                logger.debug("Using basic agent communication")
                 start_time = time.time()
                 result = await self.send_agent_request(
                     target_agent_id=target_agent_id,
@@ -980,8 +1931,8 @@ class GenesisAgent(ABC):
                 )
                 end_time = time.time()
             
-            logger.debug(f"===== TRACING: Agent call completed in {end_time - start_time:.2f} seconds =====")
-            logger.debug(f"===== TRACING: Agent result: {result} =====")
+            logger.debug(f"Agent call completed in {end_time - start_time:.2f} seconds")
+            logger.debug(f"Agent result: {result}")
             
             # Extract result message if in dict format (universal response handling)
             if isinstance(result, dict):
@@ -994,7 +1945,7 @@ class GenesisAgent(ABC):
             return str(result)
             
         except Exception as e:
-            logger.error(f"===== TRACING: Error calling agent {agent_tool_name}: {str(e)} =====")
+            logger.error(f"Error calling agent {agent_tool_name}: {str(e)}")
             logger.error(traceback.format_exc())
             raise
 
@@ -1007,7 +1958,7 @@ class GenesisAgent(ABC):
         generates appropriate tool schemas, and stores them for automatic injection
         into LLM clients.
         """
-        logger.debug("===== TRACING: Discovering internal @genesis_tool methods =====")
+        logger.debug("Discovering internal @genesis_tool methods")
         
         # Initialize internal tools cache if not exists (safety check)
         if not hasattr(self, 'internal_tools_cache'):
@@ -1024,13 +1975,13 @@ class GenesisAgent(ABC):
                 tool_meta = getattr(attr, '__genesis_tool_meta__', {})
                 if tool_meta:
                     tool_methods.append((attr_name, attr, tool_meta))
-                    logger.debug(f"===== TRACING: Found @genesis_tool method: {attr_name} =====")
+                    logger.debug(f"Found @genesis_tool method: {attr_name}")
         
         if not tool_methods:
-            logger.debug("===== TRACING: No @genesis_tool methods found =====")
+            logger.debug("No @genesis_tool methods found")
             return
         
-        logger.debug(f"===== TRACING: Processing {len(tool_methods)} @genesis_tool methods =====")
+        logger.debug(f"Processing {len(tool_methods)} @genesis_tool methods")
         
         # Generate tool schemas for discovered methods
         for method_name, method, tool_meta in tool_methods:
@@ -1041,8 +1992,8 @@ class GenesisAgent(ABC):
                 "function_name": tool_meta.get("function_name", method_name)
             }
             
-            logger.debug(f"===== TRACING: Registered internal tool: {method_name} =====")
-            logger.debug(f"===== TRACING: Tool metadata: {tool_meta} =====")
+            logger.debug(f"Registered internal tool: {method_name}")
+            logger.debug(f"Tool metadata: {tool_meta}")
 
     async def _call_internal_tool(self, tool_name: str, **kwargs) -> Any:
         """
@@ -1056,12 +2007,12 @@ class GenesisAgent(ABC):
         Returns:
             Result from the internal method
         """
-        logger.debug(f"===== TRACING: Calling internal tool {tool_name} =====")
-        logger.debug(f"===== TRACING: Tool arguments: {json.dumps(kwargs, indent=2)} =====")
+        logger.debug(f"Internal tool call started: {tool_name}")
+        logger.debug(f"Tool arguments: {json.dumps(kwargs, indent=2)}")
         
         if not hasattr(self, 'internal_tools_cache') or tool_name not in self.internal_tools_cache:
             error_msg = f"Internal tool not found: {tool_name}"
-            logger.error(f"===== TRACING: {error_msg} =====")
+            logger.error(error_msg)
             raise ValueError(error_msg)
         
         tool_info = self.internal_tools_cache[tool_name]
@@ -1078,13 +2029,13 @@ class GenesisAgent(ABC):
                 
             end_time = time.time()
             
-            logger.debug(f"===== TRACING: Internal tool call completed in {end_time - start_time:.2f} seconds =====")
-            logger.debug(f"===== TRACING: Internal tool result: {result} =====")
+            logger.debug(f"Internal tool call completed in {end_time - start_time:.2f} seconds")
+            logger.debug(f"Internal tool result: {result}")
             
             return result
             
         except Exception as e:
-            logger.error(f"===== TRACING: Error calling internal tool {tool_name}: {str(e)} =====")
+            logger.error(f"Error calling internal tool {tool_name}: {str(e)}")
             logger.error(traceback.format_exc())
             raise
 
@@ -1161,7 +2112,12 @@ class GenesisAgent(ABC):
         
         return result
 
-    # Abstract methods for LLM provider implementations
+    # =============================================================================
+    # ABSTRACT METHODS FOR LLM PROVIDER IMPLEMENTATIONS
+    # =============================================================================
+    # These methods must be implemented by concrete subclasses to provide
+    # provider-specific functionality (OpenAI, Anthropic, etc.)
+    
     @abstractmethod
     async def _call_llm(self, messages: List[Dict], tools: Optional[List[Dict]] = None, 
                         tool_choice: str = "auto") -> Any:
@@ -1260,6 +2216,11 @@ class GenesisAgent(ABC):
             Tool choice string (e.g., "auto", "required", "none" for OpenAI)
         """
         pass
+
+    # =============================================================================
+    # PROVIDER-AGNOSTIC UTILITY METHODS
+    # =============================================================================
+    # These methods provide common functionality that works across all LLM providers
 
     def _select_system_prompt(self, available_functions: Dict, agent_tools: Dict) -> str:
         """

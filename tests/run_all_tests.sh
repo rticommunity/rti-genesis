@@ -463,6 +463,18 @@ run_with_timeout "$(resolve_path start_services_and_cli.sh)" 90 || { echo "Test 
 # Genesis framework test
 run_with_timeout "$(resolve_path test_genesis_framework.sh)" 120 || { echo "Test failed: test_genesis_framework.sh"; exit 1; }
 
+# MCP Integration Test (optional - won't fail build if MCP not installed)
+echo "🔌 Running MCP integration test..."
+run_with_timeout "$(resolve_path test_mcp_agent.py)" 60 || { 
+    # Check if this was a skip (exit code 0) or actual failure
+    if grep -q "ALL TESTS SKIPPED" "$LOG_DIR/test_mcp_agent.log"; then
+        echo "⚠️  MCP tests skipped (MCP package not installed)"
+    else
+        echo "Test failed: test_mcp_agent.py - MCP INTEGRATION BROKEN"
+        exit 1
+    fi
+}
+
 # Monitoring tests
 echo "🔍 Running monitoring tests..."
 

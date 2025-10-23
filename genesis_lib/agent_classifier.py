@@ -3,71 +3,63 @@ Agent Classification System
 
 This module provides intelligent request routing for agent-to-agent communication.
 It analyzes incoming requests and determines which agent is best suited to handle
-them based on capabilities, specializations, and classification tags.
+them based on capabilities, specializations, and semantic LLM classification.
 
 Copyright (c) 2025, RTI & Jason Upchurch
 """
 
 import logging
 import asyncio
-import os
-from typing import Dict, Any, List, Optional, Tuple
 import re
-import json
+from typing import Dict, Any, List, Optional, Tuple
 
 # Get logger
 logger = logging.getLogger(__name__)
-
-# Optional OpenAI import for LLM classification
-try:
-    import openai
-    HAS_OPENAI = True
-except ImportError:
-    HAS_OPENAI = False
-    logger.warning("OpenAI library not available. LLM classification will be disabled.")
 
 class AgentClassifier:
     """
     Classify requests to determine which agent(s) should handle them.
     
-    Uses multiple classification strategies:
-    1. Exact capability matching
-    2. Specialization domain matching
-    3. Keyword/tag matching
-    4. LLM-based semantic matching (using GPT-4o-mini)
-    5. Default capable agent fallback
+    Uses LLM-based semantic classification to intelligently route requests
+    to the most appropriate agent based on capabilities, specializations,
+    and semantic understanding of the request intent.
     """
     
-    def __init__(self, classification_llm=None, openai_api_key=None, model_name="gpt-4o-mini"):
+    def __init__(self, provider: str = "openai", model: str = "gpt-5-mini", custom_llm=None):
         """
         Initialize the agent classifier.
         
         Args:
-            classification_llm: Optional LLM instance for semantic classification
-            openai_api_key: OpenAI API key (if None, will try environment variable)
-            model_name: OpenAI model to use for classification
+            provider: LLM provider name (e.g., "openai", "anthropic"). Default: "openai"
+            model: Model name for classification (e.g., "gpt-5-mini", "claude-haiku-4-5-20251001"). Default: "gpt-5-mini"
+            custom_llm: Optional pre-configured LLM instance. If provided, provider and model are ignored.
         """
-        self.classification_llm = classification_llm
         self.agent_registry = {}  # agent_id -> capability info
+        self.provider = provider
+        self.model = model
         
-        # Set up OpenAI client for LLM classification
-        self.openai_client = None
-        self.model_name = model_name
-        
-        if HAS_OPENAI:
-            api_key = openai_api_key or os.getenv('OPENAI_API_KEY')
-            if api_key:
-                try:
-                    self.openai_client = openai.OpenAI(api_key=api_key)
-                    logger.info(f"OpenAI client initialized for pure LLM classification using {model_name}")
-                except Exception as e:
-                    logger.warning(f"Failed to initialize OpenAI client: {e}")
-            else:
-                logger.warning("No OpenAI API key found. Agent classification will be disabled.")
+        # Use custom LLM if provided, otherwise create via LLMFactory
+        if custom_llm:
+            self.classification_llm = custom_llm
+            logger.info(f"AgentClassifier initialized with custom LLM instance")
         else:
-            logger.warning("OpenAI library not available. Agent classification will be disabled.")
+            try:
+                from .llm_factory import LLMFactory
+                self.classification_llm = LLMFactory.create_llm(
+                    purpose="classifier",
+                    provider=provider,
+                    model=model,
+                    system_prompt="You are an intelligent request router for a multi-agent system."
+                )
+                if self.classification_llm:
+                    logger.info(f"AgentClassifier initialized with {provider} provider using model {model}")
+                else:
+                    logger.warning(f"Failed to create classifier LLM - classification will be disabled")
+            except Exception as e:
+                logger.error(f"Error creating classifier LLM: {e}")
+                self.classification_llm = None
         
-        logger.info(f"AgentClassifier initialized with PURE LLM classification: {'enabled' if self.openai_client else 'DISABLED'}")
+        logger.info(f"AgentClassifier ready - LLM classification: {'enabled' if self.classification_llm else 'DISABLED'}")
     
     def update_agent_registry(self, discovered_agents: Dict[str, Dict[str, Any]]):
         """Update the internal agent registry with discovered agents"""
@@ -98,7 +90,7 @@ class AgentClassifier:
         self.update_agent_registry(available_agents)
         
         # ONLY use LLM-based semantic classification
-        if self.classification_llm or self.openai_client:
+        if self.classification_llm:
             semantic_match = await self._llm_classify(request, available_agents)
             if semantic_match:
                 logger.info(f"LLM classification selected: {semantic_match}")
@@ -120,9 +112,9 @@ class AgentClassifier:
 
     
     async def _llm_classify(self, request: str, available_agents: Dict[str, Dict[str, Any]]) -> Optional[str]:
-        """Use LLM for semantic classification (using GPT-4o-mini)"""
-        if not self.openai_client:
-            logger.debug("OpenAI client not available for LLM classification")
+        """Use LLM for semantic classification (provider-agnostic)"""
+        if not self.classification_llm:
+            logger.debug("Classification LLM not available")
             return None
         
         try:
@@ -161,25 +153,25 @@ Respond with ONLY the agent ID (the text after "ID: ") of the best match. If no 
 
 Best Agent ID:"""
 
-            # Call OpenAI API
+            # Call LLM via the generic ChatAgent interface
             logger.debug(f"Sending LLM classification request for: '{request[:50]}...'")
             
-            response = await asyncio.to_thread(
-                self.openai_client.chat.completions.create,
-                model=self.model_name,
-                messages=[
-                    {"role": "system", "content": "You are a precise agent routing system. Respond only with the requested agent ID."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.1,  # Low temperature for consistent routing decisions
-                max_tokens=50     # We only need the agent ID
+            # Use the generic generate_response method
+            # The LLM should have a system prompt already set, but we include context in the user message
+            llm_response, status = await self.classification_llm.generate_response(
+                message=prompt,
+                conversation_id="agent_classification"  # Use a fixed conversation ID for classification
             )
             
-            # Extract the agent ID from the response
-            llm_response = response.choices[0].message.content.strip()
+            if status != 0:
+                logger.error(f"LLM classification failed with status {status}")
+                return None
+            
             logger.debug(f"LLM classification response: '{llm_response}'")
             
-            # Clean up the response (remove any extra text)
+            # Clean up the response and extract agent ID
+            llm_response = llm_response.strip()
+            
             # Look for the agent ID in the response
             for agent_id in available_agents.keys():
                 if agent_id in llm_response:
@@ -187,7 +179,6 @@ Best Agent ID:"""
                     return agent_id
             
             # If no exact match, try to extract agent ID from common patterns
-            # Look for patterns like "agent_id" or just the ID itself
             words = llm_response.lower().replace('-', '_').split()
             for word in words:
                 if word in available_agents:
@@ -199,6 +190,7 @@ Best Agent ID:"""
             
         except Exception as e:
             logger.error(f"Error in LLM classification: {e}")
+            logger.exception("Full traceback:")
             return None
     
     def _find_default_capable_agent(self, available_agents: Dict[str, Dict[str, Any]]) -> Optional[str]:
