@@ -1,3 +1,5 @@
+# Copyright (c) 2025, RTI & Jason Upchurch
+
 """
 Utility functions for working with OpenAI APIs in the Genesis framework
 """

@@ -1,3 +1,5 @@
+# Copyright (c) 2025, RTI & Jason Upchurch
+
 import logging
 
 # Define all known logger names used within the genesis_lib

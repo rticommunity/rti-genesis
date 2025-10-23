@@ -1,3 +1,5 @@
+# Copyright (c) 2025, RTI & Jason Upchurch
+
 """
 Utility modules for the Genesis library
 """

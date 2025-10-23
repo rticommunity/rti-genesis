@@ -1,3 +1,5 @@
+# Copyright (c) 2025, RTI & Jason Upchurch
+
 class MemoryAdapter:
     def write(self, item, metadata=None):
         raise NotImplementedError

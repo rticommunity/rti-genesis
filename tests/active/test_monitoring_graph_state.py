@@ -30,7 +30,7 @@ os.makedirs(LOG_DIR, exist_ok=True)
 sys.path.insert(0, REPO_ROOT)
 
 from genesis_lib.graph_state import GraphService, NodeInfo, EdgeInfo  # type: ignore
-from genesis_lib.rpc_client_v2 import GenesisRPCClientV2  # type: ignore
+from genesis_lib.rpc_client import GenesisRPCClient  # type: ignore
 
 
 EXPECTED_FUNCTIONS = {"add", "subtract", "multiply", "divide"}
@@ -190,7 +190,7 @@ async def main() -> int:
             return 1
 
         # Drive one RPC call to assert matched BUSY↔READY pairing (no extras for other functions)
-        client = GenesisRPCClientV2(service_type="CalculatorService")
+        client = GenesisRPCClient(service_type="CalculatorService")
         await client.wait_for_service(timeout_seconds=10)
         pre_busy = len(obs.service_busy_events)
         pre_ready = len(obs.service_ready_events)

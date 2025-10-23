@@ -259,11 +259,11 @@ run_rpc_tests() {
     # Test RPC client/service creation
     log_message "Testing RPC client/service creation..."
     python3 -c "
-from genesis_lib.rpc_client_v2 import GenesisRPCClientV2
-from genesis_lib.rpc_service_v2 import GenesisRPCServiceV2
+from genesis_lib.rpc_client import GenesisRPCClient
+from genesis_lib.rpc_service import GenesisRPCService
 try:
     client = GenesisRPCClient('TestService')
-    service = GenesisRPCServiceV2(service_type='TestService')
+    service = GenesisRPCService(service_type='TestService')
     print('RPC client/service creation: SUCCESS')
     client.close()
     service.close()
