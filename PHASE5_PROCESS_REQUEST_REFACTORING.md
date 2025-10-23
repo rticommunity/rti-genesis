@@ -297,7 +297,7 @@ All orchestration, tool routing, memory management, and multi-turn logic is auto
 
 ## Files Modified
 
-- `Genesis_LIB/genesis_lib/agent.py` - Added abstract methods, concrete process_request(), process_agent_request()
+- `Genesis_LIB/genesis_lib/genesis_agent.py` - Added abstract methods, concrete process_request(), process_agent_request()
 - `Genesis_LIB/genesis_lib/monitored_agent.py` - Updated to call super().process_request()
 - `Genesis_LIB/genesis_lib/openai_genesis_agent.py` - Removed process_request(), added _get_tool_schemas() and _get_tool_choice()
 - `Genesis_LIB/tests/helpers/math_test_agent.py` - Added stubs for new abstract methods

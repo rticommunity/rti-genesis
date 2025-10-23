@@ -374,7 +374,7 @@ async def test_anthropic_agent():
 ## Questions?
 
 See the implementation in:
-- `genesis_lib/agent.py` (GenesisAgent base)
+- `genesis_lib/genesis_agent.py` (GenesisAgent base)
 - `genesis_lib/monitored_agent.py` (MonitoredAgent wrapper)
 - `genesis_lib/openai_genesis_agent.py` (Reference implementation)
 - `genesis_lib/schema_generators.py` (Schema converters)

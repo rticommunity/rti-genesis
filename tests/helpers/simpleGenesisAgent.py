@@ -22,7 +22,7 @@ class SimpleGenesisAgent(OpenAIGenesisAgent):
             enable_tracing=True  # Enable tracing for testing
         )
         # The base class (OpenAIGenesisAgent) also has its own logging for initialization details
-        logger.info(f"'{self.agent_name}' instance created. RPC Service: '{self.rpc_service_name}' (unified topics). Ready to connect to Genesis services.")
+        logger.info(f"'{self.agent_name}' instance created. RPC Service: '{self.base_service_name}' (unified topics). Ready to connect to Genesis services.")
 
 async def main(tag: str = None, verbose: bool = False): # tag parameter kept for CLI compatibility but not used
     # Note: tag parameter is no longer used - RPC v2 uses unified topics with GUID-based targeting

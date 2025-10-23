@@ -37,7 +37,7 @@ class SimpleGenesisAgent(OpenAIGenesisAgent):
         )
         # Log that the agent instance has been created.
         # The base class OpenAIGenesisAgent also performs its own logging during initialization.
-        logger.info(f"'{self.agent_name}' instance created. RPC Service: '{self.rpc_service_name}' (unified topics). Ready to connect to Genesis services.")
+        logger.info(f"'{self.agent_name}' instance created. RPC Service: '{self.base_service_name}' (unified topics). Ready to connect to Genesis services.")
 
 async def main(tag: str = None, verbose: bool = False): # tag kept for CLI compatibility
     """

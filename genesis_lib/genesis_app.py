@@ -156,16 +156,6 @@ class GenesisApp:
             logger.error(f"Error closing GenesisApp: {str(e)}")
             logger.error(traceback.format_exc())
 
-    # Sync version of close for backward compatibility
-    def close_sync(self):
-        """Synchronous version of close for backward compatibility"""
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(self.close())
-        finally:
-            loop.close()
-
     def _register_builtin_functions(self):
         """Register any built-in functions for this application"""
         logger.debug("===== DDS TRACE: _register_builtin_functions called =====")

@@ -18,7 +18,7 @@ The universal agent schema pattern (all agents accept a `message` parameter) sho
 ## Solution
 
 ### 1. Added `_get_agent_tool_schemas()` to GenesisAgent
-**File:** `genesis_lib/agent.py`
+**File:** `genesis_lib/genesis_agent.py`
 
 ```python
 def _get_agent_tool_schemas(self) -> List[Dict[str, Any]]:
@@ -148,7 +148,7 @@ The universal agent schema pattern is now clearly defined in one place and inher
 
 ## Files Modified
 
-1. **`genesis_lib/agent.py`**
+1. **`genesis_lib/genesis_agent.py`**
    - Added `_get_agent_tool_schemas()` method (~40 lines)
    - Generates provider-agnostic agent tool schemas
 

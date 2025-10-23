@@ -10,7 +10,7 @@ implementations (OpenAIGenesisAgent, AnthropicGenesisAgent) as a transparent dec
 ARCHITECTURE OVERVIEW - Understanding the Inheritance Hierarchy
 =================================================================================================
 
-GenesisAgent (genesis_lib/agent.py)
+GenesisAgent (genesis_lib/genesis_agent.py)
 ├─ Provider-Agnostic Business Logic:
 │  ├─ process_request() - Main request processing flow
 │  ├─ _orchestrate_tool_request() - Multi-turn conversation orchestration
@@ -221,7 +221,7 @@ import asyncio
 import traceback
 import rti.connextdds as dds
 
-from .agent import GenesisAgent
+from .genesis_agent import GenesisAgent
 from genesis_lib.generic_function_client import GenericFunctionClient
 from genesis_lib.graph_monitoring import (
     GraphMonitor,
@@ -271,7 +271,8 @@ class MonitoredAgent(GenesisAgent):
                  enable_agent_communication: bool = False, 
                  enable_monitoring: bool = True,
                  memory_adapter=None,
-                 auto_run: bool = True, service_instance_tag: str = ""):
+                 auto_run: bool = True, service_instance_tag: str = "",
+                 classifier_llm=None, classifier_provider: str = "openai", classifier_model: str = "gpt-5-mini"):
         """
         Initialize a MonitoredAgent with full observability and graph monitoring.
         
@@ -289,6 +290,9 @@ class MonitoredAgent(GenesisAgent):
             memory_adapter: Optional memory backend for conversation history
             auto_run: Whether to automatically start the RPC listener loop
             service_instance_tag: Optional tag for content filtering (e.g., "production", "staging")
+            classifier_llm: Optional pre-configured LLM instance for agent classification
+            classifier_provider: Provider for classifier (default: "openai")
+            classifier_model: Model for classifier (default: "gpt-5-mini")
         
         Initialization Sequence:
             1. Store attributes needed for state publishing before super().__init__
@@ -329,7 +333,10 @@ class MonitoredAgent(GenesisAgent):
             enable_agent_communication=enable_agent_communication,
             memory_adapter=memory_adapter,
             auto_run=auto_run,
-            service_instance_tag=service_instance_tag
+            service_instance_tag=service_instance_tag,
+            classifier_llm=classifier_llm,
+            classifier_provider=classifier_provider,
+            classifier_model=classifier_model
         )
         logger.info(f"✅ TRACE: MonitoredAgent {agent_name} initialized with base class")
 

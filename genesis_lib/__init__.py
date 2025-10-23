@@ -13,7 +13,7 @@ import logging
 logger = logging.getLogger(__name__) # or logging.getLogger("genesis_lib")
 
 from .genesis_app import GenesisApp
-from .agent import GenesisAgent
+from .genesis_agent import GenesisAgent
 from .interface import GenesisInterface
 from .function_discovery import (
     FunctionRegistry,
@@ -21,6 +21,7 @@ from .function_discovery import (
 )
 from .function_classifier import FunctionClassifier
 from .llm import AnthropicChatAgent
+from .llm_factory import LLMFactory
 from .openai_genesis_agent import OpenAIGenesisAgent
 from .generic_function_client import GenericFunctionClient
 from .utils.openai_utils import convert_functions_to_openai_schema, generate_response_with_functions
@@ -35,6 +36,7 @@ __all__ = [
     'FunctionInfo',
     'FunctionClassifier',
     'AnthropicChatAgent',
+    'LLMFactory',
     'OpenAIGenesisAgent',
     'GenericFunctionClient',
     'convert_functions_to_openai_schema',

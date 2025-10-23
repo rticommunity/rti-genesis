@@ -186,7 +186,7 @@ while turn_count < max_turns:
    - ❌ Removed `except Exception: pass` from heuristic delegation
    - Added process flow logging
 
-3. **genesis_lib/agent.py**
+3. **genesis_lib/genesis_agent.py**
    - Added main loop iteration logging
    - Fixed Interface-to-Agent request handling
 

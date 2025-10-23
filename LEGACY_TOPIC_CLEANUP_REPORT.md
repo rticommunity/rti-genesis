@@ -22,7 +22,7 @@ Found references to the three legacy topics across **13 files**:
 
 These files only contain comments documenting the removal - **no action needed**:
 
-1. **`genesis_lib/agent.py`**
+1. **`genesis_lib/genesis_agent.py`**
    - Line 100: `# Legacy GenesisRegistration writer removed - now using unified Advertisement topic via AdvertisementBus`
    
 2. **`genesis_lib/genesis_app.py`**

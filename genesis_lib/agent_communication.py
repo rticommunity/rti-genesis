@@ -120,9 +120,7 @@ class AgentCommunicationMixin:
         Individual instances are targeted via their replier_guid, not separate topic names.
         """
         try:
-            if hasattr(self, 'rpc_service_name') and self.rpc_service_name:
-                return self.rpc_service_name
-            if hasattr(self, 'base_service_name') and hasattr(self, 'app'):
+            if hasattr(self, 'base_service_name') and self.base_service_name:
                 return self.base_service_name
         except Exception:
             pass

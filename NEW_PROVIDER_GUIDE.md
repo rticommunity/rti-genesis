@@ -252,7 +252,7 @@ async def test_basic():
 
 ```
 genesis_lib/
-├── agent.py                    # GenesisAgent (base class)
+├── genesis_agent.py            # GenesisAgent (base class)
 ├── monitored_agent.py          # MonitoredAgent (monitoring layer)
 ├── openai_genesis_agent.py     # OpenAI implementation (TEMPLATE)
 ├── anthropic_genesis_agent.py  # Your Anthropic implementation

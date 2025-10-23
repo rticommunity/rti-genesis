@@ -54,7 +54,7 @@ Searched entire codebase for references to three legacy topics:
 ### Code Files (Comments Only)
 All references in production code are **documentation comments** explaining the removal:
 
-1. ✅ `genesis_lib/agent.py` - Comment documenting GenesisRegistration removal
+1. ✅ `genesis_lib/genesis_agent.py` - Comment documenting GenesisRegistration removal
 2. ✅ `genesis_lib/genesis_app.py` - Comment documenting GenesisRegistration removal
 3. ✅ `genesis_lib/function_discovery.py` - Comments documenting FunctionCapability removal
 4. ✅ `genesis_lib/agent_communication.py` - Comments documenting AgentCapability removal
