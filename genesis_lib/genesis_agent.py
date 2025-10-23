@@ -45,7 +45,10 @@ from genesis_lib.memory import SimpleMemoryAdapter
 # Get logger
 logger = logging.getLogger(__name__)
 
-# Constants for agent capabilities
+# =============================================================================
+# CONSTANTS AND CONFIGURATION
+# =============================================================================
+
 class AgentCapabilities:
     """Constants for agent capability definitions."""
     DEFAULT_TYPE = "general"
@@ -56,6 +59,21 @@ class AgentCapabilities:
     DEFAULT_STRENGTHS = []
     DEFAULT_LIMITATIONS = []
     DEFAULT_PERFORMANCE_METRICS = {}
+
+class AgentConfig:
+    """Configuration constants for agent behavior."""
+    # Timeout settings
+    DEFAULT_REQUEST_TIMEOUT = 10.0
+    DEFAULT_AGENT_WAIT_TIMEOUT = 30.0
+    DEFAULT_AGENT_CALL_TIMEOUT = 30.0
+    MCP_THREAD_JOIN_TIMEOUT = 5.0
+    
+    # Default agent type
+    DEFAULT_AGENT_TYPE = "AGENT"
+    
+    # System prompts
+    DEFAULT_GENERAL_SYSTEM_PROMPT = "You are a helpful assistant."
+    DEFAULT_FUNCTION_SYSTEM_PROMPT = "You are a helpful assistant with access to tools."
 
 class GenesisAgent(ABC):
     """Base class for all Genesis agents"""
@@ -550,7 +568,7 @@ class GenesisAgent(ABC):
                 wrapper_self.app = parent_agent.app
                 wrapper_self.base_service_name = parent_agent.base_service_name
                 wrapper_self.agent_name = parent_agent.agent_name
-                wrapper_self.agent_type = getattr(parent_agent, 'agent_type', 'AGENT')
+                wrapper_self.agent_type = getattr(parent_agent, 'agent_type', AgentConfig.DEFAULT_AGENT_TYPE)
                 wrapper_self.description = getattr(parent_agent, 'description', f'Agent {parent_agent.agent_name}')
             
             async def process_agent_request(wrapper_self, request):
@@ -562,6 +580,11 @@ class GenesisAgent(ABC):
                 return wrapper_self.parent_agent.get_agent_capabilities()
         
         return AgentCommunicationWrapper(self)
+
+    # =============================================================================
+    # AGENT COMMUNICATION AND REQUEST ROUTING
+    # =============================================================================
+    # Methods for agent-to-agent communication and intelligent request routing
     
     async def process_agent_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -615,9 +638,9 @@ class GenesisAgent(ABC):
     # optimizes for readability over DRY (Don't Repeat Yourself).
     # ========================================================================
     
-    async def send_agent_request(self, target_agent_id: str, message: str, 
+    async def send_agent_request(self, target_agent_id: str, message: str,
                                conversation_id: Optional[str] = None,
-                               timeout_seconds: float = 10.0) -> Optional[Dict[str, Any]]:
+                               timeout_seconds: float = AgentConfig.DEFAULT_REQUEST_TIMEOUT) -> Optional[Dict[str, Any]]:
         """
         Send a request to another agent.
         
@@ -634,7 +657,7 @@ class GenesisAgent(ABC):
             target_agent_id, message, conversation_id, timeout_seconds
         ) if self.agent_communication else None
     
-    async def wait_for_agent(self, agent_id: str, timeout_seconds: float = 30.0) -> bool:
+    async def wait_for_agent(self, agent_id: str, timeout_seconds: float = AgentConfig.DEFAULT_AGENT_WAIT_TIMEOUT) -> bool:
         """
         Wait for a specific agent to be discovered.
         
@@ -772,7 +795,7 @@ class GenesisAgent(ABC):
     
     async def route_request_to_best_agent(self, request_message: str, 
                                         conversation_id: Optional[str] = None,
-                                        timeout_seconds: float = 10.0) -> Optional[Dict[str, Any]]:
+                                        timeout_seconds: float = AgentConfig.DEFAULT_REQUEST_TIMEOUT) -> Optional[Dict[str, Any]]:
         """
         Intelligently route a request to the best available agent.
         
@@ -1135,6 +1158,12 @@ class GenesisAgent(ABC):
         logger.debug(f"Validated user capabilities: {len(result.get('capabilities', []))} capabilities, {len(result.get('specializations', []))} specializations")
         
         return result
+
+    # =============================================================================
+    # TOOL MANAGEMENT AND EXECUTION
+    # =============================================================================
+    # Methods for discovering, managing, and executing tools (external functions,
+    # agent tools, and internal @genesis_tool methods)
     
     def _get_tool_methods(self) -> List[Dict[str, Any]]:
         """Get list of @genesis_tool methods for capability analysis."""
@@ -1494,6 +1523,11 @@ Be specific and accurate based on the actual tools and methods available."""
         """
         # Default implementation for base GenesisAgent uses auto-generation.
         return self._auto_generate_capabilities()
+
+    # =============================================================================
+    # CAPABILITY MANAGEMENT AND DEFINITION
+    # =============================================================================
+    # Methods for defining, managing, and discovering agent capabilities
     
     def define_capabilities(self, 
                            agent_type: str = "general",
@@ -1745,7 +1779,7 @@ Be specific and accurate based on the actual tools and methods available."""
             
             # Extract capability information
             agent_name = agent_info.get('name', agent_id)
-            agent_type = agent_info.get('agent_type', 'AGENT')
+            agent_type = agent_info.get('agent_type', AgentConfig.DEFAULT_AGENT_TYPE)
             service_name = agent_info.get('service_name', 'UnknownService')
             description = agent_info.get('description', f'Agent {agent_name}')
             capabilities = agent_info.get('capabilities', [])
@@ -1916,7 +1950,7 @@ Be specific and accurate based on the actual tools and methods available."""
                     target_agent_id=target_agent_id,
                     message=message,
                     conversation_id=None,  # Simplified - no separate conversation tracking
-                    timeout_seconds=30.0
+                    timeout_seconds=AgentConfig.DEFAULT_AGENT_CALL_TIMEOUT
                 )
                 end_time = time.time()
             else:
@@ -1927,7 +1961,7 @@ Be specific and accurate based on the actual tools and methods available."""
                     target_agent_id=target_agent_id,
                     message=message,
                     conversation_id=None,  # Simplified - no separate conversation tracking
-                    timeout_seconds=30.0
+                    timeout_seconds=AgentConfig.DEFAULT_AGENT_CALL_TIMEOUT
                 )
                 end_time = time.time()
             
@@ -2038,6 +2072,11 @@ Be specific and accurate based on the actual tools and methods available."""
             logger.error(f"Error calling internal tool {tool_name}: {str(e)}")
             logger.error(traceback.format_exc())
             raise
+
+    # =============================================================================
+    # REQUEST PROCESSING AND ORCHESTRATION
+    # =============================================================================
+    # Methods for processing requests and orchestrating LLM interactions
 
     async def process_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -2235,10 +2274,10 @@ Be specific and accurate based on the actual tools and methods available."""
             Selected system prompt string
         """
         if not available_functions and not agent_tools:
-            return getattr(self, 'general_system_prompt', 'You are a helpful assistant.')
+            return getattr(self, 'general_system_prompt', AgentConfig.DEFAULT_GENERAL_SYSTEM_PROMPT)
         else:
             return getattr(self, 'function_based_system_prompt', 
-                          'You are a helpful assistant with access to tools.')
+                          AgentConfig.DEFAULT_FUNCTION_SYSTEM_PROMPT)
 
     def _trace_llm_call(self, context: str, tools: List[Dict], user_message: str, 
                         tool_responses: Optional[List[Dict]] = None):
@@ -2474,6 +2513,11 @@ Be specific and accurate based on the actual tools and methods available."""
         
         return result
 
+    # =============================================================================
+    # AGENT LIFECYCLE MANAGEMENT
+    # =============================================================================
+    # Methods for agent initialization, execution, and cleanup
+
     async def run(self):
         """Main agent loop"""
         try:
@@ -2538,6 +2582,11 @@ Be specific and accurate based on the actual tools and methods available."""
             self._run_started = False
             self._run_task = None
 
+    # =============================================================================
+    # DDS/RPC INFRASTRUCTURE AND SETUP
+    # =============================================================================
+    # Methods for DDS infrastructure setup, RPC handling, and system integration
+
     async def close(self):
         """Clean up resources"""
         try:
@@ -2559,7 +2608,7 @@ Be specific and accurate based on the actual tools and methods available."""
 
             # Wait for MCP thread to finish
             if hasattr(self, '_mcp_thread') and self._mcp_thread is not None:
-                self._mcp_thread.join(timeout=5.0)
+                self._mcp_thread.join(timeout=AgentConfig.MCP_THREAD_JOIN_TIMEOUT)
                 if self._mcp_thread.is_alive():
                     logger.warning("MCP thread did not shut down within 5 seconds and may be stuck.")
 
@@ -2567,6 +2616,11 @@ Be specific and accurate based on the actual tools and methods available."""
         except Exception as e:
             logger.error(f"Error closing GenesisAgent: {str(e)}")
             logger.error(traceback.format_exc())
+
+    # =============================================================================
+    # AGENT ADVERTISEMENT AND DISCOVERY
+    # =============================================================================
+    # Methods for agent presence announcement and discovery
 
     async def announce_self(self):
         """Publish a unified GenesisAdvertisement(kind=AGENT) for this agent."""
@@ -2588,7 +2642,7 @@ Be specific and accurate based on the actual tools and methods available."""
             ad["provider_id"] = str(writer.instance_handle)
             ad["last_seen"] = int(time.time() * 1000)
             payload = {
-                "agent_type": getattr(self, 'agent_type', 'AGENT'),
+                "agent_type": getattr(self, 'agent_type', AgentConfig.DEFAULT_AGENT_TYPE),
                 "prefered_name": self.agent_name,
                 "replier_guid": getattr(self, 'replier_guid', ''),  # RPC v2: for GUID-based targeting
             }

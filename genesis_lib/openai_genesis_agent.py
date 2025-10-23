@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-OpenAI Genesis Agent - LLM Provider Implementation Template
+OpenAI Genesis Agent - LLM Provider Implementation
 
-This module serves as the REFERENCE IMPLEMENTATION for creating new LLM provider agents.
-It demonstrates how to implement the 7 abstract methods required by GenesisAgent to create
-a fully functional agent with minimal code (~500 lines vs 2000+ without the framework).
+This module provides the OpenAIGenesisAgent class, which implements the OpenAI API
+integration for the Genesis framework. It serves as the reference implementation for
+creating new LLM provider agents.
 
 =================================================================================================
 ARCHITECTURE OVERVIEW - Understanding the Inheritance Hierarchy
@@ -113,135 +113,6 @@ automatically get ALL of this functionality without writing any code:
    - **If not used**: Automatic intelligent capability generation (model-based → heuristic)
 
 =================================================================================================
-USER-DEFINED CAPABILITIES - Rich Agent Metadata System (OPTIONAL)
-=================================================================================================
-
-The Genesis framework provides a comprehensive capability definition system that allows
-you to define rich, structured metadata for your agents. This enables better agent
-discovery, routing, and classification within the Genesis network.
-
-**IMPORTANT: This is completely OPTIONAL!**
-
-- **If you define capabilities**: Your custom definitions are used
-- **If you don't define capabilities**: Automatic intelligent generation (model-based → heuristic)
-- **All existing agents continue to work unchanged** - no breaking changes
-- **Backward compatible**: Current examples work exactly as before
-
-CAPABILITY DEFINITION METHODS (Available on all provider agents):
-
-1. **define_capabilities()** - Comprehensive capability definition:
-   ```python
-   agent.define_capabilities(
-       agent_type="specialist",
-       specializations=["weather", "meteorology"],
-       capabilities=["weather_forecasting", "climate_analysis"],
-       classification_tags=["weather", "forecast", "climate"],
-       performance_metrics={
-           "estimated_response_time": "fast",
-           "complexity_handling": "moderate"
-       },
-       strengths=["Accurate weather data", "Multi-day forecasting"],
-       limitations=["Requires location input", "Weather domain only"],
-       default_capable=False
-   )
-   ```
-
-2. **Convenience Methods** - Dynamic capability management:
-   ```python
-   agent.add_capability("advanced_weather_analysis")
-   agent.add_specialization("atmospheric_science")
-   agent.set_performance_metric("accuracy", "high")
-   ```
-
-3. **Method Override** - Custom capability logic:
-   ```python
-   def get_agent_capabilities(self) -> dict:
-       return {
-           'agent_type': 'specialist',
-           'specializations': ['finance', 'investment'],
-           'capabilities': ['stock_analysis', 'portfolio_optimization'],
-           # ... more fields
-       }
-   ```
-
-4. **Class-Level Definition** - Static capability definitions:
-   ```python
-   class MyAgent(OpenAIGenesisAgent):
-       CAPABILITIES = {
-           'agent_type': 'specialist',
-           'specializations': ['mathematics', 'statistics'],
-           'capabilities': ['calculations', 'statistical_analysis'],
-           # ... more fields
-       }
-   ```
-
-CAPABILITY SCHEMA FIELDS:
-
-Required Fields:
-- agent_type: "general" | "specialist" | "tool_agent" | "conversational"
-- specializations: List[str] - Domain expertise areas
-- capabilities: List[str] - Specific capabilities the agent can perform
-- classification_tags: List[str] - Tags for categorization and discovery
-- default_capable: bool - Whether agent can handle general requests
-
-Optional Fields:
-- model_info: Dict - Information about underlying models
-- performance_metrics: Dict - Performance characteristics
-- interaction_patterns: List[str] - How the agent typically interacts
-- strengths: List[str] - Key strengths
-- limitations: List[str] - Known limitations
-
-PRIORITY ORDER:
-1. User-defined capabilities (highest priority)
-2. Model-based generation (if available)
-3. Heuristic approach (fallback)
-
-BENEFITS:
-- **Consistent Metadata**: Standardized capability definitions across all agents
-- **Rich Discovery**: Better agent classification and routing
-- **Performance Metrics**: Detailed performance characteristics
-- **Domain Specialization**: Clear specialization and limitation information
-- **Dynamic Updates**: Runtime capability management
-- **Provider Agnostic**: Works with any LLM provider
-
-EXAMPLES BY DOMAIN:
-
-Weather Agent:
-```python
-agent.define_capabilities(
-    agent_type="specialist",
-    specializations=["weather", "meteorology", "climate"],
-    capabilities=["weather_forecasting", "climate_analysis"],
-    classification_tags=["weather", "forecast", "climate"],
-    performance_metrics={"estimated_response_time": "fast"},
-    default_capable=False
-)
-```
-
-Finance Agent:
-```python
-agent.define_capabilities(
-    agent_type="specialist", 
-    specializations=["finance", "investment", "trading"],
-    capabilities=["stock_analysis", "portfolio_optimization"],
-    classification_tags=["finance", "investment", "stocks"],
-    performance_metrics={"complexity_handling": "complex"},
-    default_capable=False
-)
-```
-
-General Assistant:
-```python
-agent.define_capabilities(
-    agent_type="general",
-    specializations=["general_assistance"],
-    capabilities=["conversation", "task_assistance"],
-    classification_tags=["general", "assistant", "conversation"],
-    default_capable=True
-)
-```
-
-=================================================================================================
 WHAT YOU MUST IMPLEMENT - The 7 Abstract Methods
 =================================================================================================
 
@@ -274,103 +145,6 @@ Example: Creating AnthropicGenesisAgent
 
 That's it! Your new agent will automatically integrate with all existing infrastructure.
 
-CAPABILITY DEFINITION FOR NEW PROVIDERS:
-
-When creating a new provider, you can define capabilities in several ways:
-
-1. **In __init__()** - Define capabilities during agent creation:
-   ```python
-   def __init__(self, model_name="claude-3-5-sonnet-20241022", ...):
-       super().__init__(...)
-       
-       # Define capabilities for your provider
-       self.define_capabilities(
-           agent_type="specialist",
-           specializations=["anthropic", "claude"],
-           capabilities=["advanced_reasoning", "code_generation"],
-           classification_tags=["anthropic", "claude", "reasoning"],
-           performance_metrics={"reasoning_capability": "advanced"}
-       )
-   ```
-
-2. **Class-Level Definition** - Define capabilities at class level:
-   ```python
-   class AnthropicGenesisAgent(MonitoredAgent):
-       CAPABILITIES = {
-           'agent_type': 'specialist',
-           'specializations': ['anthropic', 'claude'],
-           'capabilities': ['advanced_reasoning', 'code_generation'],
-           'classification_tags': ['anthropic', 'claude', 'reasoning']
-       }
-   ```
-
-3. **Method Override** - Override get_agent_capabilities() for custom logic:
-   ```python
-   def get_agent_capabilities(self) -> dict:
-       base_caps = super().get_agent_capabilities()
-       # Add provider-specific capabilities
-       base_caps['model_info']['provider'] = 'anthropic'
-       base_caps['performance_metrics']['reasoning_capability'] = 'advanced'
-       return base_caps
-   ```
-
-4. **Dynamic Capabilities** - Add capabilities based on configuration:
-   ```python
-   def __init__(self, enable_advanced_features=False, ...):
-       super().__init__(...)
-       
-       if enable_advanced_features:
-           self.add_capability("advanced_reasoning")
-           self.add_capability("code_generation")
-           self.set_performance_metric("reasoning_capability", "advanced")
-   ```
-
-BEST PRACTICES FOR PROVIDER CAPABILITIES:
-
-1. **Provider-Specific Metadata**: Include provider information in model_info
-2. **Performance Characteristics**: Define provider-specific performance metrics
-3. **Model Information**: Include model names and capabilities
-4. **Specialization**: Define what makes your provider unique
-5. **Limitations**: Be honest about provider limitations
-
-Example Provider Capability Definition:
-```python
-def __init__(self, model_name="claude-3-5-sonnet-20241022", ...):
-    super().__init__(...)
-    
-    self.define_capabilities(
-        agent_type="specialist",
-        specializations=["anthropic", "claude", "reasoning"],
-        capabilities=[
-            "advanced_reasoning",
-            "code_generation", 
-            "mathematical_problem_solving",
-            "creative_writing"
-        ],
-        classification_tags=["anthropic", "claude", "reasoning", "code", "math"],
-        performance_metrics={
-            "reasoning_capability": "advanced",
-            "code_generation": "expert",
-            "mathematical_ability": "high"
-        },
-        model_info={
-            "provider": "anthropic",
-            "model": model_name,
-            "reasoning_capability": "advanced"
-        },
-        strengths=[
-            "Advanced reasoning capabilities",
-            "Excellent code generation",
-            "Strong mathematical problem solving"
-        ],
-        limitations=[
-            "Requires Anthropic API key",
-            "Rate limited by Anthropic",
-            "No real-time data access"
-        ]
-    )
-```
-
 =================================================================================================
 
 Copyright (c) 2025, RTI & Jason Upchurch
@@ -399,8 +173,8 @@ class OpenAIGenesisAgent(MonitoredAgent):
     """
     OpenAI API implementation of GenesisAgent.
     
-    This class serves as a reference implementation and template for creating new LLM providers.
-    Study this implementation to understand how to integrate any LLM API with Genesis.
+    This class implements the OpenAI API integration for the Genesis framework,
+    serving as the reference implementation for creating new LLM provider agents.
     """
     
     def __init__(self, model_name="gpt-4o", classifier_model_name="gpt-4o-mini", 
@@ -416,55 +190,19 @@ class OpenAIGenesisAgent(MonitoredAgent):
         """
         Initialize OpenAI-based Genesis agent.
         
-        Provider Implementation Notes:
-        ------------------------------
-        For a new provider (e.g., Anthropic), you would:
-        1. Replace OpenAI() client with your provider's client (e.g., anthropic.Anthropic())
-        2. Change model_name to your provider's model (e.g., "claude-3-5-sonnet-20241022")
-        3. Update API key environment variable (e.g., "ANTHROPIC_API_KEY")
-        4. Adjust tool_choice values to match provider (e.g., {"type": "auto"} for Anthropic)
-        
         Args:
             model_name: OpenAI model identifier (e.g., "gpt-4o", "gpt-4o-mini")
-                       For Anthropic: "claude-3-5-sonnet-20241022"
-                       For Google: "gemini-1.5-pro"
-                       
             classifier_model_name: Model for function classification (usually cheaper/faster)
-                                  Not all providers need this - some use the same model
-                                  
             domain_id: DDS domain ID (0-232) - network isolation boundary
-                      All agents/services on same domain can discover each other
-                      Use different domains for: dev/staging/prod, different projects, testing
-                      
-            agent_name: Human-readable instance identifier (e.g., "WeatherBot_Primary")
-                       Used for: logging, monitoring UI, human identification
-                       Multiple agents can have different agent_names but same base_service_name
-                       
+            agent_name: Human-readable instance identifier
             base_service_name: Service capability type (e.g., "OpenAIChat", "WeatherService")
-                              Used for: RPC service naming, capability discovery, service routing
-                              Multiple agents with same base_service_name provide redundancy
-                              
             description: Optional human-readable description for monitoring/docs
-            
             enable_tracing: Enable detailed debug logging (use in development only)
-                           Logs: LLM calls, tool calls, responses, state transitions
-                           
             enable_monitoring: Enable monitoring and observability features (default True)
-                              When False: No GraphMonitor created, no state tracking, no events published
-                              Use False for: lightweight testing, performance benchmarking, minimal deployments
-                           
             enable_agent_communication: Allow this agent to discover and call other agents
-                                       Disable for: specialized tools, security boundaries
-                                       
             memory_adapter: Pluggable conversation memory backend
-                           None = SimpleMemoryAdapter (in-memory, ephemeral)
-                           Custom = Your implementation (vector DB, graph DB, persistent)
-                           
             auto_run: Automatically start run() loop if event loop exists
-                     False = You must call await agent.run() manually
-                     
             service_instance_tag: Optional tag for content filtering
-                                 Use for: versioning (v1/v2), environments (prod/staging)
         """
         # Store tracing configuration before super().__init__ since parent might use it
         self.enable_tracing = enable_tracing
@@ -589,82 +327,8 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         """
         Convert discovered agents to OpenAI tool schema format.
         
-        Provider Implementation Guide:
-        ------------------------------
-        This method shows how to convert Genesis's universal agent schemas into
-        provider-specific tool schemas.
-        
-        What You Get (from parent class):
-            - self._get_agent_tool_schemas() returns universal agent schemas:
-              [
-                {
-                  "name": "WeatherAgent",
-                  "description": "Specialized agent for weather queries",
-                  "parameters": {
-                    "message": {
-                      "type": "string",
-                      "description": "Message to send to the agent"
-                    }
-                  },
-                  "required": ["message"]
-                }
-              ]
-        
-        What You Must Return (provider-specific format):
-        
-        OpenAI Format (this implementation):
-            [
-              {
-                "type": "function",
-                "function": {
-                  "name": "WeatherAgent",
-                  "description": "Specialized agent for weather queries",
-                  "parameters": {
-                    "type": "object",
-                    "properties": {
-                      "message": {"type": "string", "description": "..."}
-                    },
-                    "required": ["message"]
-                  }
-                }
-              }
-            ]
-        
-        Anthropic Format (for reference):
-            [
-              {
-                "name": "WeatherAgent",
-                "description": "Specialized agent for weather queries",
-                "input_schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {"type": "string", "description": "..."}
-                  },
-                  "required": ["message"]
-                }
-              }
-            ]
-        
-        Google Gemini Format (for reference):
-            [
-              {
-                "name": "WeatherAgent",
-                "description": "Specialized agent for weather queries",
-                "parameters": {
-                  "type_": "OBJECT",
-                  "properties": {
-                    "message": {"type_": "STRING", "description": "..."}
-                  },
-                  "required": ["message"]
-                }
-              }
-            ]
-        
-        Key Differences Across Providers:
-            - OpenAI: Wraps in {"type": "function", "function": {...}}
-            - Anthropic: Uses "input_schema" instead of "parameters"
-            - Google: Uses "type_" enum values (OBJECT, STRING) instead of strings
-            - Some providers support additional fields: examples, strict mode, etc.
+        Returns:
+            List of agent tools in OpenAI format
         """
         logger.debug("===== TRACING: Converting agent schemas to OpenAI tool format =====")
         
@@ -697,67 +361,11 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         """
         Convert discovered external functions to OpenAI tool schema format.
         
-        Provider Implementation Guide:
-        ------------------------------
-        This method shows how to convert Genesis function schemas into provider-specific formats.
-        
-        What You Get (from parent class):
-            - self._get_available_functions() returns discovered functions:
-              {
-                "add": {
-                  "description": "Add two numbers",
-                  "schema": {  # Already in JSON Schema format
-                    "type": "object",
-                    "properties": {
-                      "x": {"type": "number", "description": "First number"},
-                      "y": {"type": "number", "description": "Second number"}
-                    },
-                    "required": ["x", "y"]
-                  }
-                },
-                ...
-              }
-        
-        What You Must Return (provider-specific format):
-        
-        OpenAI Format (this implementation):
-            [
-              {
-                "type": "function",
-                "function": {
-                  "name": "add",
-                  "description": "Add two numbers",
-                  "parameters": {  # Directly use the JSON Schema
-                    "type": "object",
-                    "properties": {...},
-                    "required": [...]
-                  }
-                }
-              }
-            ]
-        
-        Anthropic Format (for reference):
-            [
-              {
-                "name": "add",
-                "description": "Add two numbers",
-                "input_schema": {  # Anthropic uses "input_schema"
-                  "type": "object",
-                  "properties": {...},
-                  "required": [...]
-                }
-              }
-            ]
-        
-        Google Gemini Format (for reference):
-            Function declarations with FunctionDeclaration type
-            Must convert JSON Schema types to Gemini Type enums
-        
-        Important Notes:
-            - Genesis functions already provide JSON Schema-compatible parameter definitions
-            - Most providers accept JSON Schema with minor adaptations
-            - Key differences: wrapper format, field names, type representations
-            - relevant_functions parameter allows filtering (for classification/optimization)
+        Args:
+            relevant_functions: Optional list of function names to filter
+            
+        Returns:
+            List of function schemas in OpenAI format
         """
         logger.debug("===== TRACING: Converting function schemas for OpenAI =======")
         function_schemas = []
@@ -789,29 +397,11 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         """
         Get ALL tool schemas in OpenAI format: functions + agents + internal tools.
         
-        Provider Implementation Guide:
-        ------------------------------
-        This is your main "schema aggregator" method that combines all tool types.
-        
-        Genesis Tool Ecosystem:
-            1. External Functions - Discovered via DDS (services like Calculator, Weather)
-            2. Agents - Other agents discovered via DDS (specialized agents)
-            3. Internal Tools - Methods decorated with @genesis_tool in this class
-        
-        For a new provider:
-            1. Create provider-specific schema generation methods (like we have _for_openai)
-            2. Call parent methods to get universal schemas
-            3. Convert to provider format
-            4. Combine and return
-        
-        Example for Anthropic:
-            def _get_all_tool_schemas_for_anthropic(self):
-                function_tools = self._get_function_schemas_for_anthropic()
-                agent_tools = self._convert_agents_to_anthropic_tools()
-                internal_tools = self._get_internal_tool_schemas_for_anthropic()
-                return function_tools + agent_tools + internal_tools
-        
-        This unified approach gives your LLM access to the complete tool ecosystem!
+        Args:
+            relevant_functions: Optional list of function names to filter
+            
+        Returns:
+            Combined list of all tool schemas in OpenAI format
         """
         logger.debug("===== TRACING: Getting ALL tool schemas (functions + agents + internal tools) for OpenAI =====")
         
@@ -831,41 +421,8 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         """
         Generate OpenAI tool schemas for internal @genesis_tool decorated methods.
         
-        Provider Implementation Guide:
-        ------------------------------
-        Internal tools are methods in your agent class decorated with @genesis_tool.
-        They provide agent-specific capabilities (e.g., memory search, config changes).
-        
-        What You Get (from parent class):
-            - self.internal_tools_cache contains discovered internal tools:
-              {
-                "search_memory": {
-                  "method": <bound method>,
-                  "metadata": {
-                    "name": "search_memory",
-                    "description": "Search conversation memory",
-                    "parameters": {
-                      "query": {"type": "string", "description": "Search query"}
-                    },
-                    "returns": {"type": "array", "description": "Matching memories"}
-                  }
-                }
-              }
-        
-        What You Must Do:
-            1. Get the schema generator for your provider (OpenAI, Anthropic, etc.)
-            2. For each internal tool, generate provider-specific schema
-            3. Return list of schemas
-        
-        Schema Generators (genesis_lib/schema_generators.py):
-            - get_schema_generator("openai") - OpenAI format
-            - get_schema_generator("anthropic") - Anthropic format
-            - get_schema_generator("gemini") - Google Gemini format
-            - Extend with your own if needed
-        
-        For Anthropic example:
-            schema_generator = get_schema_generator("anthropic")
-            anthropic_schema = schema_generator.generate_tool_schema(metadata)
+        Returns:
+            List of internal tool schemas in OpenAI format
         """
         # Return empty list if no internal tools discovered
         if not hasattr(self, 'internal_tools_cache') or not self.internal_tools_cache:
@@ -906,150 +463,34 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
     
     async def _get_tool_schemas(self) -> List[Dict]:
         """
-        ABSTRACT METHOD #1: Get all tool schemas in provider-specific format.
-        
-        Purpose:
-        --------
-        Called by parent's process_request() to get tools for the LLM call.
-        This is your "schema entry point" - return all tools in your provider's format.
-        
-        What This Does (for OpenAI):
-        ----------------------------
-        Returns all discovered tools (functions + agents + internal tools) in OpenAI format.
-        
-        What Other Providers Would Do:
-        ------------------------------
-        Anthropic: Return tools in Anthropic's format (name, description, input_schema)
-        Google: Return tools in Gemini's FunctionDeclaration format
-        Local LLM: Return tools in whatever format your model expects (often OpenAI-compatible)
-        
-        Implementation Pattern:
-        ----------------------
-        1. Create a provider-specific aggregator method (like _get_all_tool_schemas_for_openai)
-        2. That method calls schema conversion methods for each tool type
-        3. This method just delegates to the aggregator
-        
-        Called By:
-        ---------
-        - GenesisAgent.process_request() when initializing tool-based conversation
+        Get all tool schemas in provider-specific format.
         
         Returns:
-        -------
-        List of tool schemas in provider-specific format
+            List of tool schemas in OpenAI format
         """
         return self._get_all_tool_schemas_for_openai()
     
     def _get_tool_choice(self) -> str:
         """
-        ABSTRACT METHOD #2: Get provider-specific tool choice setting.
-        
-        Purpose:
-        --------
-        Tells the LLM how it should use tools (must use, can use, cannot use).
-        
-        What This Returns (for OpenAI):
-        ------------------------------
-        - "auto": LLM decides whether to use tools (PRODUCTION default)
-        - "required": LLM must use a tool (TESTING only - deterministic but expensive)
-        - "none": LLM cannot use tools (edge case testing)
-        
-        What Other Providers Would Return:
-        ----------------------------------
-        Anthropic:
-            - {"type": "auto"}: LLM decides
-            - {"type": "any"}: LLM must use any tool
-            - {"type": "tool", "name": "specific_tool"}: Must use specific tool
-        
-        Google Gemini:
-            - "AUTO": LLM decides
-            - "ANY": Must use a tool
-            - "NONE": Cannot use tools
-        
-        Local LLMs:
-            - Often use OpenAI-compatible values ("auto", "required", "none")
-        
-        Environment Control:
-        -------------------
-        Controlled via GENESIS_TOOL_CHOICE environment variable:
-        - Allows runtime configuration without code changes
-        - Tests can set to "required" for deterministic behavior
-        - Production should use "auto" for best UX
-        
-        Called By:
-        ---------
-        - GenesisAgent.process_request() when calling _orchestrate_tool_request()
-        - Used in every LLM call that includes tools
+        Get provider-specific tool choice setting.
         
         Returns:
-        -------
-        Tool choice setting in provider's format
+            Tool choice setting in OpenAI format
         """
         return self.openai_tool_choice
     
     async def _call_llm(self, messages: List[Dict], tools: Optional[List[Dict]] = None, 
                         tool_choice: str = "auto") -> Any:
         """
-        ABSTRACT METHOD #3: Call the LLM provider's API.
-        
-        Purpose:
-        --------
-        This is your "API bridge" - the only place where you actually call your provider's API.
-        All other code is provider-agnostic.
-        
-        What This Does (for OpenAI):
-        ----------------------------
-        Calls OpenAI's chat.completions.create() API with:
-        - model: From self.model_config (e.g., "gpt-4o")
-        - messages: Formatted conversation history
-        - tools: Optional tool schemas (if available)
-        - tool_choice: How to use tools ("auto", "required", "none")
-        
-        What Other Providers Would Do:
-        ------------------------------
-        Anthropic:
-            response = self.client.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                messages=messages,  # Note: Anthropic separates system message
-                tools=tools,
-                tool_choice=tool_choice,
-                max_tokens=4096  # Anthropic requires max_tokens
-            )
-        
-        Google Gemini:
-            model = genai.GenerativeModel('gemini-1.5-pro', tools=tools)
-            response = model.generate_content(messages)
-        
-        Local LLM (OpenAI-compatible):
-            response = self.client.chat.completions.create(
-                model="llama-3-70b",
-                messages=messages,
-                tools=tools,
-                tool_choice=tool_choice,
-                base_url="http://localhost:8000/v1"  # Point to local server
-            )
-        
-        Important Notes:
-        ---------------
-        - Parent class handles retry logic, error handling, and monitoring
-        - You just need to make the API call and return the response
-        - Return the raw response object - parent will call _extract_* methods
-        - Tools parameter can be None (for non-tool conversations)
-        
-        Called By:
-        ---------
-        - GenesisAgent._orchestrate_tool_request() for tool-based conversations
-        - GenesisAgent.process_request() for simple conversations
-        - Called multiple times in multi-turn conversations
+        Call the LLM provider's API.
         
         Args:
-        ----
-        messages: Conversation history in provider-specific format (from _format_messages)
-        tools: Optional tool schemas in provider-specific format (from _get_tool_schemas)
-        tool_choice: How LLM should use tools (from _get_tool_choice)
-        
+            messages: Conversation history in OpenAI format
+            tools: Optional tool schemas in OpenAI format
+            tool_choice: How LLM should use tools
+            
         Returns:
-        -------
-        Provider-specific response object (will be passed to _extract_* methods)
+            OpenAI response object
         """
         # Build API call parameters
         kwargs = {
@@ -1070,104 +511,15 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
     def _format_messages(self, user_message: str, system_prompt: str, 
                          memory_items: List[Dict]) -> List[Dict]:
         """
-        ABSTRACT METHOD #4: Format conversation history in provider-specific message format.
-        
-        Purpose:
-        --------
-        Convert Genesis's universal conversation representation into your provider's
-        expected message format.
-        
-        What This Does (for OpenAI):
-        ----------------------------
-        Converts to OpenAI's format:
-        [
-          {"role": "system", "content": "You are a helpful assistant..."},
-          {"role": "user", "content": "Previous user message"},
-          {"role": "assistant", "content": "Previous assistant response"},
-          {"role": "user", "content": "Current user message"}
-        ]
-        
-        What You Receive:
-        ----------------
-        user_message: str
-            - Current message from user
-            
-        system_prompt: str
-            - System prompt defining agent behavior
-            - From self.function_based_system_prompt or self.general_system_prompt
-            
-        memory_items: List[Dict]
-            - Retrieved conversation history from memory adapter
-            - Format: [
-                {
-                  "item": "message content",
-                  "metadata": {"role": "user"|"assistant"|"tool", ...}
-                },
-                ...
-              ]
-        
-        What Other Providers Would Return:
-        ----------------------------------
-        Anthropic:
-            - Separate system parameter from messages
-            - Messages only contain user/assistant roles
-            - Example:
-              messages = [
-                {"role": "user", "content": "..."},
-                {"role": "assistant", "content": "..."}
-              ]
-              # system_prompt passed separately to API call
-        
-        Google Gemini:
-            - Uses Content objects with parts
-            - System instructions separate
-            - Example:
-              [
-                Content(role="user", parts=["..."]),
-                Content(role="model", parts=["..."])  # Note: "model" not "assistant"
-              ]
-        
-        Local LLMs:
-            - Often use OpenAI format (most common)
-            - Some may have custom formats
-        
-        Important Implementation Notes:
-        ------------------------------
-        1. **Role Handling**:
-           - Map Genesis roles to provider roles
-           - OpenAI: "user", "assistant", "system", "tool"
-           - Anthropic: "user", "assistant"
-           - Google: "user", "model"
-        
-        2. **Tool Message Filtering**:
-           - Tool messages require complex context (tool_calls from previous assistant message)
-           - Safer to filter them out when reconstructing from memory
-           - Multi-turn conversations handle tool messages differently
-        
-        3. **Conversation Ordering**:
-           - Maintain chronological order
-           - Some providers require alternating user/assistant
-           - Handle consecutive same-role messages appropriately
-        
-        4. **System Prompt Placement**:
-           - OpenAI: First message with role="system"
-           - Anthropic: Separate system parameter
-           - Google: Separate system_instruction parameter
-        
-        Called By:
-        ---------
-        - GenesisAgent._orchestrate_tool_request() at start of conversation
-        - GenesisAgent.process_request() for simple (non-tool) conversations
+        Format conversation history in provider-specific message format.
         
         Args:
-        ----
-        user_message: Current message from user
-        system_prompt: System instructions for agent behavior
-        memory_items: Retrieved conversation history
-        
+            user_message: Current message from user
+            system_prompt: System instructions for agent behavior
+            memory_items: Retrieved conversation history
+            
         Returns:
-        -------
-        List of messages in provider-specific format
+            List of messages in OpenAI format
         """
         # Start with system message (OpenAI-specific placement)
         messages = [{"role": "system", "content": system_prompt}]
@@ -1198,93 +550,13 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
 
     def _extract_tool_calls(self, response: Any) -> Optional[List[Dict]]:
         """
-        ABSTRACT METHOD #5: Extract tool calls from provider's response.
-        
-        Purpose:
-        --------
-        Parse the provider's response to detect if the LLM wants to call tools.
-        This determines whether we execute tools or return the text response.
-        
-        What This Does (for OpenAI):
-        ----------------------------
-        Checks if response contains tool_calls and extracts them into standard format:
-        [
-          {
-            'id': 'call_abc123',
-            'name': 'add',
-            'arguments': {'x': 5, 'y': 3}
-          },
-          ...
-        ]
-        
-        What You Receive:
-        ----------------
-        response: Provider-specific response object
-            - OpenAI: ChatCompletion object
-            - Anthropic: Message object
-            - Google: GenerateContentResponse object
-        
-        What Other Providers Would Do:
-        ------------------------------
-        Anthropic:
-            # Anthropic uses "content blocks" with type="tool_use"
-            tool_calls = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    tool_calls.append({
-                        'id': block.id,
-                        'name': block.name,
-                        'arguments': block.input  # Already a dict
-                    })
-            return tool_calls if tool_calls else None
-        
-        Google Gemini:
-            # Google uses function_calls in candidates
-            if not response.candidates[0].content.parts:
-                return None
-            tool_calls = []
-            for part in response.candidates[0].content.parts:
-                if part.function_call:
-                    tool_calls.append({
-                        'id': str(uuid.uuid4()),  # Google doesn't provide IDs
-                        'name': part.function_call.name,
-                        'arguments': dict(part.function_call.args)
-                    })
-            return tool_calls if tool_calls else None
-        
-        Standard Format:
-        ---------------
-        Always return tool calls in this standard format (or None):
-        [
-          {
-            'id': str,        # Unique identifier (generate if provider doesn't provide)
-            'name': str,      # Tool name (function/agent/internal tool)
-            'arguments': dict # Tool arguments as a dictionary
-          }
-        ]
-        
-        This standard format allows the parent class to route tool calls without
-        knowing anything about your provider!
-        
-        Important Notes:
-        ---------------
-        1. **Return None if no tool calls** - Don't return empty list
-        2. **Arguments must be dict** - Parse JSON strings if needed
-        3. **ID should be unique** - Generate UUID if provider doesn't provide
-        4. **Multiple tool calls** - LLMs can call multiple tools in parallel
-        
-        Called By:
-        ---------
-        - GenesisAgent._orchestrate_tool_request() after each LLM call
-        - Used to decide: execute tools or extract text response
+        Extract tool calls from provider's response.
         
         Args:
-        ----
-        response: Provider-specific response object
-        
+            response: OpenAI response object
+            
         Returns:
-        -------
-        List of tool calls in standard format, or None if no tool calls
+            List of tool calls in standard format, or None if no tool calls
         """
         # Access the message from OpenAI response
         message = response.choices[0].message
@@ -1305,67 +577,13 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
 
     def _extract_text_response(self, response: Any) -> str:
         """
-        ABSTRACT METHOD #6: Extract text response from provider's response.
-        
-        Purpose:
-        --------
-        Extract the LLM's text response to return to the user.
-        Called when LLM doesn't call tools or after all tool calls are processed.
-        
-        What This Does (for OpenAI):
-        ----------------------------
-        Extracts content from: response.choices[0].message.content
-        
-        What You Receive:
-        ----------------
-        response: Provider-specific response object
-            - Same object returned by _call_llm()
-        
-        What Other Providers Would Do:
-        ------------------------------
-        Anthropic:
-            # Anthropic uses content blocks with type="text"
-            text_blocks = [
-                block.text 
-                for block in response.content 
-                if block.type == "text"
-            ]
-            return " ".join(text_blocks)
-        
-        Google Gemini:
-            # Google uses parts in candidates
-            return response.candidates[0].content.parts[0].text
-        
-        Local LLMs (OpenAI-compatible):
-            # Usually identical to OpenAI
-            return response.choices[0].message.content
-        
-        Important Notes:
-        ---------------
-        1. **Handle None gracefully** - Some responses may have no text content
-        2. **Multiple text blocks** - Some providers split text into blocks
-        3. **Combine appropriately** - Join with spaces or newlines as needed
-        4. **Strip/clean** - Remove extra whitespace if needed
-        
-        Edge Cases:
-        ----------
-        - Tool-only responses (no text): Return empty string or placeholder
-        - Multiple choices: Usually take first choice (choices[0])
-        - Streaming responses: This method is for complete responses only
-        
-        Called By:
-        ---------
-        - GenesisAgent._orchestrate_tool_request() when no tool calls detected
-        - GenesisAgent.process_request() for simple (non-tool) conversations
-        - Final step in multi-turn conversations
+        Extract text response from provider's response.
         
         Args:
-        ----
-        response: Provider-specific response object
-        
+            response: OpenAI response object
+            
         Returns:
-        -------
-        Extracted text content as string
+            Extracted text content as string
         """
         # OpenAI stores text in message.content
         # For Anthropic: filter content blocks by type="text"
@@ -1374,99 +592,13 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
 
     def _create_assistant_message(self, response: Any) -> Dict:
         """
-        ABSTRACT METHOD #7: Create assistant message dict from provider's response.
-        
-        Purpose:
-        --------
-        Convert provider's response into a message dict that can be added to
-        conversation history for multi-turn conversations.
-        
-        Why This Matters:
-        ----------------
-        In multi-turn tool conversations:
-        1. User: "What's 2+2?"
-        2. Assistant: [calls add function]  ← This response
-        3. Tool: "4"
-        4. Assistant: "The result is 4"
-        
-        Between steps 2-3, we need to add the assistant's message (with tool_calls)
-        to the conversation so the LLM knows context when we send the tool results.
-        
-        What This Does (for OpenAI):
-        ----------------------------
-        Creates an OpenAI-compatible assistant message:
-        {
-          "role": "assistant",
-          "content": "...",
-          "tool_calls": [...]  # If present
-        }
-        
-        What You Receive:
-        ----------------
-        response: Provider-specific response object
-            - Same object returned by _call_llm()
-        
-        What Other Providers Would Return:
-        ----------------------------------
-        Anthropic:
-            {
-              "role": "assistant",
-              "content": response.content  # Already in correct format (list of blocks)
-            }
-            # Note: Anthropic's content includes tool_use blocks
-        
-        Google Gemini:
-            {
-              "role": "model",  # Note: Google uses "model" not "assistant"
-              "parts": [response.candidates[0].content.parts]
-            }
-        
-        Important Notes:
-        ---------------
-        1. **Include tool_calls if present** - Critical for OpenAI/compatible providers
-           Without tool_calls, you'll get error: "tool messages must follow tool_calls"
-        
-        2. **Handle empty content** - Some responses have tool_calls but no text
-           OpenAI allows empty string, some providers require null or omission
-        
-        3. **Preserve provider structure** - Return message in format that can be
-           sent back to your provider's API in the next turn
-        
-        4. **Don't parse/transform** - This is for raw conversation history,
-           not for Genesis processing (that's what _extract_* methods do)
-        
-        Used In Multi-Turn Flow:
-        -----------------------
-        messages = [...]
-        response = await self._call_llm(messages, tools)
-        
-        # Check for tool calls
-        tool_calls = self._extract_tool_calls(response)
-        if tool_calls:
-            # Add assistant message with tool_calls
-            assistant_msg = self._create_assistant_message(response)
-            messages.append(assistant_msg)  # ← HERE
-            
-            # Execute tools and add results
-            for tool_call in tool_calls:
-                result = await self._route_tool_call(...)
-                messages.append({"role": "tool", "content": result, ...})
-            
-            # Continue conversation with tool results
-            response = await self._call_llm(messages, tools)
-        
-        Called By:
-        ---------
-        - GenesisAgent._orchestrate_tool_request() before adding tool responses
-        - Called every time LLM makes tool calls in multi-turn conversations
+        Create assistant message dict from provider's response.
         
         Args:
-        ----
-        response: Provider-specific response object
-        
+            response: OpenAI response object
+            
         Returns:
-        -------
-        Message dict in provider's format, ready to add to conversation history
+            Message dict in OpenAI format, ready to add to conversation history
         """
         # Extract message from OpenAI response
         message = response.choices[0].message
@@ -1492,26 +624,6 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
     async def close(self):
         """
         Clean up provider-specific resources.
-        
-        Provider Implementation Guide:
-        ------------------------------
-        Override this method to clean up any provider-specific resources:
-        - Close API clients
-        - Cancel pending requests
-        - Clear caches
-        - Release file handles
-        
-        Always call super().close() to clean up parent class resources:
-        - DDS participant
-        - RPC service
-        - Monitoring publishers
-        - Memory adapter
-        
-        Called By:
-        ---------
-        - User code when shutting down agent
-        - Test cleanup
-        - Signal handlers (Ctrl+C)
         """
         try:
             # Close OpenAI-specific resources
@@ -1533,32 +645,11 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         """
         Process a message and return response (convenience method).
         
-        Provider Implementation Guide:
-        ------------------------------
-        This is an optional convenience method. Not required for provider implementation.
-        
-        Purpose:
-        -------
-        Simplifies calling the agent programmatically (not via RPC):
-        
-        Instead of:
-            response = await agent.process_request({"message": "Hello"})
-            text = response.get("message")
-        
-        Just do:
-            text = await agent.process_message("Hello")
-        
-        Useful for:
-        ----------
-        - Testing
-        - Direct embedding in applications
-        - Simple chatbot interfaces
-        
-        Not needed for:
-        --------------
-        - RPC-based agents (Interface→Agent communication)
-        - Production deployments
-        - Agent-to-agent communication
+        Args:
+            message: User message to process
+            
+        Returns:
+            Agent response text
         """
         try:
             # Process via standard process_request (gets monitoring, etc.)
