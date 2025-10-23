@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025, RTI & Jason Upchurch
+
 """
 GENESIS MCP Service Base
 

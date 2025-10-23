@@ -1,3 +1,5 @@
+# Copyright (c) 2025, RTI & Jason Upchurch
+
 """
 Forward GraphService events to a Flask‑SocketIO namespace.
 

@@ -270,7 +270,7 @@ class OpenAIGenesisAgent(MonitoredAgent):
         # Used to intelligently select relevant functions from large function sets
         # For other providers: pass their client (e.g., anthropic_client)
         # Or skip if not needed (just expose all tools to LLM)
-        self.function_classifier = FunctionClassifier(llm_client=self.client)
+        self.function_classifier = FunctionClassifier(llm=self.client)
         
         # Define system prompts for different scenarios
         # These are OpenAI-tuned but work well for most providers

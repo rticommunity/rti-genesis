@@ -1,3 +1,5 @@
+# Copyright (c) 2025, RTI & Jason Upchurch
+
 """
 Function success and failure patterns for the GENESIS distributed system.
 

@@ -1,3 +1,5 @@
+# Copyright (c) 2025, RTI & Jason Upchurch
+
 """
 GENESIS Library - A distributed function discovery and execution framework
 """

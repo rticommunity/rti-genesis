@@ -14,7 +14,7 @@ import logging
 import asyncio
 import json
 from typing import Dict, Any, List, Optional, Callable
-from genesis_lib.rpc_service_v2 import GenesisRPCServiceV2
+from genesis_lib.rpc_service import GenesisRPCService
 from genesis_lib.function_discovery import FunctionRegistry
 import uuid
 
@@ -27,7 +27,7 @@ from genesis_lib.graph_monitoring import (
 
 logger = logging.getLogger("enhanced_service_base")
 
-class EnhancedServiceBase(GenesisRPCServiceV2):
+class EnhancedServiceBase(GenesisRPCService):
     """
     Enhanced base class for GENESIS RPC services.
     Now uses unified GraphMonitor for all node/edge monitoring events.

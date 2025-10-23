@@ -1,10 +1,11 @@
-"""
-Genesis RPC Service V2 (Unified Topics with Broadcast + First-Reply-Wins)
+# Copyright (c) 2025, RTI & Jason Upchurch
 
-Service-side implementation using a unified request topic with a ContentFilteredTopic
-to receive broadcast requests (target_service_guid='') or requests targeted to this
-specific instance. For broadcast requests, the service observes the reply stream for
-the same request_id and aborts early if another instance already replied.
+"""
+Genesis RPC Service - Unified Topics with Intelligent Request Handling
+
+Service-side implementation using unified topics with intelligent request handling.
+Supports both broadcast and targeted requests with automatic load balancing and
+fault tolerance capabilities.
 """
 
 import json
@@ -20,10 +21,16 @@ from genesis_lib.datamodel import RPCRequestV2, RPCReplyV2
 from genesis_lib.utils.guid_utils import format_guid
 
 
-logger = logging.getLogger("GenesisRPCServiceV2")
+logger = logging.getLogger("GenesisRPCService")
 
+# =============================================================================
+# GENESIS RPC SERVICE CLASS - UNIFIED TOPICS WITH INTELLIGENT HANDLING
+# =============================================================================
+# The GenesisRPCService class provides service-side RPC communication with
+# unified topics, intelligent request handling, and robust error management.
+# =============================================================================
 
-class GenesisRPCServiceV2:
+class GenesisRPCService:
     def __init__(self, service_name: Optional[str] = None, service_type: Optional[str] = None, participant: Optional[dds.DomainParticipant] = None):
         """
         Initialize the RPC service.

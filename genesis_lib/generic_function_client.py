@@ -31,7 +31,7 @@ import time
 import uuid
 from typing import Dict, Any, List, Optional
 import rti.connextdds as dds
-from genesis_lib.rpc_client_v2 import GenesisRPCClientV2
+from genesis_lib.rpc_client import GenesisRPCClient
 from genesis_lib.function_discovery import FunctionRegistry
 
 # Configure logging
@@ -135,7 +135,7 @@ class GenericFunctionClient:
         
         return self.discovered_functions
     
-    def get_service_client(self, service_name: str) -> GenesisRPCClientV2:
+    def get_service_client(self, service_name: str) -> GenesisRPCClient:
         """
         Get or create a client for a specific service.
         
@@ -150,7 +150,7 @@ class GenericFunctionClient:
             # Reuse the participant from function_registry to avoid participant sprawl
             # This ensures each application has only ONE DDS participant
             participant = self.function_registry.participant
-            client = GenesisRPCClientV2(
+            client = GenesisRPCClient(
                 service_type=service_name, 
                 participant=participant,
                 timeout_seconds=10.0
