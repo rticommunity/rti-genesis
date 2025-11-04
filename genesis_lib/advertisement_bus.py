@@ -42,12 +42,10 @@ class AdvertisementBus:
         # Publisher (one per bus)
         self.publisher = dds.Publisher(participant)
 
-        # Durable writer QoS
+        # DataWriter QoS configured in XML (genesis_lib/config/USER_QOS_PROFILES.xml)
+        # Using default profile: RELIABLE, TRANSIENT_LOCAL, KEEP_LAST(500),
+        # AUTOMATIC liveliness, SHARED ownership
         writer_qos = dds.QosProvider.default.datawriter_qos
-        writer_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
-        writer_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
-        writer_qos.history.kind = dds.HistoryKind.KEEP_LAST
-        writer_qos.history.depth = 500
 
         self.writer = dds.DynamicData.DataWriter(
             pub=self.publisher,

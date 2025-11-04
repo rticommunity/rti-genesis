@@ -35,11 +35,23 @@
                 <durability>
                     <kind>TRANSIENT_LOCAL_DURABILITY_QOS</kind>
                 </durability>
-                <!-- The last twenty samples are saved for late joiners -->
+                <!-- The last 500 samples are saved for late joiners -->
                 <history>
                     <kind>KEEP_LAST_HISTORY_QOS</kind>
                     <depth>500</depth>
                 </history>
+                <!-- Automatic liveliness with 2-second lease for participant health monitoring -->
+                <liveliness>
+                    <kind>AUTOMATIC_LIVELINESS_QOS</kind>
+                    <lease_duration>
+                        <sec>2</sec>
+                        <nanosec>0</nanosec>
+                    </lease_duration>
+                </liveliness>
+                <!-- Shared ownership allows multiple writers for the same instance -->
+                <ownership>
+                    <kind>SHARED_OWNERSHIP_QOS</kind>
+                </ownership>
                 <!-- Set the publishing mode to asynchronous -->
                 <publish_mode>
                     <kind>ASYNCHRONOUS_PUBLISH_MODE_QOS</kind>
@@ -75,6 +87,63 @@
                     <contentfilter_property_max_length>512</contentfilter_property_max_length>
                 </resource_limits>
             </participant_qos>
+        </qos_profile>
+
+        <!-- QoS profile for monitoring logs with larger history depth -->
+        <qos_profile name="MonitoringLogsProfile">
+            <datawriter_qos>
+                <reliability>
+                    <kind>RELIABLE_RELIABILITY_QOS</kind>
+                </reliability>
+                <durability>
+                    <kind>TRANSIENT_LOCAL_DURABILITY_QOS</kind>
+                </durability>
+                <!-- Larger history depth for comprehensive log retention -->
+                <history>
+                    <kind>KEEP_LAST_HISTORY_QOS</kind>
+                    <depth>1000</depth>
+                </history>
+                <liveliness>
+                    <kind>AUTOMATIC_LIVELINESS_QOS</kind>
+                    <lease_duration>
+                        <sec>2</sec>
+                        <nanosec>0</nanosec>
+                    </lease_duration>
+                </liveliness>
+                <ownership>
+                    <kind>SHARED_OWNERSHIP_QOS</kind>
+                </ownership>
+                <publish_mode>
+                    <kind>ASYNCHRONOUS_PUBLISH_MODE_QOS</kind>
+                </publish_mode>
+            </datawriter_qos>
+        </qos_profile>
+
+        <!-- QoS profile for volatile monitoring events (no historical data) -->
+        <qos_profile name="VolatileEventsProfile">
+            <datawriter_qos>
+                <reliability>
+                    <kind>RELIABLE_RELIABILITY_QOS</kind>
+                </reliability>
+                <!-- Volatile durability for real-time events only -->
+                <durability>
+                    <kind>VOLATILE_DURABILITY_QOS</kind>
+                </durability>
+                <history>
+                    <kind>KEEP_LAST_HISTORY_QOS</kind>
+                    <depth>100</depth>
+                </history>
+                <liveliness>
+                    <kind>AUTOMATIC_LIVELINESS_QOS</kind>
+                    <lease_duration>
+                        <sec>2</sec>
+                        <nanosec>0</nanosec>
+                    </lease_duration>
+                </liveliness>
+                <ownership>
+                    <kind>SHARED_OWNERSHIP_QOS</kind>
+                </ownership>
+            </datawriter_qos>
         </qos_profile>
 
     </qos_library>

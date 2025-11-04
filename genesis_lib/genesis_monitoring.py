@@ -168,12 +168,11 @@ class LogPublisher:
             qos=dds.QosProvider.default.publisher_qos
         )
         
-        # Configure writer QoS
-        writer_qos = dds.QosProvider.default.datawriter_qos
-        writer_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
-        writer_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
-        writer_qos.history.kind = dds.HistoryKind.KEEP_LAST
-        writer_qos.history.depth = 1000  # Keep more history for logs
+        # Load monitoring logs QoS from XML profile (1000 history depth for comprehensive logs)
+        # Profile defined in genesis_lib/config/USER_QOS_PROFILES.xml
+        writer_qos = self.type_provider.datawriter_qos_from_profile(
+            "cft_Library::MonitoringLogsProfile"
+        )
         
         # Create log writer
         self.log_writer = dds.DynamicData.DataWriter(

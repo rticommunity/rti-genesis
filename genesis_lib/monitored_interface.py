@@ -89,9 +89,11 @@ class MonitoredInterface(GenesisInterface):
             # Use process-wide registry to share topics
             from genesis_lib.graph_monitoring import _TOPIC_REGISTRY
             
-            writer_qos = dds.QosProvider.default.datawriter_qos
-            writer_qos.durability.kind = dds.DurabilityKind.VOLATILE
-            writer_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
+            # Load volatile events QoS from XML profile (no historical data for real-time events)
+            # Profile defined in genesis_lib/config/USER_QOS_PROFILES.xml
+            writer_qos = provider.datawriter_qos_from_profile(
+                "cft_Library::VolatileEventsProfile"
+            )
             
             unified_type = provider.type("genesis_lib", "MonitoringEventUnified")
             participant_id = id(self.app.participant)

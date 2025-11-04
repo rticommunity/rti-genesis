@@ -435,7 +435,7 @@ class FunctionRegistry:
         # Initialize storage
         self.functions = {}  # function_id -> FunctionInfo
         self.function_by_name = {}  # name -> function_id
-        self.discovered_functions = {}  # function_id -> dict with function details
+        # Note: discovered_functions cache removed - now reading directly from DDS via get_all_discovered_functions()
         self.service_base = None  # Reference to service base for callbacks
         
         # Add callback mechanism for function discovery
@@ -575,9 +575,6 @@ class FunctionRegistry:
             self.capability_listener = None
             self.advertisement_reader = None
             self.execution_client = None
-            # Ensure discovered_functions is initialized if discovery is off,
-            # though it's already initialized above.
-            self.discovered_functions = {}
             logger.info("FunctionRegistry initialized with discovery listener DISABLED.")
         
         # Initialize function matcher with LLM support
@@ -787,14 +784,14 @@ class FunctionRegistry:
             if not function_id or not name or not provider_id:
                 return
 
-            self.discovered_functions[function_id] = {
+            # Build function info for callbacks (no longer caching in memory)
+            function_info = {
                 "name": name,
                 "description": description,
                 "provider_id": provider_id,
                 "schema": schema,
                 "capabilities": capabilities,
                 "service_name": service_name,
-                # Include a minimal capability dict to keep downstream logic working
                 "capability": {"service_name": service_name},
                 "advertisement": ad,
             }
@@ -803,10 +800,14 @@ class FunctionRegistry:
             # Also print to ensure test scripts can detect discovery even if logging is misconfigured
             print(f"📚 PRINT: Updated/Added discovered function: {name}", flush=True)
             logger.info(f"Updated/Added discovered function: {name} ({function_id}) from provider {provider_id} for service {service_name}")
+            
+            # Signal that first discovery has occurred
             if not self._discovery_event.is_set():
                 self._discovery_event.set()
+            
+            # Invoke callbacks with function info (callbacks can query DDS if they need persistent access)
             for callback in self.discovery_callbacks:
-                callback(function_id, self.discovered_functions[function_id])
+                callback(function_id, function_info)
         except Exception as e:
             logger.error(f"Error handling GenesisAdvertisement: {e}")
     
@@ -817,25 +818,27 @@ class FunctionRegistry:
             for data, info in samples:
                 if data and info.state.instance_state != dds.InstanceState.ALIVE:
                     function_id = data['function_id']
-                    if function_id in self.discovered_functions:
-                        function_info = self.discovered_functions[function_id]
-                        
-                        # Build metadata for service base
-                        metadata = {
-                            "function_id": function_id,
-                            "function_name": function_info['name'],
-                            "provider_id": function_info['provider_id']
-                        }
-                        
-                        # Notify EnhancedServiceBase about the removal
-                        if self.service_base is not None:
-                            self.service_base.handle_function_removal(
-                                function_name=function_info['name'],
-                                metadata=metadata
-                            )
-                        
-                        logger.info(f"Removing function {function_id} due to provider going offline")
-                        del self.discovered_functions[function_id]
+                    
+                    # Read current DDS state to get function info for notification
+                    # DDS automatically handles disposal - we just need to notify service_base
+                    function_name = data.get('name', 'unknown_function') if hasattr(data, 'get') else 'unknown_function'
+                    provider_id = data.get('provider_id', 'unknown_provider') if hasattr(data, 'get') else 'unknown_provider'
+                    
+                    # Build metadata for service base
+                    metadata = {
+                        "function_id": function_id,
+                        "function_name": function_name,
+                        "provider_id": provider_id
+                    }
+                    
+                    # Notify EnhancedServiceBase about the removal
+                    if self.service_base is not None:
+                        self.service_base.handle_function_removal(
+                            function_name=function_name,
+                            metadata=metadata
+                        )
+                    
+                    logger.info(f"Function {function_id} removed (provider went offline) - DDS handles disposal automatically")
         except Exception as e:
             logger.error(f"Error handling capability removal: {e}")
     
@@ -868,22 +871,63 @@ class FunctionRegistry:
     
     def get_all_discovered_functions(self) -> Dict[str, Dict[str, Any]]:
         """
-        Returns a shallow copy of the currently discovered functions on the network.
+        Returns currently discovered functions by reading directly from DDS.
         The dictionary maps function_id to its details.
+        
+        This method reads from the DDS DataReader on-demand rather than maintaining
+        a separate cache, making DDS the single source of truth.
         """
-        return dict(self.discovered_functions)
-
-    def remove_discovered_function(self, function_id: str):
-        """
-        Removes a function from the discovered_functions cache.
-        Typically called when a function provider is no longer available.
-        """
-        if function_id in self.discovered_functions:
-            removed_function_name = self.discovered_functions[function_id].get("name", "unknown_function")
-            del self.discovered_functions[function_id]
-            logger.debug(f"===== DDS TRACE: Removed function {removed_function_name} ({function_id}) from discovered functions cache. =====")
-        else:
-            logger.warning(f"===== DDS TRACE: Attempted to remove non-existent function ID {function_id} from cache. =====")
+        if not self.enable_discovery_listener or self.advertisement_reader is None:
+            return {}
+        
+        result = {}
+        try:
+            samples = self.advertisement_reader.read()
+            for ad, info in samples:
+                # Only include ALIVE instances (exclude disposed/offline)
+                if info.state.instance_state != dds.InstanceState.ALIVE:
+                    continue
+                
+                # Parse advertisement
+                function_id = ad.get_string("advertisement_id") or ""
+                name = ad.get_string("name") or ""
+                description = ad.get_string("description") or ""
+                provider_id = ad.get_string("provider_id") or ""
+                service_name = ad.get_string("service_name") or "UnknownService"
+                payload_str = ad.get_string("payload") or "{}"
+                
+                try:
+                    payload = json.loads(payload_str) if payload_str else {}
+                except Exception:
+                    payload = {}
+                
+                schema = payload.get("parameter_schema") or {}
+                capabilities = payload.get("capabilities") or []
+                if isinstance(capabilities, str):
+                    try:
+                        capabilities = json.loads(capabilities) or []
+                    except Exception:
+                        capabilities = [capabilities]
+                
+                if not function_id or not name or not provider_id:
+                    continue
+                
+                result[function_id] = {
+                    "name": name,
+                    "description": description,
+                    "provider_id": provider_id,
+                    "schema": schema,
+                    "capabilities": capabilities,
+                    "service_name": service_name,
+                    "capability": {"service_name": service_name},
+                    "advertisement": ad,
+                }
+        except Exception as e:
+            logger.error(f"Error reading discovered functions from DDS: {e}")
+            logger.error(traceback.format_exc())
+            return {}
+        
+        return result
 
     def close(self):
         """Clean up resources"""

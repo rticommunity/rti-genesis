@@ -221,7 +221,9 @@ class GenesisApp:
         else:
             self.participant = participant
             
-        # Store DDS GUID
+        # Store DDS GUID - used for participant identification in logging and monitoring.
+        # This GUID uniquely identifies this DDS participant instance in the network.
+        # Used in: initialization logging, monitored_agent.py for agent tracking
         self.dds_guid = str(self.participant.instance_handle)
         
         # Get types from XML
@@ -239,15 +241,10 @@ class GenesisApp:
             qos=dds.QosProvider.default.subscriber_qos
         )
         
-        # Create DataWriter with QoS
-        writer_qos = dds.QosProvider.default.datawriter_qos
-        writer_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
-        writer_qos.history.kind = dds.HistoryKind.KEEP_LAST
-        writer_qos.history.depth = 500
-        writer_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
-        writer_qos.liveliness.kind = dds.LivelinessKind.AUTOMATIC
-        writer_qos.liveliness.lease_duration = dds.Duration(seconds=2)
-        writer_qos.ownership.kind = dds.OwnershipKind.SHARED
+        # DataWriter QoS is now configured in XML (genesis_lib/config/USER_QOS_PROFILES.xml)
+        # Using default profile with: RELIABLE, TRANSIENT_LOCAL, KEEP_LAST(500),
+        # AUTOMATIC liveliness (2s lease), SHARED ownership, ASYNCHRONOUS publish mode
+        # This provides a single source of truth for DDS QoS configuration
         
         # Initialize function registry and pattern registry
         logger.debug("===== DDS TRACE: Initializing FunctionRegistry in GenesisApp =====")
@@ -310,6 +307,16 @@ class GenesisApp:
     # Methods for managing component lifecycle and resource cleanup
     # =============================================================================
     
+    @property
+    def closed(self) -> bool:
+        """
+        Check if this GenesisApp has been closed.
+        
+        Returns:
+            True if close() has been called, False otherwise.
+        """
+        return getattr(self, '_closed', False)
+    
     async def close(self):
         """
         Close all DDS entities and cleanup resources.
@@ -320,10 +327,11 @@ class GenesisApp:
         operations.
         
         The cleanup process includes:
-        1. Function registry cleanup
-        2. Publisher and subscriber cleanup
-        3. DDS participant cleanup
-        4. Error handling and recovery
+        1. Publisher and subscriber cleanup
+        2. DDS participant cleanup (may fail if shared with other agents)
+        
+        Note: function_registry cleanup is not needed as DDS retains function
+        advertisements independently of the registry lifecycle.
         
         This method is idempotent - calling it multiple times is safe.
         
@@ -342,34 +350,47 @@ class GenesisApp:
             Always call this method when done with the GenesisApp to
             prevent resource leaks and ensure proper DDS cleanup.
         """
+        # Idempotent guard: _closed is set to True at the end of this method
+        # This prevents double-closing if close() is called multiple times
         if hasattr(self, '_closed') and self._closed:
             logger.info(f"GenesisApp {self.agent_id} is already closed")
             return
 
         try:
-            # Close DDS entities in reverse order of creation
-            resources_to_close = ['function_registry', 'publisher', 'subscriber', 'participant']
+            # Close subscriber first (reverse order of creation)
+            try:
+                self.subscriber.close()
+                logger.debug("Subscriber closed")
+            except Exception as e:
+                logger.warning(f"Error closing subscriber: {e}")
             
-            for resource in resources_to_close:
-                if hasattr(self, resource):
-                    try:
-                        resource_obj = getattr(self, resource)
-                        if hasattr(resource_obj, 'close') and not getattr(resource_obj, '_closed', False):
-                            if asyncio.iscoroutinefunction(resource_obj.close):
-                                await resource_obj.close()
-                            else:
-                                resource_obj.close()
-                    except Exception as e:
-                        # Only log as warning if the error is not about being already closed
-                        if "already closed" not in str(e).lower():
-                            logger.warning(f"Error closing {resource}: {str(e)}")
+            # Close publisher
+            try:
+                self.publisher.close()
+                logger.debug("Publisher closed")
+            except Exception as e:
+                logger.warning(f"Error closing publisher: {e}")
             
-            # Mark as closed
-            self._closed = True
-            logger.info(f"GenesisApp {self.agent_id} closed successfully")
+            # Close participant (may fail with "precondition not met" if shared)
+            try:
+                self.participant.close()
+                logger.debug("Participant closed")
+            except Exception as e:
+                error_msg = str(e).lower()
+                # If participant is shared with other agents, deletion fails gracefully
+                if "precondition not met" in error_msg or "still in use" in error_msg:
+                    logger.info(f"Participant {self.dds_guid} still in use by other components (expected for shared participants)")
+                else:
+                    logger.warning(f"Error closing participant: {e}")
+            
         except Exception as e:
-            logger.error(f"Error closing GenesisApp: {str(e)}")
+            # Catastrophic failure during cleanup
+            logger.error(f"Unexpected error during GenesisApp cleanup: {str(e)}")
             logger.error(traceback.format_exc())
+        finally:
+            # Always mark as closed, even if there were errors
+            self._closed = True
+            logger.info(f"GenesisApp {self.agent_id} closed")
 
     # =============================================================================
     # INTERNAL METHODS - INFRASTRUCTURE SETUP
