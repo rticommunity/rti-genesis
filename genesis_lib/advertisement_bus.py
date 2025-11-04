@@ -45,7 +45,8 @@ class AdvertisementBus:
         # DataWriter QoS configured in XML (genesis_lib/config/USER_QOS_PROFILES.xml)
         # Using default profile: RELIABLE, TRANSIENT_LOCAL, KEEP_LAST(500),
         # AUTOMATIC liveliness, SHARED ownership
-        writer_qos = dds.QosProvider.default.datawriter_qos
+        # Load the QoS from the same provider that has the types
+        writer_qos = provider.datawriter_qos_from_profile("cft_Library::cft_Profile")
 
         self.writer = dds.DynamicData.DataWriter(
             pub=self.publisher,

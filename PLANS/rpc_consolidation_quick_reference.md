@@ -294,7 +294,7 @@ During monitoring consolidation, dual-publishing saved us twice:
 ```python
 # rpc_service.py (Phase 2-4: Dual-publishing active)
 
-class GenesisRPCService:
+class GenesisReplier:
     def __init__(self, service_name, use_unified_rpc=None):
         if use_unified_rpc is None:
             use_unified_rpc = os.getenv('USE_UNIFIED_RPC', 'false') == 'true'

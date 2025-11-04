@@ -55,7 +55,7 @@ fi
 echo "==> Done. To activate later:"
 echo "    source $PROJECT_ROOT/.venv/bin/activate"
 echo "==> To run tests (optional):"
-echo "    cd $PROJECT_ROOT/tests && source venv/bin/activate && ./run_all_tests.sh"
+echo "    cd $PROJECT_ROOT/tests && source ../.venv/bin/activate && ./run_all_tests.sh"
 
 
 

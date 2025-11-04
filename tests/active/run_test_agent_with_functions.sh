@@ -193,7 +193,7 @@ run_test() {
 
         # Check for function result (e.g., "The letter 'l' appears 4 times")
         # We'll make this check more flexible, just looking for the presence of the result from the service
-        if ! grep -q "GenesisRPCClient - INFO - Function count_letter returned:.*'result': 5" "$log_file"; then
+        if ! grep -q "GenesisRequester - INFO - Function count_letter returned:.*'result': 5" "$log_file"; then
             display_log_on_failure "$log_file" "result_error" "Did not see expected function result for count_letter (expected 5)"
             cleanup
             exit 1

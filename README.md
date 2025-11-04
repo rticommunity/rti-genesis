@@ -287,8 +287,8 @@ graph TD
         subgraph "Base Classes"
             B_APP[GenesisApp] --> B_AGT[GenesisAgent]
             B_APP --> B_IF[GenesisInterface]
-            B_APP --> B_RPC_S[GenesisRPCService]
-            B_APP --> B_RPC_C[GenesisRPCClient]
+            B_APP --> B_REPL[GenesisReplier]
+            B_APP --> B_REQ[GenesisRequester]
             B_AGT --> B_MON_AGT[MonitoredAgent]
             B_IF --> B_MON_IF[MonitoredInterface]
             B_MON_AGT --> PA & SA & I & FS
@@ -475,7 +475,7 @@ await genesis_agent.run() # Agent joins Genesis network
     
 * **Built-in Monitoring:** `MonitoredAgent` publishes lifecycle, communication, status, and log events (`ComponentLifecycleEvent`, `ChainEvent`, `MonitoringEvent`, `LivelinessUpdate`, `LogMessage`) over DDS. Monitoring tools (`genesis_monitor.py`, `genesis_web_monitor.py`) provide comprehensive visibility into multi-agent chains.  
     
-* **Structured RPC Framework:** Base classes (`GenesisRPCService`, `GenesisRPCClient`) for robust RPC with schema validation (jsonschema), error handling, and request/reply management.
+* **Structured Request/Reply Framework:** Base classes (`GenesisReplier`, `GenesisRequester`) for robust request/reply communication with schema validation (jsonschema), error handling, and DDS-based request/reply management.
 
 ## Advantages Over Alternatives
 
@@ -517,7 +517,7 @@ Combines DDS features and application logic:
 
 * **DDS Reliability QoS:** `RELIABLE` QoS handles transient network issues via retransmissions.  
 * **DDS Liveliness QoS:** Detects unresponsive components via heartbeats, notifying participants. `LivelinessUpdate` topic provides visibility.  
-* **Timeouts:** Configurable in `GenesisRPCClient`, DDS WaitSets, and DDS request-reply operations.  
+* **Timeouts:** Configurable in `GenesisRequester`, DDS WaitSets, and DDS request-reply operations.  
 * **Deadlines:** DDS Deadline QoS ensures periodic data flow.  
 * **Application-Level Handling:** RPC replies include `success`/`error_message`. Use `try...except` blocks. Consider Circuit Breakers.  
 * **Redundancy:** Multiple instances of services provide failover; DDS discovery finds all instances.  
@@ -653,7 +653,7 @@ class ChainEvolution:
 ```
 ERROR - Unexpected error in service: Timed out waiting for requests
 Traceback (most recent call last):
-  File "/Genesis-LIB/genesis_lib/rpc_service.py", line 140, in run
+  File "/Genesis-LIB/genesis_lib/replier.py", line 140, in run
     requests = self.replier.receive_requests(max_wait=dds.Duration(3600))
 ```
 

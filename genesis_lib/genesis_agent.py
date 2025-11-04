@@ -131,7 +131,7 @@ class GenesisAgent(ABC):
         #    but the architecture supports sharing if needed in the future.
         #
         # 2. MULTIPLE COMPONENT TYPES: GenesisApp provides DDS infrastructure to different
-        #    component types (GenesisAgent, GenesisInterface, GenesisRPCService, etc.).
+        #    component types (GenesisAgent, GenesisInterface, GenesisReplier, etc.).
         #    These components are fundamentally different and can't all inherit from the
         #    same base class using single inheritance in Python.
         #

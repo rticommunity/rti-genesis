@@ -7,7 +7,7 @@ Asserts core monitoring invariants using the unified GraphMonitor + GraphService
 - Service→Function edges exist for advertised functions
 - For every function request (BUSY), a corresponding READY follows (closed reply)
 
-Scope: uses CalculatorService as the target service; drives one RPC call via GenesisRPCClient.
+Scope: uses CalculatorService as the target service; drives one RPC call via GenesisRequester.
 
 Prereqs: DDS installed (`NDDSHOME`), Python 3.10, repo environment activated.
 """
@@ -30,7 +30,7 @@ os.makedirs(LOG_DIR, exist_ok=True)
 sys.path.insert(0, REPO_ROOT)
 
 from genesis_lib.graph_state import GraphService, NodeInfo, EdgeInfo  # type: ignore
-from genesis_lib.rpc_client import GenesisRPCClient  # type: ignore
+from genesis_lib.requester import GenesisRequester  # type: ignore
 
 
 EXPECTED_FUNCTIONS = {"add", "subtract", "multiply", "divide"}
@@ -190,7 +190,7 @@ async def main() -> int:
             return 1
 
         # Drive one RPC call to assert matched BUSY↔READY pairing (no extras for other functions)
-        client = GenesisRPCClient(service_type="CalculatorService")
+        client = GenesisRequester(service_type="CalculatorService")
         await client.wait_for_service(timeout_seconds=10)
         pre_busy = len(obs.service_busy_events)
         pre_ready = len(obs.service_ready_events)

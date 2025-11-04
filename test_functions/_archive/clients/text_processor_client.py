@@ -2,7 +2,7 @@
 
 import logging
 import asyncio
-from genesis_lib.rpc_client import GenesisRPCClient
+from genesis_lib.requester import GenesisRequester
 from typing import Dict, Any, List
 import json
 
@@ -11,7 +11,7 @@ logging.basicConfig(level=logging.DEBUG,
                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("text_processor_client")
 
-class TextProcessorClient(GenesisRPCClient):
+class TextProcessorClient(GenesisRequester):
     """Client for the text processor service"""
     
     def __init__(self):

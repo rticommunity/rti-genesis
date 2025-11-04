@@ -205,8 +205,8 @@ async def run_calculator_test():
             function_id = client.function_ids.get("multiply")
             if function_id:
                 # Create a custom client to send invalid JSON
-                from genesis_lib.rpc_client import GenesisRPCClient
-                custom_client = GenesisRPCClient(service_name="CalculatorService")
+                from genesis_lib.requester import GenesisRequester
+                custom_client = GenesisRequester(service_name="CalculatorService")
                 
                 # Send a request with invalid JSON
                 from genesis_lib.datamodel import FunctionCall
