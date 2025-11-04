@@ -6,11 +6,420 @@ communication capabilities in Genesis. It can be mixed into GenesisAgent or
 MonitoredAgent to add agent discovery, connection management, and RPC communication
 between agents.
 
-Key Features:
-- Agent discovery through unified Advertisement topic (kind=AGENT)
-- Dynamic RPC connection management
-- Agent-to-agent request/reply handling
-- Connection pooling and cleanup
+=================================================================================================
+WHAT IS AGENTCOMMUNICATIONMIXIN?
+=================================================================================================
+
+AgentCommunicationMixin is a Python mixin class that adds agent-to-agent communication
+capabilities to Genesis agents. It provides three core features:
+
+1. **Agent Discovery**: Passive discovery of other agents via DDS advertisements
+2. **Connection Management**: Dynamic creation and caching of RPC connections
+3. **Request/Reply Communication**: Send requests to discovered agents and receive replies
+
+When mixed into GenesisAgent (via MonitoredAgent), agents gain the ability to:
+- Discover other agents on the network automatically
+- Query discovered agents by capability, specialization, or other criteria
+- Connect to and communicate with other agents via RPC
+- Delegate tasks to specialized agents (agent-as-tool pattern)
+
+=================================================================================================
+ARCHITECTURE OVERVIEW - How AgentCommunicationMixin Fits Into Genesis
+=================================================================================================
+
+Genesis Agent Inheritance Hierarchy:
+
+    GenesisAgent (genesis_agent.py)
+    ├─ Core business logic: request processing, tool orchestration, memory
+    ├─ Abstract methods for LLM providers
+    └─ Optional: AgentCommunicationMixin (THIS FILE) [mixed in if enable_agent_communication=True]
+        ↓
+    MonitoredAgent (monitored_agent.py)
+    ├─ Adds monitoring wrapper around all methods
+    ├─ Wraps _call_agent() to publish AGENT_TO_AGENT_START/COMPLETE events
+    └─ Inherits agent communication capabilities if enabled
+        ↓
+    OpenAIGenesisAgent (openai_genesis_agent.py)
+    └─ Implements LLM provider methods (OpenAI API)
+
+**THE MIXIN PATTERN**:
+AgentCommunicationMixin is OPTIONAL and only included when enable_agent_communication=True.
+This keeps agent communication orthogonal to:
+- LLM provider implementation (OpenAI vs Anthropic vs ...)
+- Monitoring concerns (handled by MonitoredAgent wrapper)
+- Core agent logic (request processing, memory, tools)
+
+**EXAMPLE: Creating an Agent WITH Communication**:
+```python
+from genesis_lib import OpenAIGenesisAgent
+
+agent = OpenAIGenesisAgent(
+    agent_name="PersonalAssistant",
+    base_service_name="OpenAIChatService",
+    enable_agent_communication=True,  # ← Mixes in AgentCommunicationMixin
+    ...
+)
+# Agent can now discover and delegate to other agents
+```
+
+**EXAMPLE: Creating an Agent WITHOUT Communication**:
+```python
+agent = OpenAIGenesisAgent(
+    agent_name="SimpleAgent",
+    base_service_name="OpenAIChatService",
+    enable_agent_communication=False,  # ← No agent communication (default)
+    ...
+)
+# Agent operates independently, cannot discover or call other agents
+```
+
+=================================================================================================
+THE THREE PHASES - Discovery, Connection, Communication
+=================================================================================================
+
+Agent-to-agent interaction follows a three-phase lifecycle:
+
+**PHASE 1: DISCOVERY (Passive - Automatic)**
+    When: Starts immediately after initialization
+    How: DDS listener continuously receives agent advertisements
+    Data: Agent metadata (capabilities, specializations, service_name, agent_id)
+    Storage: self.discovered_agents Dict[agent_id -> agent_info]
+    
+    Example Flow:
+    1. WeatherAgent publishes advertisement to "rti/connext/genesis/Advertisement" topic
+    2. PersonalAssistant's DDS listener receives advertisement (content-filtered for kind=AGENT)
+    3. _on_agent_advertisement_received() parses data, stores in discovered_agents
+    4. Discovery callbacks are invoked (e.g., MonitoredAgent publishes graph topology edge)
+
+**PHASE 2: CONNECTION (Active - On-Demand)**
+    When: First time you want to communicate with a specific agent
+    How: Create RPC Requester for the agent's "_AgentRPC" service
+    Data: RPC connection (cached in self.agent_connections)
+    
+    Example Flow:
+    1. PersonalAssistant calls: await connect_to_agent("weather-agent-uuid")
+    2. Lookup agent in discovered_agents to get service_name
+    3. Create RPC Requester for "WeatherService_AgentRPC"
+    4. Wait for DDS DataReader/DataWriter matching
+    5. Cache requester in self.agent_connections for reuse
+
+**PHASE 3: COMMUNICATION (Active - Repeated)**
+    When: Every time you want to send a request to a connected agent
+    How: Use cached RPC Requester to send AgentAgentRequest, await AgentAgentReply
+    Data: Request/reply messages with conversation_id for tracking
+    
+    Example Flow (RPC v2 with GUID targeting):
+    1. PersonalAssistant calls: response = await send_agent_request(agent_id, "What's the weather?")
+    2. First request: Broadcast (empty target_service_guid field)
+    3. WeatherAgent replies, includes replier_service_guid in response
+    4. PersonalAssistant captures and stores the GUID
+    5. Subsequent requests: Targeted (target_service_guid = captured GUID)
+    6. Benefits: Session affinity, canary deployments, A/B testing
+
+**KEY INSIGHT**: Discovery is continuous and passive. Connection and communication are 
+on-demand and active. This design minimizes resource usage while maintaining fresh 
+discovery data.
+
+=================================================================================================
+RPC v2 ARCHITECTURE - Broadcast First, Then Lock to GUID
+=================================================================================================
+
+Genesis uses "RPC v2" for agent-to-agent communication, which solves a critical problem:
+How do you route requests to the correct service instance when multiple instances exist?
+
+**THE PROBLEM**:
+In a distributed system, you might have:
+- 3 instances of WeatherService running (production, canary, v2-migration)
+- All using the same service name: "WeatherService_AgentRPC"
+- All listening on the same DDS topics
+- How do you ensure Agent A always talks to the same instance?
+
+**NAIVE SOLUTION (Fails)**:
+Use service instance names like "WeatherService_AgentRPC_instance1"
+- Breaks discovery (how do you know which instances exist?)
+- Requires manual coordination (what if instance1 crashes?)
+- Can't do canary deployments or gradual rollouts
+
+**RPC v2 SOLUTION (Works)**:
+First request broadcasts, reply captures GUID, subsequent requests target that GUID.
+
+**DETAILED FLOW**:
+```
+Request 1 (Broadcast):
+    AgentAgentRequest {
+        message: "What's the weather in London?",
+        conversation_id: "conv-123",
+        target_service_guid: "",  ← EMPTY = broadcast to all
+        service_instance_tag: ""
+    }
+    → All WeatherService instances receive this
+    → First to reply wins
+
+Reply 1 (GUID Capture):
+    AgentAgentReply {
+        message: "It's 15°C and sunny",
+        status: 0,
+        conversation_id: "conv-123",
+        replier_service_guid: "01abc123..."  ← Instance GUID
+    }
+    → PersonalAssistant stores: agent_target_guids["weather-agent-uuid"] = "01abc123..."
+
+Request 2+ (Targeted):
+    AgentAgentRequest {
+        message: "How about tomorrow?",
+        conversation_id: "conv-456",
+        target_service_guid: "01abc123...",  ← Targets specific instance
+        service_instance_tag: ""
+    }
+    → Only the instance with GUID "01abc123..." processes this
+    → Other instances ignore (content filtering)
+```
+
+**BENEFITS**:
+- Session Affinity: Subsequent requests go to the same instance (maintains context)
+- Service Migration: Can deploy new version, agents gradually lock to new instances
+- Canary Deployments: Route 10% of NEW conversations to canary instance
+- A/B Testing: Different instances can run different models/configs
+
+**MIGRATION SCENARIO**:
+```
+1. Deploy WeatherService v2 alongside v1
+2. New agent connections: Broadcast first request
+   - Some lock to v1, some lock to v2 (50/50 natural split)
+3. Monitor metrics for both versions
+4. If v2 is good: Wait for v1 connections to drain (no new ones locking to it)
+5. Shut down v1 when all active conversations complete
+6. 100% traffic on v2 with zero downtime, no connection disruption
+```
+
+=================================================================================================
+ARCHITECTURAL DECISION: Why Separate Agent-to-Agent vs. Interface-to-Agent Communication?
+=================================================================================================
+
+Genesis implements TWO separate communication paths:
+1. Interface-to-Agent: Human interfaces → Agents (via InterfaceAgentRequest/Reply)
+2. Agent-to-Agent: Agents → Other Agents (via AgentAgentRequest/Reply) [THIS FILE]
+
+WHY NOT A UNIFIED SYSTEM?
+
+This separation exists for fundamental architectural and technical reasons:
+
+1. DDS CONSTRAINT: Topic Name Uniqueness (Technical Requirement)
+   -------------------------------------------------------------
+   DDS requires unique service names per participant. A single agent must simultaneously:
+   - Accept requests from human interfaces (Interface RPC service)
+   - Accept requests from other agents (Agent RPC service with "_AgentRPC" suffix)
+   
+   Using the same service name would cause:
+   - Topic collision errors
+   - Inability to distinguish request sources
+   - Routing ambiguity (is this from a human or another agent?)
+   
+   Solution: Separate service names → Requires separate RPC infrastructure
+
+2. DIFFERENT MESSAGE SCHEMAS (Fundamental Design Difference)
+   -------------------------------------------------------------
+   InterfaceAgentReply:
+   - status: int32
+   - conversation_id: string
+   - NO message field (agent handles response delivery separately)
+   
+   AgentAgentReply:
+   - message: string (8KB)  [CRITICAL DIFFERENCE]
+   - status: int32
+   - conversation_id: string
+   - Agent needs full message content to compose into reasoning
+   
+   Why different?
+   - Interfaces receive full responses through separate channels
+   - Agents must embed responses directly into their orchestration flow
+   - Merging schemas would bloat one or break the other
+
+3. DIFFERENT MONITORING SEMANTICS (Observability Requirements)
+   -------------------------------------------------------------
+   Interface-to-Agent:
+   - Track: Human interaction patterns, response times, user satisfaction
+   - Metrics: Simple request/response tracking
+   
+   Agent-to-Agent:
+   - Track: Orchestration chains, delegation patterns, multi-hop latency
+   - Metrics: AGENT_TO_AGENT_START/COMPLETE events, chain_id propagation
+   - Enables: Distributed tracing across agent collaboration graphs
+   
+   Separate paths enable specialized monitoring for each use case
+
+4. INDEPENDENT EVOLUTION (Maintainability)
+   -------------------------------------------------------------
+   Interface UX concerns (streaming, human feedback, rate limiting) can evolve
+   independently from agent orchestration logic (capability routing, chain 
+   optimization, autonomous delegation).
+   
+   Mixed concerns would create coupling between human-facing and AI-facing APIs.
+
+5. DIFFERENT PROCESSING SEMANTICS (Behavioral Difference)
+   -------------------------------------------------------------
+   While BOTH paths are stateful (maintain memory/conversation state), they differ:
+   
+   Interface-to-Agent:
+   - Single-session conversations with humans
+   - Linear request-response pattern
+   - conversation_id tracks human sessions
+   
+   Agent-to-Agent:
+   - Multi-session orchestration (Agent A → B, C, D concurrently)
+   - Recursive composition (agents orchestrate agents)
+   - conversation_id tracks sub-workflows in larger agent chains
+   - Enables capability-based routing via AgentClassifier
+
+CONSIDERED ALTERNATIVES:
+=======================
+
+Alternative 1: Unified Path with source_type flag
+   - Would require merged schemas (loses optimization)
+   - Topic collision issues remain unsolved
+   - Mixed concerns hurt maintainability
+   - Can't independently scale interface vs agent traffic
+
+Alternative 2: Layered approach (agent-agent routes through interface-agent)
+   - Loses separate monitoring for agent chains
+   - Extra hop adds latency
+   - Can't distinguish human requests from agent orchestration
+   - Breaks chain event tracking
+
+Current Approach: Separate paths (CHOSEN)
+   - Clean separation of concerns
+   - Solves DDS constraints
+   - Optimized schemas for each use case
+   - Independent evolution
+   - Specialized monitoring
+
+TRADE-OFFS ACCEPTED:
+===================
+
+Cons of this approach:
+- ~200-300 lines of similar RPC setup code (duplication)
+- Increased cognitive load (two patterns to understand)
+- 2x RPC endpoints per agent (resource overhead)
+- Must test both paths for feature parity
+
+Mitigation strategies:
+- Extract common RPC infrastructure to reduce duplication
+- Comprehensive documentation (this comment!)
+- Shared processing core where applicable
+- Automated testing to ensure consistency
+
+VERDICT: The separate paths are architecturally justified. The alternatives would
+create worse problems (topic collisions, mixed concerns, loss of monitoring fidelity)
+than they solve. The accepted trade-offs are manageable through better factoring
+of shared infrastructure.
+
+Last reviewed: October 2025
+Decision ratified by: Architecture review
+=================================================================================================
+
+=================================================================================================
+WHAT YOU GET FOR FREE - Using AgentCommunicationMixin
+=================================================================================================
+
+When you mix AgentCommunicationMixin into your Genesis agent (by setting 
+enable_agent_communication=True), you automatically get ALL of these capabilities
+without writing any agent communication code:
+
+1. **Automatic Agent Discovery** (Passive Background Process):
+   - DDS listener continuously receives agent advertisements
+   - Discovered agents stored in self.discovered_agents
+   - Discovery callbacks invoked for integration (e.g., graph topology)
+   - No manual registration or configuration needed
+
+2. **Rich Query API** (10+ Query Methods):
+   - Query by agent type: get_agents_by_type("WeatherAgent")
+   - Query by capability: find_agents_by_capability("weather_forecast")
+   - Query by specialization: find_agents_by_specialization("finance")
+   - Query by model: get_agents_by_model_type("gpt-4")
+   - Query by performance: get_agents_by_performance_metric("latency_ms", max_value=100)
+   - AI-powered routing: get_best_agent_for_request("What's the weather?")
+   - Fuzzy search: search_agents("weather")
+
+3. **Dynamic Connection Management** (Lazy Connection Creation):
+   - Connections created on-demand when first needed
+   - Automatic connection caching for reuse
+   - DDS matching with timeout and retries
+   - Graceful cleanup on shutdown
+
+4. **RPC v2 Communication** (Broadcast → GUID Locking):
+   - First request broadcasts to all instances
+   - Reply captures replier GUID for session affinity
+   - Subsequent requests target specific instance
+   - Supports canary deployments and A/B testing
+
+5. **Agent-as-Tool Pattern** (Seamless Integration):
+   - Discovered agents automatically exposed as tools to LLM
+   - LLM can orchestrate agent delegation ("ask the weather agent")
+   - Responses integrated back into conversation flow
+   - MonitoredAgent publishes AGENT_TO_AGENT events for tracing
+
+**EXAMPLE: Agent Discovers and Delegates to Another Agent**:
+```python
+# PersonalAssistant (with enable_agent_communication=True)
+# 1. WeatherAgent publishes advertisement → PersonalAssistant discovers it automatically
+# 2. User asks: "What's the weather in London?"
+# 3. LLM sees WeatherAgent as available tool, decides to use it
+# 4. PersonalAssistant calls: result = await self._call_agent("weather_agent", message="...")
+# 5. _call_agent() uses send_agent_request() from AgentCommunicationMixin
+# 6. WeatherAgent processes request, replies with weather data
+# 7. PersonalAssistant incorporates result into response to user
+```
+
+**WHAT YOU DON'T NEED TO WORRY ABOUT**:
+- ❌ Manual agent registration
+- ❌ Service discovery configuration
+- ❌ RPC connection setup code
+- ❌ Request/reply message formatting
+- ❌ Connection pooling and cleanup
+- ❌ GUID tracking for session affinity
+
+All of this is handled automatically by the mixin!
+
+=================================================================================================
+INTEGRATION WITH MONITOREDAGENT - Automatic Observability
+=================================================================================================
+
+When AgentCommunicationMixin is used with MonitoredAgent (the normal case), you also get
+automatic monitoring and observability for all agent-to-agent interactions:
+
+**MonitoredAgent Automatically Publishes**:
+- Graph Topology Edges: Agent A → Agent B connections (via _on_agent_discovered callback)
+- Chain Events: AGENT_TO_AGENT_START when sending request
+- Chain Events: AGENT_TO_AGENT_COMPLETE when receiving reply
+- Distributed Tracing: chain_id propagation across agent calls
+
+**Consumed By**:
+- Network visualization UI (shows agent-to-agent connections)
+- Monitoring dashboards (tracks agent collaboration patterns)
+- Distributed tracing tools (follows requests across agent boundaries)
+- Performance monitoring (measures agent-to-agent latency)
+
+**The Integration Point**:
+MonitoredAgent._call_agent() wraps AgentCommunicationMixin.send_agent_request():
+```python
+class MonitoredAgent(GenesisAgent, AgentCommunicationMixin):  # Multiple inheritance
+    async def _call_agent(self, agent_tool_name, **kwargs):
+        # BEFORE: Publish AGENT_TO_AGENT_START event
+        chain_id = uuid.uuid4()
+        self._publish_agent_to_agent_start(chain_id, agent_tool_name)
+        
+        # EXECUTE: Call AgentCommunicationMixin's send_agent_request()
+        result = await super()._call_agent(agent_tool_name, **kwargs)
+        
+        # AFTER: Publish AGENT_TO_AGENT_COMPLETE event
+        self._publish_agent_to_agent_complete(chain_id, agent_tool_name)
+        return result
+```
+
+This is the DECORATOR PATTERN in action - MonitoredAgent adds observability around
+AgentCommunicationMixin's core functionality without modifying it.
+
+=================================================================================================
 
 Copyright (c) 2025, RTI & Jason Upchurch
 """
@@ -31,285 +440,497 @@ from .advertisement_bus import AdvertisementBus
 # Get logger
 logger = logging.getLogger(__name__)
 
+
+# ==========================================================================
+# MODULE-LEVEL HELPER CLASSES - DDS Listeners for Async Callbacks
+# ==========================================================================
+# These listener classes are invoked by DDS when data arrives on topics.
+# They run in DDS middleware threads, not the main async event loop.
+# 
+# Pattern: Listener receives data → validates → calls parent method
+# ==========================================================================
+
+# Module-level helper class for agent advertisement discovery
+class _AgentAdvertisementListener(dds.DynamicData.NoOpDataReaderListener):
+    """
+    DDS listener for agent advertisement discovery.
+    
+    Automatically invoked when new agent advertisements arrive on the
+    filtered Advertisement topic. Populates the parent's discovered_agents
+    dict and invokes discovery callbacks.
+    """
+    
+    def __init__(self, parent_mixin):
+        """
+        Initialize listener with reference to parent mixin.
+        
+        Args:
+            parent_mixin: AgentCommunicationMixin instance that owns this listener
+        """
+        super().__init__()
+        self._parent = parent_mixin
+    
+    def on_data_available(self, reader):
+        """
+        DDS callback invoked when advertisement data arrives.
+        
+        Processes agent advertisements, updates discovered_agents,
+        and invokes discovery callbacks for new agents.
+        
+        Args:
+            reader: DDS DataReader with available samples
+        """
+        try:
+            samples = reader.take()
+            
+            for data, info in samples:
+                # Only process valid, unread samples
+                if (info.state.sample_state != dds.SampleState.NOT_READ or 
+                    info.state.instance_state != dds.InstanceState.ALIVE):
+                    continue
+                
+                self._parent._on_agent_advertisement_received(data)
+                
+        except Exception as e:
+            logger.error(f"Error in agent advertisement listener: {e}")
+            logger.error(traceback.format_exc())
+
+
+class _AgentRequestListener(dds.DynamicData.DataReaderListener):
+    """
+    DDS listener for agent-to-agent RPC requests.
+    
+    Handles incoming agent requests via DDS callback, performing RPC v2
+    content filtering (GUID-based targeting) and scheduling async processing.
+    """
+    
+    def __init__(self, parent_mixin):
+        """
+        Initialize listener with reference to parent mixin.
+        
+        Args:
+            parent_mixin: AgentCommunicationMixin instance that owns this listener
+        """
+        super().__init__()
+        self._outer = parent_mixin
+    
+    def on_data_available(self, reader):
+        """
+        DDS callback invoked when agent request arrives.
+        
+        Processes RPC v2 content filtering (target_service_guid, service_instance_tag)
+        and schedules async processing in the event loop.
+        
+        Args:
+            reader: DDS DataReader with available request samples
+        """
+        try:
+            # Get all available samples using the replier's take_requests method
+            samples = self._outer.agent_replier.take_requests()
+            
+            for request, info in samples:
+                if request is None or info.state.instance_state != dds.InstanceState.ALIVE:
+                    continue
+                
+                # RPC v2: Content filtering based on target_service_guid
+                try:
+                    target_guid = request.get_string("target_service_guid")
+                    service_tag = request.get_string("service_instance_tag")
+                    
+                    # Get our replier GUID (stored during setup)
+                    our_guid = getattr(self._outer, 'agent_replier_guid', '')
+                    
+                    # Check if this is a broadcast (empty target_guid) or targeted to us
+                    is_broadcast = not target_guid or target_guid == ""
+                    is_targeted_to_us = target_guid == our_guid
+                    
+                    # Check if service_instance_tag matches (if set)
+                    tag_matches = True
+                    if service_tag and hasattr(self._outer.parent_agent, 'service_instance_tag'):
+                        tag_matches = service_tag == self._outer.parent_agent.service_instance_tag
+                    
+                    if not is_broadcast and not is_targeted_to_us:
+                        continue
+                        
+                    if not tag_matches:
+                        continue
+                    
+                except Exception as e:
+                    # If fields don't exist, fall back to processing (backward compat)
+                    logger.debug(f"Could not read RPC v2 fields, processing anyway: {e}")
+                
+                # CRITICAL: DDS callbacks run in a different thread than the asyncio event loop
+                # Use run_coroutine_threadsafe to schedule the async task in the correct event loop
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        self._outer._process_agent_request(request, info),
+                        self._outer.parent_agent.loop
+                    )
+                except Exception as schedule_error:
+                    logger.error(f"Error scheduling agent request processing: {schedule_error}")
+                    logger.error(traceback.format_exc())
+                    
+        except Exception as e:
+            logger.error(f"Error in AgentRequestListener.on_data_available: {e}")
+            logger.error(traceback.format_exc())
+
+
+# ==========================================================================
+# AGENT COMMUNICATION MIXIN - Main Class
+# ==========================================================================
+
 class AgentCommunicationMixin:
     """
     Mixin class that provides agent-to-agent communication capabilities.
-    This can be mixed into GenesisAgent or MonitoredAgent.
+    
+    This class can be mixed into GenesisAgent to add:
+    - Automatic agent discovery via DDS advertisements
+    - Dynamic RPC connection management
+    - Agent-to-agent request/reply communication
+    - Rich query API for discovering agents by capability, specialization, etc.
+    
+    Usage:
+        class GenesisAgent(AgentCommunicationMixin):  # Multiple inheritance
+            ...
+    
+    See module docstring for comprehensive architecture overview.
     """
+    
+    # ==========================================================================
+    # INITIALIZATION & CORE DATA STRUCTURES
+    # ==========================================================================
     
     def __init__(self):
         """Initialize agent communication capabilities"""
-        logger.info("🚀 TRACE: AgentCommunicationMixin.__init__() starting")
-        
         # Store active agent connections (agent_id -> rpc.Requester)
         self.agent_connections: Dict[str, rpc.Requester] = {}
-        logger.debug("✅ TRACE: agent_connections dict initialized")
         
         # Store discovered agents (agent_id -> agent_info)
         self.discovered_agents: Dict[str, Dict[str, Any]] = {}
-        logger.debug("✅ TRACE: discovered_agents dict initialized")
         
         # Agent discovery callbacks (similar to function discovery callbacks)
         self.agent_discovery_callbacks: List = []
-        logger.debug("✅ TRACE: agent_discovery_callbacks list initialized")
         
         # Unified advertisement writer/reader for all discovery
         self.advertisement_writer = None
         self.advertisement_reader = None
         self.advertisement_topic = None
         self.advertisement_type = None
-        logger.debug("✅ TRACE: Advertisement writer/reader/topic/type initialized to None")
         
         # Initialize agent-to-agent RPC types
         self.agent_request_type = None
         self.agent_reply_type = None
-        logger.debug("✅ TRACE: RPC types initialized to None")
         
         # Agent RPC replier for receiving requests from other agents
         self.agent_replier = None
-        logger.debug("✅ TRACE: agent_replier initialized to None")
         
         # Flag to track if agent communication is enabled
         self._agent_communication_enabled = False
-        logger.debug("✅ TRACE: agent_communication_enabled flag set to False")
-        
-        # Agent capability reader for discovering other agents
-        self.agent_capability_reader = None
-        self.agent_capability_subscriber = None
-        logger.debug("✅ TRACE: agent_capability_reader and subscriber initialized to None")
-        
-        logger.info("✅ TRACE: AgentCommunicationMixin.__init__() completed successfully")
+    
+    # ==========================================================================
+    # AGENT DISCOVERY SETUP - Passive Background Discovery
+    # ==========================================================================
+    # Methods for initializing agent discovery infrastructure.
+    # Discovery is passive - DDS listeners continuously receive advertisements.
+    # Agents are automatically added to self.discovered_agents as they appear.
+    # ==========================================================================
     
     def _initialize_agent_rpc_types(self):
-        """Load AgentAgentRequest and AgentAgentReply types from XML"""
+        """
+        Load AgentAgentRequest and AgentAgentReply types from datamodel XML.
+        
+        These types define the RPC message schemas for agent-to-agent communication,
+        distinct from InterfaceAgentRequest/Reply used for human-to-agent communication.
+        See module docstring for architectural rationale.
+        
+        Called during agent communication setup to prepare for agent-to-agent RPC.
+        
+        Returns:
+            bool: True if types loaded successfully, False on error
+            
+        Note:
+            Failure to load these types will prevent agent-to-agent communication
+            but won't affect interface-to-agent or function calling capabilities.
+        """
         try:
-            logger.info("🚀 TRACE: _initialize_agent_rpc_types() starting")
-            
-            # Get types from XML
-            logger.debug("📄 TRACE: Getting datamodel path...")
             config_path = get_datamodel_path()
-            logger.debug(f"📄 TRACE: Datamodel path: {config_path}")
-            
-            logger.debug("🏗️ TRACE: Creating QosProvider...")
             type_provider = dds.QosProvider(config_path)
-            logger.debug("✅ TRACE: QosProvider created successfully")
             
-            # Load agent-to-agent communication types
-            logger.debug("📥 TRACE: Loading AgentAgentRequest type...")
+            # Load agent-to-agent communication types from datamodel.xml
             self.agent_request_type = type_provider.type("genesis_lib", "AgentAgentRequest")
-            logger.debug("✅ TRACE: AgentAgentRequest type loaded")
-            
-            logger.debug("📥 TRACE: Loading AgentAgentReply type...")
             self.agent_reply_type = type_provider.type("genesis_lib", "AgentAgentReply")
-            logger.debug("✅ TRACE: AgentAgentReply type loaded")
             
-            logger.info("✅ TRACE: Successfully loaded AgentAgentRequest and AgentAgentReply types")
+            logger.info("Agent-to-agent RPC types loaded successfully")
             return True
             
         except Exception as e:
-            logger.error(f"💥 TRACE: Failed to load agent-to-agent RPC types: {e}")
-            import traceback
-            logger.error(f"💥 TRACE: Traceback: {traceback.format_exc()}")
+            logger.error(f"Failed to load agent-to-agent RPC types: {e}")
+            logger.error(traceback.format_exc())
             return False
     
     def _get_agent_service_name(self, agent_id: str) -> str:
-        """Generate RPC service name for an agent.
-
+        """
+        Generate RPC service name for an agent.
+        
         With RPC v2, all instances of the same service type share unified topics.
-        This returns the base service name, not unique per-instance names.
-        Individual instances are targeted via their replier_guid, not separate topic names.
-        """
-        try:
-            if hasattr(self, 'base_service_name') and self.base_service_name:
-                return self.base_service_name
-        except Exception:
-            pass
-        return f"AgentService_{agent_id}"
-    
-    def get_discovered_agents(self) -> Dict[str, Dict[str, Any]]:
-        """Return dictionary of discovered agents"""
-        return self.discovered_agents.copy()
-    
-    def add_agent_discovery_callback(self, callback):
-        """
-        Register a callback to be called when a new agent is discovered.
-        Callback will receive agent_info dict as parameter.
+        This returns the base service name if available (set during agent initialization),
+        otherwise generates a default name from the agent_id.
         
         Args:
-            callback: Function to call when agent discovered, signature: callback(agent_info)
+            agent_id: Unique identifier for the agent
+            
+        Returns:
+            Service name for RPC topic generation (e.g., "Chat" or "AgentService_<uuid>")
+            
+        Note:
+            Individual instances are targeted via replier_guid, not separate topic names.
+            The base_service_name is preferred as it enables topic sharing across agent instances.
+        """
+        # Prefer base_service_name if set during initialization
+        if hasattr(self, 'base_service_name') and self.base_service_name:
+            return self.base_service_name
+        
+        # Fallback: Generate from agent_id for agents without explicit service type
+        return f"AgentService_{agent_id}"
+    
+    # ==========================================================================
+    # AGENT DISCOVERY QUERY API - Public Methods for Finding Agents
+    # ==========================================================================
+    # These methods provide various ways to query discovered agents.
+    # All operate on self.discovered_agents (populated by discovery listeners).
+    # Performance: O(n) scans, cache results if querying repeatedly.
+    #
+    # Method Patterns:
+    # - get_*() methods: Return List[Dict[str, Any]] (full agent info)
+    # - find_*() methods: Return List[str] (agent IDs only)
+    # - is_*() methods: Return bool (existence checks)
+    # - wait_for_*() methods: Return bool (async wait for condition)
+    # ==========================================================================
+    
+    def get_discovered_agents(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Return a copy of all discovered agents.
+        
+        Returns:
+            Dictionary mapping agent_id -> agent_info containing:
+            - agent_id, name, agent_type, service_name
+            - capabilities, specializations, classification_tags
+            - model_info, performance_metrics, default_capable
+            - discovered_at, last_seen timestamps
+            
+        Note:
+            Returns a copy to prevent external mutation. This is a snapshot;
+            the actual discovered_agents dict may be updated by discovery callbacks.
+        """
+        return self.discovered_agents.copy()
+    
+    def add_agent_discovery_callback(self, callback: callable) -> None:
+        """
+        Register a callback to be invoked when a new agent is discovered.
+        
+        The callback is invoked immediately after an agent is added to discovered_agents,
+        within the DDS listener thread context. Keep callbacks lightweight to avoid
+        blocking the discovery process.
+        
+        Args:
+            callback: Function with signature callback(agent_info: Dict[str, Any])
+                     Will receive the full agent_info dict containing capabilities,
+                     specializations, and metadata.
+                     
+        Example:
+            def on_agent_found(agent_info):
+                print(f"Found agent: {agent_info['name']}")
+                
+            agent.add_agent_discovery_callback(on_agent_found)
         """
         if callback not in self.agent_discovery_callbacks:
             self.agent_discovery_callbacks.append(callback)
             logger.debug(f"Registered agent discovery callback: {callback}")
     
     def is_agent_discovered(self, agent_id: str) -> bool:
-        """Check if a specific agent has been discovered"""
+        """
+        Check if a specific agent has been discovered.
+        
+        Args:
+            agent_id: Unique identifier of the agent to check
+            
+        Returns:
+            True if agent is in discovered_agents, False otherwise
+        """
         return agent_id in self.discovered_agents
     
     async def wait_for_agent(self, agent_id: str, timeout_seconds: float = 30.0) -> bool:
         """
-        Wait for a specific agent to be discovered.
+        Wait for a specific agent to be discovered via DDS advertisement.
+        
+        This method uses an event-based approach, waiting for the discovery callback
+        to signal agent arrival rather than busy-polling.
         
         Args:
-            agent_id: ID of the agent to wait for
-            timeout_seconds: Maximum time to wait
+            agent_id: Unique identifier of the agent to wait for
+            timeout_seconds: Maximum time to wait before giving up
             
         Returns:
-            True if agent was discovered, False if timeout
+            True if agent was discovered within timeout, False otherwise
+            
+        Example:
+            if await agent.wait_for_agent("weather-agent-uuid", timeout_seconds=10):
+                response = await agent.send_agent_request("weather-agent-uuid", "Hello")
         """
         logger.info(f"Waiting for agent {agent_id} (timeout: {timeout_seconds}s)")
         
-        start_time = asyncio.get_event_loop().time()
+        # Fast path: already discovered
+        if self.is_agent_discovered(agent_id):
+            logger.info(f"Agent {agent_id} already discovered")
+            return True
         
-        while True:
-            if self.is_agent_discovered(agent_id):
-                logger.info(f"Agent {agent_id} discovered successfully")
-                return True
+        # Event-based waiting instead of polling
+        discovery_event = asyncio.Event()
+        
+        def discovery_callback(agent_info: Dict[str, Any]) -> None:
+            if agent_info.get('agent_id') == agent_id:
+                discovery_event.set()
+        
+        # Register temporary callback
+        self.add_agent_discovery_callback(discovery_callback)
+        
+        try:
+            # Wait with timeout
+            await asyncio.wait_for(discovery_event.wait(), timeout=timeout_seconds)
+            logger.info(f"Agent {agent_id} discovered successfully")
+            return True
             
-            # Check timeout
-            elapsed = asyncio.get_event_loop().time() - start_time
-            if elapsed >= timeout_seconds:
-                logger.warning(f"Timeout waiting for agent {agent_id} after {timeout_seconds}s")
-                return False
+        except asyncio.TimeoutError:
+            logger.warning(f"Timeout waiting for agent {agent_id} after {timeout_seconds}s")
+            return False
             
-            # Wait a bit before checking again
-            await asyncio.sleep(0.1)
+        finally:
+            # Clean up callback
+            if discovery_callback in self.agent_discovery_callbacks:
+                self.agent_discovery_callbacks.remove(discovery_callback)
     
     def _setup_agent_discovery(self):
-        """Set up agent discovery for agent-to-agent communication"""
+        """
+        Set up agent discovery for agent-to-agent communication.
+        
+        Creates a DDS DataReader with content filtering to discover other agents
+        via the unified Advertisement topic. Only AGENT-kind advertisements are
+        received (kind=1), filtered at the DDS layer for efficiency.
+        
+        Architecture:
+            - Uses AdvertisementBus for shared topic access
+            - Content-filtered topic: Only receives AGENT advertisements
+            - QoS: TRANSIENT_LOCAL durability to receive historical agents
+            - Listener callback: Populates self.discovered_agents on discovery
+            
+        Returns:
+            bool: True if discovery setup successful, False on error
+            
+        Note:
+            QoS settings must exactly match AdvertisementBus writer to ensure
+            proper matching and historical data delivery.
+        """
         try:
-            logger.info("🚀 TRACE: _setup_agent_discovery() starting")
-            
-            # Ensure we have access to the DDS participant
-            logger.debug("🔍 TRACE: Checking for DDS participant...")
+            # Validate DDS participant availability
             if not hasattr(self, 'app') or not hasattr(self.app, 'participant'):
-                logger.error("💥 TRACE: Cannot set up agent discovery: no DDS participant available")
+                logger.error("Cannot set up agent discovery: no DDS participant available")
                 return False
-            logger.debug("✅ TRACE: DDS participant available")
             
-            # AgentCapability topic removed - now using unified Advertisement topic for agent discovery
-            logger.debug("✅ TRACE: Agent discovery will use unified Advertisement topic (AGENT kind)")
+            # Set up unified advertisement reader for agent discovery
+            if not self._create_advertisement_reader():
+                logger.error("Failed to create advertisement reader")
+                return False
             
-            # Set up unified advertisement reader to populate discovered_agents via shared AdvertisementBus
-            try:
-                print("🏗️ PRINT: Setting up unified advertisement reader...")
-                logger.info("🏗️ TRACE: Setting up unified advertisement reader...")
-                
-                # Get datamodel path for type provider
-                config_path = get_datamodel_path()
-                provider = dds.QosProvider(config_path)
-                self.advertisement_type = provider.type("genesis_lib", "GenesisAdvertisement")
-                # Use AdvertisementBus to get the shared topic (avoids duplicate creation)
-                print("🔍 PRINT: Getting AdvertisementBus...")
-                logger.info("🔍 TRACE: Getting AdvertisementBus...")
-                bus = AdvertisementBus.get(self.app.participant)
-                ad_topic = bus.topic
-                print(f"✅ PRINT: Got advertisement topic: {ad_topic.name}")
-                print(f"🔍 PRINT: Topic object id: {id(ad_topic)}, Writer topic id: {id(bus.writer.topic)}")
-                print(f"🔍 PRINT: Same topic object? {ad_topic is bus.writer.topic}")
-                logger.info(f"✅ TRACE: Got advertisement topic: {ad_topic.name}")
-                
-                class _AdvertisementListener(dds.DynamicData.NoOpDataReaderListener):
-                    def __init__(self, outer):
-                        super().__init__()
-                        self._outer = outer
-                    def on_data_available(self, reader):
-                        # ALWAYS print to verify callback is invoked
-                        print(f"🔔🔔🔔 PRINT: _AdvertisementListener.on_data_available() CALLED!")
-                        try:
-                            enable_tracing = getattr(self._outer, 'enable_tracing', False)
-                            if enable_tracing:
-                                print(f"🔔 PRINT: _AdvertisementListener.on_data_available() called for agent {getattr(self._outer, 'agent_name', 'Unknown')}")
-                            logger.info(f"🔔 TRACE: _AdvertisementListener.on_data_available() called")
-                            
-                            samples = reader.take()  # Use take() to consume samples
-                            print(f"📊 PRINT: Got {len(samples)} advertisement samples")
-                            logger.info(f"📊 TRACE: Got {len(samples)} advertisement samples")
-                            for data, info in samples:
-                                print(f"🔍 PRINT: Sample state={info.state.sample_state}, instance_state={info.state.instance_state}")
-                                if info.state.sample_state == dds.SampleState.NOT_READ and info.state.instance_state == dds.InstanceState.ALIVE:
-                                    if enable_tracing:
-                                        print(f"📨 PRINT: Processing advertisement sample...")
-                                    print(f"📨 PRINT: Processing valid advertisement sample...")
-                                    logger.info("📨 TRACE: Processing advertisement sample...")
-                                    self._outer._on_agent_advertisement_received(data)
-                                else:
-                                    print(f"⏭️ PRINT: Skipping sample (already read or not alive)")
-                        except Exception as e:
-                            # NEVER silently swallow exceptions - log them!
-                            logger.error(f"💥 ERROR: _AdvertisementListener failed to process advertisement: {e}")
-                            logger.error(f"💥 ERROR: Traceback: {traceback.format_exc()}")
-                            if enable_tracing:
-                                print(f"💥 PRINT: _AdvertisementListener error: {e}")
-                                print(f"💥 PRINT: Traceback: {traceback.format_exc()}")
-                
-                print("🏗️ PRINT: Creating advertisement listener instance...")
-                logger.info("🏗️ TRACE: Creating advertisement listener instance...")
-                ad_listener = _AdvertisementListener(self)
-                print("🏗️ PRINT: Creating content-filtered topic for AGENT advertisements...")
-                logger.info("🏗️ TRACE: Creating content-filtered topic for AGENT advertisements...")
-                
-                # Create content-filtered topic to only receive AGENT advertisements (kind=1)
-                # This filters at DDS layer - much more efficient than in-code filtering!
-                filtered_topic = dds.DynamicData.ContentFilteredTopic(
-                    ad_topic,
-                    f"AgentDiscoveryFilter_{self.agent_name}",  # Unique name per agent
-                    dds.Filter("kind = %0", ["1"])  # AGENT kind enum value
-                )
-                
-                print("🏗️ PRINT: Creating advertisement DataReader with content filter...")
-                logger.info("🏗️ TRACE: Creating advertisement DataReader with content filter...")
-                
-                # Create reader with EXACTLY the same QoS pattern as AdvertisementBus writer
-                # Match advertisement_bus.py lines 44-48 exactly
-                ad_reader_qos = dds.QosProvider.default.datareader_qos
-                ad_reader_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
-                ad_reader_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
-                ad_reader_qos.history.kind = dds.HistoryKind.KEEP_LAST
-                ad_reader_qos.history.depth = 500
-                print(f"📊 PRINT: Reader QoS: durability={ad_reader_qos.durability.kind}, reliability={ad_reader_qos.reliability.kind}, history_depth={ad_reader_qos.history.depth}")
-                
-                # CRITICAL: Set listener BEFORE creating reader to receive TRANSIENT_LOCAL historical data
-                print("🏗️ PRINT: Creating DataReader with listener and content filter attached from creation...")
-                self.advertisement_reader = dds.DynamicData.DataReader(
-                    self.app.participant,
-                    filtered_topic,  # Use content-filtered topic instead of base topic
-                    ad_reader_qos,
-                    ad_listener,  # Attach listener during creation, not after!
-                    dds.StatusMask.DATA_AVAILABLE  # Listen for data available events
-                )
-                print("✅ PRINT: Unified advertisement reader created successfully!")
-                logger.info("✅ TRACE: Unified advertisement reader created via AdvertisementBus")
-            except Exception as e:
-                print(f"💥 PRINT: Unified advertisement reader failed: {e}")
-                logger.error(f"💥 ERROR: Unified advertisement reader failed: {e}")
-                logger.error(f"💥 ERROR: Traceback: {traceback.format_exc()}")
-            
-            logger.info("✅ TRACE: Agent discovery setup completed successfully")
+            logger.info("Agent discovery setup completed successfully")
             return True
             
         except Exception as e:
-            logger.error(f"💥 TRACE: Failed to set up agent discovery: {e}")
-            import traceback
-            logger.error(f"💥 TRACE: Traceback: {traceback.format_exc()}")
+            logger.error(f"Failed to set up agent discovery: {e}")
+            logger.error(traceback.format_exc())
+            return False
+
+    def _create_advertisement_reader(self):
+        """
+        Create DDS DataReader for agent advertisements with content filtering.
+        
+        Sets up:
+            1. Content-filtered topic (only AGENT advertisements, kind=1)
+            2. DataReader with TRANSIENT_LOCAL QoS matching writer
+            3. Listener callback for automatic agent discovery
+            
+        Returns:
+            bool: True if reader created successfully, False otherwise
+        """
+        try:
+            # Get advertisement type and shared bus
+            config_path = get_datamodel_path()
+            provider = dds.QosProvider(config_path)
+            self.advertisement_type = provider.type("genesis_lib", "GenesisAdvertisement")
+            
+            bus = AdvertisementBus.get(self.app.participant)
+            ad_topic = bus.topic
+            
+            # Create content-filtered topic for AGENT advertisements only (kind=1)
+            # DDS-layer filtering is more efficient than in-code filtering
+            filtered_topic = dds.DynamicData.ContentFilteredTopic(
+                ad_topic,
+                f"AgentDiscoveryFilter_{self.agent_name}",
+                dds.Filter("kind = %0", ["1"])  # Filter for AGENT kind enum value
+            )
+            
+            # Configure QoS to match AdvertisementBus writer
+            # CRITICAL: Exact QoS match required for proper DDS matching
+            ad_reader_qos = dds.QosProvider.default.datareader_qos
+            ad_reader_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
+            ad_reader_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
+            ad_reader_qos.history.kind = dds.HistoryKind.KEEP_LAST
+            ad_reader_qos.history.depth = 500
+            
+            # Create listener for automatic agent discovery
+            ad_listener = _AgentAdvertisementListener(self)
+            
+            # Create reader with listener attached from creation
+            # Attaching listener during creation ensures we receive historical data
+            self.advertisement_reader = dds.DynamicData.DataReader(
+                self.app.participant,
+                filtered_topic,
+                ad_reader_qos,
+                ad_listener,
+                dds.StatusMask.DATA_AVAILABLE
+            )
+            
+            logger.info("Advertisement reader created successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to create advertisement reader: {e}")
+            logger.error(traceback.format_exc())
             return False
 
     def _on_agent_advertisement_received(self, ad_sample):
-        """Handle discovered unified agent advertisement"""
-        print(f"🎯 PRINT: _on_agent_advertisement_received() called")
+        """
+        Handle discovered unified agent advertisement.
+        
+        Processes agent advertisement data from the DDS listener, extracts
+        capabilities and metadata, and adds to discovered_agents dict.
+        
+        Args:
+            ad_sample: DDS DynamicData sample containing agent advertisement
+        """
         try:
             # Content filter ensures only AGENT ads are delivered - no in-code filtering needed
             agent_id = ad_sample.get_string("advertisement_id") or ""
             name = ad_sample.get_string("name") or ""
             description = ad_sample.get_string("description") or ""
             service_name = ad_sample.get_string("service_name") or ""
-            print(f"🔍 PRINT: Advertisement: agent_id={agent_id}, name={name}, service={service_name}")
             last_seen = ad_sample.get_int64("last_seen") if hasattr(ad_sample, 'get_int64') else 0
             payload_str = ad_sample.get_string("payload") or "{}"
+            
             try:
                 payload = json.loads(payload_str)
             except Exception:
                 payload = {}
+                
             agent_type = payload.get("agent_type", "")
             capabilities = payload.get("capabilities", [])
             specializations = payload.get("specializations", [])
@@ -317,10 +938,11 @@ class AgentCommunicationMixin:
             model_info = payload.get("model_info")
             performance_metrics = payload.get("performance_metrics")
             default_capable = bool(payload.get("default_capable", True))
-            # Skip our own
+            
+            # Skip our own advertisement
             if hasattr(self, 'app') and agent_id == self.app.agent_id:
-                print(f"⏭️ PRINT: Skipping own advertisement (agent_id={agent_id})")
                 return
+            
             agent_info = {
                 "agent_id": agent_id,
                 "name": name,
@@ -336,12 +958,12 @@ class AgentCommunicationMixin:
                 "performance_metrics": performance_metrics,
                 "default_capable": default_capable,
             }
+            
             is_new_agent = agent_id not in self.discovered_agents
             self.discovered_agents[agent_id] = agent_info
-            print(f"📝 PRINT: Added to discovered_agents: {name} (new={is_new_agent}), total agents: {len(self.discovered_agents)}")
+            
             if is_new_agent:
-                print(f"🎉 PRINT: Discovered new agent via Advertisement: {name} ({agent_id}) service={service_name}")
-                logger.info(f"Discovered new agent via Advertisement: {name} ({agent_id}) service={service_name}")
+                logger.info(f"Discovered new agent: {name} ({agent_id}) service={service_name}")
                 
                 # Call agent discovery callbacks (for monitoring/graph topology)
                 for callback in self.agent_discovery_callbacks:
@@ -349,6 +971,7 @@ class AgentCommunicationMixin:
                         callback(agent_info)
                     except Exception as e:
                         logger.error(f"Error in agent discovery callback: {e}")
+                        
         except Exception as e:
             logger.error(f"Error processing agent advertisement: {e}")
     
@@ -389,13 +1012,9 @@ class AgentCommunicationMixin:
         Publish agent capability to the unified Advertisement topic.
         This allows other agents to discover this agent and its capabilities.
         """
-        print(f"🚀 TRACE: publish_agent_capability() called for agent {self.agent_name}")
-        
         try:
             # Get enhanced capabilities from the agent
-            print(f"🔍 TRACE: Getting agent capabilities...")
             agent_capabilities = agent_capabilities or self.get_agent_capabilities()
-            print(f"🔍 TRACE: Raw agent capabilities from get_agent_capabilities(): {agent_capabilities}")
             
             # Process capabilities lists
             capabilities_list = agent_capabilities.get("capabilities", [])
@@ -417,7 +1036,6 @@ class AgentCommunicationMixin:
                 classification_tags_list = []
             
             # Publish to unified Advertisement topic
-            print("📡 PRINT: Publishing to unified Advertisement topic...")
             ad = dds.DynamicData(self.advertisement_type)
             ad["advertisement_id"] = self.app.agent_id
             # AdvertisementKind: FUNCTION=0, AGENT=1, REGISTRATION=2
@@ -440,63 +1058,97 @@ class AgentCommunicationMixin:
             }
             ad["payload"] = json.dumps(payload)
             
-            print(f"📡 PRINT: Writing advertisement for {self.agent_name} (service={ad['service_name']})...")
             self.advertisement_writer.write(ad)
             self.advertisement_writer.flush()
-            print("✅ PRINT: Successfully published GenesisAdvertisement(kind=AGENT)")
-            logger.debug("Published GenesisAdvertisement(kind=AGENT)")
+            logger.debug(f"Published agent capability advertisement for {self.agent_name}")
             
         except Exception as e:
-            print(f"❌ TRACE: Error publishing agent capability for {self.agent_name}: {e}")
-            print(f"❌ TRACE: Exception details: {traceback.format_exc()}")
-            logger.error(f"Error publishing agent capability: {e}")
+            logger.error(f"Error publishing agent capability for {self.agent_name}: {e}")
             logger.error(traceback.format_exc())
     
     # _on_agent_capability_received() removed - now using _on_agent_advertisement_received() for unified discovery
     
+    # ==========================================================================
+    # AGENT DISCOVERY AND QUERY METHODS
+    # ==========================================================================
+    # These methods provide various ways to query discovered agents based on
+    # capabilities, specializations, and characteristics. All methods perform
+    # O(n) scans of discovered_agents, so cache results if querying repeatedly.
+    #
+    # Return type patterns:
+    # - get_*()  methods return List[Dict[str, Any]] (full agent info)
+    # - find_*() methods return List[str] (agent IDs only)
+    # ==========================================================================
+    
     def get_agents_by_type(self, agent_type: str) -> List[Dict[str, Any]]:
-        """Get all discovered agents of a specific type"""
+        """
+        Get all discovered agents of a specific type.
+        
+        Args:
+            agent_type: The agent type to filter by (exact match)
+            
+        Returns:
+            List of full agent info dicts for matching agents
+            
+        Example:
+            weather_agents = agent.get_agents_by_type("WeatherAgent")
+        """
         return [
             agent_info for agent_info in self.discovered_agents.values()
             if agent_info.get("agent_type") == agent_type
         ]
     
-    def get_agents_by_capability(self, capability_filter: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Get agents that match a capability filter"""
-        if capability_filter is None:
+    def search_agents(self, search_term: str) -> List[Dict[str, Any]]:
+        """
+        Search for agents using fuzzy text matching across multiple fields.
+        
+        Searches in: agent_type, service_name, description (case-insensitive).
+        Use this for human-initiated searches or exploratory queries.
+        
+        Args:
+            search_term: Text to search for (case-insensitive substring match)
+            
+        Returns:
+            List of full agent info dicts for matching agents
+            
+        Example:
+            # Find any agents related to "weather"
+            agents = agent.search_agents("weather")
+        """
+        if not search_term:
             return list(self.discovered_agents.values())
         
-        # For now, filter by agent_type or service_name containing the capability
+        search_lower = search_term.lower()
         matching_agents = []
+        
         for agent_info in self.discovered_agents.values():
-            if (capability_filter.lower() in agent_info.get("agent_type", "").lower() or
-                capability_filter.lower() in agent_info.get("service_name", "").lower() or
-                capability_filter.lower() in agent_info.get("description", "").lower()):
+            if (search_lower in agent_info.get("agent_type", "").lower() or
+                search_lower in agent_info.get("service_name", "").lower() or
+                search_lower in agent_info.get("description", "").lower()):
                 matching_agents.append(agent_info)
         
         return matching_agents
     
-    # Enhanced Discovery Methods for Step 3.5
-    
     def find_agents_by_capability(self, capability: str) -> List[str]:
         """
-        Find agents that advertise a specific capability.
+        Find agents that advertise a specific capability (exact match).
+        
+        Searches the 'capabilities' list field in agent advertisements.
+        Use this for programmatic routing based on declared capabilities.
         
         Args:
-            capability: The specific capability to search for
+            capability: Exact capability string to match
             
         Returns:
-            List of agent IDs that have the specified capability
+            List of agent IDs that declare this capability
+            
+        Example:
+            # Find agents that can generate images
+            image_agents = agent.find_agents_by_capability("image_generation")
         """
         matching_agents = []
         for agent_id, agent_info in self.discovered_agents.items():
-            capabilities = agent_info.get('capabilities', [])
-            if isinstance(capabilities, str):
-                try:
-                    capabilities = json.loads(capabilities) if capabilities else []
-                except (json.JSONDecodeError, TypeError):
-                    capabilities = []
-            
+            capabilities = self._extract_list_field(agent_info, 'capabilities')
             if capability in capabilities:
                 matching_agents.append(agent_id)
         
@@ -504,24 +1156,27 @@ class AgentCommunicationMixin:
     
     def find_agents_by_specialization(self, domain: str) -> List[str]:
         """
-        Find agents with expertise in a specific domain.
+        Find agents with expertise in a specific domain (case-insensitive match).
+        
+        Searches the 'specializations' list field in agent advertisements.
+        Use this to find domain experts for specialized tasks.
         
         Args:
-            domain: The specialization domain to search for (e.g., "weather", "finance")
+            domain: Specialization domain (e.g., "weather", "finance", "medical")
             
         Returns:
-            List of agent IDs with the specified specialization
+            List of agent IDs with matching specialization
+            
+        Example:
+            # Find financial experts
+            finance_agents = agent.find_agents_by_specialization("finance")
         """
         matching_agents = []
+        domain_lower = domain.lower()
+        
         for agent_id, agent_info in self.discovered_agents.items():
-            specializations = agent_info.get('specializations', [])
-            if isinstance(specializations, str):
-                try:
-                    specializations = json.loads(specializations) if specializations else []
-                except (json.JSONDecodeError, TypeError):
-                    specializations = []
-            
-            if domain.lower() in [spec.lower() for spec in specializations]:
+            specializations = self._extract_list_field(agent_info, 'specializations')
+            if domain_lower in [spec.lower() for spec in specializations]:
                 matching_agents.append(agent_id)
         
         return matching_agents
@@ -530,17 +1185,19 @@ class AgentCommunicationMixin:
         """
         Find agents that can handle general requests (default_capable = True).
         
+        Returns agents that don't require specific domain knowledge.
+        Use this for fallback routing when no specialist is available.
+        
         Returns:
             List of agent IDs that can handle general requests
+            
+        Example:
+            # Get general-purpose agents for fallback
+            general_agents = agent.find_general_agents()
         """
         general_agents = []
         for agent_id, agent_info in self.discovered_agents.items():
-            default_capable = agent_info.get('default_capable', False)
-            if isinstance(default_capable, str):
-                default_capable = default_capable.lower() == 'true'
-            elif isinstance(default_capable, int):
-                default_capable = bool(default_capable)
-            
+            default_capable = self._extract_bool_field(agent_info, 'default_capable', default=False)
             if default_capable:
                 general_agents.append(agent_id)
         
@@ -548,19 +1205,21 @@ class AgentCommunicationMixin:
     
     def find_specialized_agents(self) -> List[str]:
         """
-        Find agents that are specialized (not default_capable).
+        Find agents that are specialized (default_capable = False).
+        
+        Returns agents that focus on specific domains/tasks.
+        Use this to find experts before falling back to generalists.
         
         Returns:
             List of agent IDs that are specialized agents
+            
+        Example:
+            # Try specialists first
+            specialists = agent.find_specialized_agents()
         """
         specialized_agents = []
         for agent_id, agent_info in self.discovered_agents.items():
-            default_capable = agent_info.get('default_capable', False)
-            if isinstance(default_capable, str):
-                default_capable = default_capable.lower() == 'true'
-            elif isinstance(default_capable, int):
-                default_capable = bool(default_capable)
-            
+            default_capable = self._extract_bool_field(agent_info, 'default_capable', default=True)
             if not default_capable:
                 specialized_agents.append(agent_id)
         
@@ -568,16 +1227,33 @@ class AgentCommunicationMixin:
     
     async def get_best_agent_for_request(self, request: str) -> Optional[str]:
         """
-        Use the classifier to find the best agent for a specific request.
+        Use AI classifier to find the best agent for a specific request.
+        
+        This is the recommended approach for intelligent agent routing.
+        Uses semantic understanding of the request to match against agent
+        capabilities, specializations, and descriptions.
+        
+        Requires agent_classifier to be configured during initialization.
         
         Args:
             request: The request text to classify
             
         Returns:
-            Agent ID of the best agent, or None if no suitable agent found
+            Agent ID of the best matching agent, or None if:
+            - No classifier available
+            - No suitable agent found
+            - Classification error occurred
+            
+        Example:
+            # Let AI find the best agent
+            agent_id = await agent.get_best_agent_for_request(
+                "What's the weather in London?"
+            )
+            if agent_id:
+                response = await agent.send_agent_request(agent_id, ...)
         """
         if not hasattr(self, 'agent_classifier') or not self.agent_classifier:
-            logger.warning("No agent classifier available for get_best_agent_for_request")
+            logger.warning("No agent classifier available for intelligent routing")
             return None
         
         try:
@@ -587,49 +1263,50 @@ class AgentCommunicationMixin:
             )
             return best_agent
         except Exception as e:
-            logger.error(f"Error classifying request for best agent: {e}")
+            logger.error(f"Error in agent classification: {e}")
             return None
     
-    def get_agents_by_performance_metric(self, metric_name: str, min_value: Optional[float] = None, max_value: Optional[float] = None) -> List[str]:
+    def get_agents_by_performance_metric(self, metric_name: str, 
+                                         min_value: Optional[float] = None,
+                                         max_value: Optional[float] = None) -> List[str]:
         """
         Find agents based on performance metrics.
         
         Args:
-            metric_name: Name of the performance metric to check
-            min_value: Minimum value for the metric (optional)
-            max_value: Maximum value for the metric (optional)
+            metric_name: Name of the metric to check (e.g., "latency_ms", "success_rate")
+            min_value: Minimum value for the metric (inclusive, optional)
+            max_value: Maximum value for the metric (inclusive, optional)
             
         Returns:
             List of agent IDs that meet the performance criteria
+            
+        Example:
+            # Find fast agents
+            fast_agents = agent.get_agents_by_performance_metric(
+                "latency_ms", 
+                max_value=100.0
+            )
         """
         matching_agents = []
         for agent_id, agent_info in self.discovered_agents.items():
-            performance_metrics = agent_info.get('performance_metrics', {})
-            if isinstance(performance_metrics, str):
-                try:
-                    performance_metrics = json.loads(performance_metrics) if performance_metrics else {}
-                except (json.JSONDecodeError, TypeError):
-                    performance_metrics = {}
+            performance_metrics = self._extract_dict_field(agent_info, 'performance_metrics')
             
-            if metric_name in performance_metrics:
-                if min_value is None and max_value is None:
-                    matching_agents.append(agent_id)
-                else:
-                    try:
-                        metric_value = float(performance_metrics[metric_name])
-                        
-                        # Check min_value constraint
-                        if min_value is not None and metric_value < min_value:
-                            continue
-                            
-                        # Check max_value constraint  
-                        if max_value is not None and metric_value > max_value:
-                            continue
-                            
-                        matching_agents.append(agent_id)
-                    except (ValueError, TypeError):
-                        # Skip agents with non-numeric metric values
-                        continue
+            if metric_name not in performance_metrics:
+                continue
+            
+            try:
+                metric_value = float(performance_metrics[metric_name])
+                
+                # Check constraints
+                if min_value is not None and metric_value < min_value:
+                    continue
+                if max_value is not None and metric_value > max_value:
+                    continue
+                    
+                matching_agents.append(agent_id)
+            except (ValueError, TypeError):
+                # Skip agents with non-numeric metric values
+                continue
         
         return matching_agents
     
@@ -637,21 +1314,24 @@ class AgentCommunicationMixin:
         """
         Get full agent information for agents with a specific capability.
         
+        Similar to find_agents_by_capability() but returns full agent info dicts
+        instead of just IDs.
+        
         Args:
             capability: The capability to search for
             
         Returns:
-            List of agent info dictionaries for agents with the capability
+            List of agent info dicts for agents with the capability
+            
+        Example:
+            # Get detailed info about image generation agents
+            image_agents = agent.get_agent_info_by_capability("image_generation")
+            for agent in image_agents:
+                print(f"{agent['name']}: {agent['description']}")
         """
         matching_agents = []
         for agent_id, agent_info in self.discovered_agents.items():
-            capabilities = agent_info.get('capabilities', [])
-            if isinstance(capabilities, str):
-                try:
-                    capabilities = json.loads(capabilities) if capabilities else []
-                except (json.JSONDecodeError, TypeError):
-                    capabilities = []
-            
+            capabilities = self._extract_list_field(agent_info, 'capabilities')
             if capability in capabilities:
                 matching_agents.append(agent_info)
         
@@ -659,50 +1339,142 @@ class AgentCommunicationMixin:
     
     def get_agents_by_model_type(self, model_type: str) -> List[str]:
         """
-        Find agents using a specific model type (useful for AI agents).
+        Find agents using a specific AI model.
+        
+        Searches the 'model_info.model' field for substring matches.
+        Useful for routing based on model capabilities or costs.
         
         Args:
-            model_type: The model type to search for (e.g., "claude-3-opus", "gpt-4")
+            model_type: Model identifier to search for (e.g., "gpt-4", "claude-3")
             
         Returns:
             List of agent IDs using the specified model type
+            
+        Example:
+            # Find all Claude agents
+            claude_agents = agent.get_agents_by_model_type("claude")
         """
         matching_agents = []
+        model_lower = model_type.lower()
+        
         for agent_id, agent_info in self.discovered_agents.items():
-            model_info = agent_info.get('model_info', {})
-            if isinstance(model_info, str):
-                try:
-                    model_info = json.loads(model_info) if model_info else {}
-                except (json.JSONDecodeError, TypeError):
-                    model_info = {}
+            model_info = self._extract_dict_field(agent_info, 'model_info')
+            agent_model = model_info.get('model', '')
             
-            if isinstance(model_info, dict):
-                agent_model = model_info.get('model', '')
-                if model_type.lower() in agent_model.lower():
-                    matching_agents.append(agent_id)
+            if model_lower in agent_model.lower():
+                matching_agents.append(agent_id)
         
         return matching_agents
     
+    # ==========================================================================
+    # HELPER METHODS FOR FIELD EXTRACTION
+    # ==========================================================================
+    # Centralized defensive parsing to avoid repetition across query methods
+    
+    def _extract_list_field(self, agent_info: Dict[str, Any], field_name: str) -> List:
+        """
+        Safely extract a list field from agent info, handling various formats.
+        
+        Args:
+            agent_info: Agent information dictionary
+            field_name: Name of the field to extract
+            
+        Returns:
+            List value, or empty list if field missing/invalid
+        """
+        value = agent_info.get(field_name, [])
+        
+        if isinstance(value, list):
+            return value
+        elif isinstance(value, str):
+            try:
+                parsed = json.loads(value) if value else []
+                return parsed if isinstance(parsed, list) else []
+            except (json.JSONDecodeError, TypeError):
+                return []
+        else:
+            return []
+    
+    def _extract_dict_field(self, agent_info: Dict[str, Any], field_name: str) -> Dict:
+        """
+        Safely extract a dict field from agent info, handling various formats.
+        
+        Args:
+            agent_info: Agent information dictionary
+            field_name: Name of the field to extract
+            
+        Returns:
+            Dict value, or empty dict if field missing/invalid
+        """
+        value = agent_info.get(field_name, {})
+        
+        if isinstance(value, dict):
+            return value
+        elif isinstance(value, str):
+            try:
+                parsed = json.loads(value) if value else {}
+                return parsed if isinstance(parsed, dict) else {}
+            except (json.JSONDecodeError, TypeError):
+                return {}
+        else:
+            return {}
+    
+    def _extract_bool_field(self, agent_info: Dict[str, Any], field_name: str, 
+                           default: bool = False) -> bool:
+        """
+        Safely extract a boolean field from agent info, handling various formats.
+        
+        Args:
+            agent_info: Agent information dictionary
+            field_name: Name of the field to extract
+            default: Default value if field missing/invalid
+            
+        Returns:
+            Boolean value
+        """
+        value = agent_info.get(field_name, default)
+        
+        if isinstance(value, bool):
+            return value
+        elif isinstance(value, str):
+            return value.lower() == 'true'
+        elif isinstance(value, int):
+            return bool(value)
+        else:
+            return default
+    
+    # ==========================================================================
+    # AGENT-TO-AGENT RPC INFRASTRUCTURE
+    # ==========================================================================
+    # Core RPC setup for receiving and processing agent-to-agent requests.
+    # Uses DDS listener callbacks for efficient asynchronous request handling.
+    # Separate from interface-to-agent RPC (see architectural decision at top).
+    # ==========================================================================
+    
     def _setup_agent_rpc_service(self):
-        """Set up RPC service for receiving requests from other agents"""
+        """
+        Set up RPC service for receiving requests from other agents.
+        
+        Creates an RPC Replier with the "_AgentRPC" suffix to distinguish from
+        interface-to-agent RPC and prevent service name collisions.
+        
+        Returns:
+            bool: True if setup successful, False otherwise
+        """
         try:
-            print(f"🚀 PRINT: _setup_agent_rpc_service() starting for agent {getattr(self, 'agent_name', 'Unknown')}")
             logger.info("Setting up agent RPC service for receiving agent requests")
             
             # Ensure we have access to the DDS participant and agent ID
             if not hasattr(self, 'app') or not hasattr(self.app, 'participant'):
-                print("💥 PRINT: Cannot set up agent RPC service: no DDS participant available")
                 logger.error("Cannot set up agent RPC service: no DDS participant available")
                 return False
             
             if not hasattr(self.app, 'agent_id'):
-                print("💥 PRINT: Cannot set up agent RPC service: no agent_id available")
                 logger.error("Cannot set up agent RPC service: no agent_id available")
                 return False
             
             # Ensure RPC types are loaded
             if not self.agent_request_type or not self.agent_reply_type:
-                print("💥 PRINT: Cannot set up agent RPC service: RPC types not loaded")
                 logger.error("Cannot set up agent RPC service: RPC types not loaded")
                 return False
             
@@ -711,158 +1483,78 @@ class AgentCommunicationMixin:
             # to avoid service name collisions. Append "_AgentRPC" to distinguish them.
             base_agent_service_name = self._get_agent_service_name(self.app.agent_id)
             agent_service_name = f"{base_agent_service_name}_AgentRPC"
-            print(f"🏗️ PRINT: Creating agent RPC service with name: {agent_service_name}")
             logger.info(f"Creating agent RPC service with name: {agent_service_name}")
             
-            # Create replier for agent-to-agent communication
-            print("🏗️ PRINT: Creating RPC Replier...")
-            # Create agent replier using unified RPC v2 naming
+            # Create replier for agent-to-agent communication using unified RPC v2 naming
             self.agent_replier = rpc.Replier(
                 request_type=self.agent_request_type,
                 reply_type=self.agent_reply_type,
                 participant=self.app.participant,
                 service_name=f"rti/connext/genesis/rpc/{agent_service_name}"
             )
-            print("✅ PRINT: RPC Replier created successfully")
             
             # RPC v2: Store replier GUID for content filtering
             from genesis_lib.utils.guid_utils import format_guid
             self.agent_replier_guid = format_guid(self.agent_replier.reply_datawriter.instance_handle)
-            logger.info(f"Agent-to-agent replier GUID: {self.agent_replier_guid}")
+            logger.debug(f"Agent-to-agent replier GUID: {self.agent_replier_guid}")
             
             # Set up listener for incoming requests
-            print("🏗️ PRINT: Setting up agent request listener...")
             if self._setup_agent_request_listener():
-                print(f"✅ PRINT: Agent RPC service '{agent_service_name}' created successfully with listener")
-                logger.info(f"Agent RPC service '{agent_service_name}' created successfully with listener")
+                logger.info(f"Agent RPC service '{agent_service_name}' created successfully")
                 return True
             else:
-                print("💥 PRINT: Failed to set up agent request listener")
                 logger.error("Failed to set up agent request listener")
                 return False
             
         except Exception as e:
-            print(f"💥 PRINT: Failed to set up agent RPC service: {e}")
             logger.error(f"Failed to set up agent RPC service: {e}")
-            import traceback
-            print(f"💥 PRINT: Traceback: {traceback.format_exc()}")
+            logger.error(traceback.format_exc())
             return False
     
     def _setup_agent_request_listener(self):
-        """Set up listener for incoming agent requests using DDS callbacks"""
+        """
+        Set up listener for incoming agent requests using DDS callbacks.
+        
+        Creates and attaches a DataReaderListener to handle agent-to-agent RPC
+        requests asynchronously via callbacks rather than polling.
+        
+        Returns:
+            bool: True if listener setup successful, False otherwise
+        """
         try:
-            print("🏗️ PRINT: Setting up agent-to-agent request listener...")
+            # Create listener using module-level helper class
+            self.agent_request_listener = _AgentRequestListener(self)
             
-            # Create listener class for agent-to-agent RPC requests
-            class AgentRequestListener(dds.DynamicData.DataReaderListener):
-                def __init__(self, outer):
-                    super().__init__()
-                    self._outer = outer
-                    
-                def on_data_available(self, reader):
-                    # ALWAYS print to verify callback is invoked
-                    agent_name = getattr(self._outer, 'agent_name', 'Unknown')
-                    print(f"🔔🔔🔔 PRINT: AgentRequestListener.on_data_available() CALLED for {agent_name}!")
-                    logger.info(f"AgentRequestListener.on_data_available() CALLED for {agent_name}")
-                    
-                    try:
-                        # Get all available samples using the replier's take_requests method
-                        samples = self._outer.agent_replier.take_requests()
-                        print(f"📊 PRINT: AgentRequestListener got {len(samples)} agent request samples")
-                        
-                        for request, info in samples:
-                            if request is None or info.state.instance_state != dds.InstanceState.ALIVE:
-                                print(f"⏭️ PRINT: Skipping invalid agent request sample")
-                                continue
-                            
-                            # RPC v2: Content filtering based on target_service_guid
-                            # Extract target_service_guid from request if present
-                            try:
-                                target_guid = request.get_string("target_service_guid")
-                                service_tag = request.get_string("service_instance_tag")
-                                
-                                # Get our replier GUID (stored during setup)
-                                our_guid = getattr(self._outer, 'agent_replier_guid', '')
-                                
-                                # Check if this is a broadcast (empty target_guid) or targeted to us
-                                is_broadcast = not target_guid or target_guid == ""
-                                is_targeted_to_us = target_guid == our_guid
-                                
-                                # Check if service_instance_tag matches (if set)
-                                tag_matches = True
-                                if service_tag and hasattr(self._outer.parent_agent, 'service_instance_tag'):
-                                    tag_matches = service_tag == self._outer.parent_agent.service_instance_tag
-                                
-                                if not is_broadcast and not is_targeted_to_us:
-                                    logger.debug(f"⏭️ Skipping agent request targeted to different agent (target: {target_guid}, us: {our_guid})")
-                                    continue
-                                    
-                                if not tag_matches:
-                                    logger.debug(f"⏭️ Skipping agent request with non-matching service_instance_tag")
-                                    continue
-                                    
-                                logger.debug(f"✅ Processing agent request ({'broadcast' if is_broadcast else 'targeted'}, tag: {service_tag or 'none'})")
-                                
-                            except Exception as e:
-                                # If fields don't exist, fall back to processing (backward compat)
-                                logger.warning(f"Could not read RPC v2 fields from agent request, processing anyway: {e}")
-                            
-                            print(f"📨 PRINT: Processing agent request sample...")
-                            print(f"🔧 PRINT: Step 1 - Entering try block...")
-                            # CRITICAL: DDS callbacks run in a different thread than the asyncio event loop
-                            # Use run_coroutine_threadsafe to schedule the async task in the correct event loop
-                            # The wrapper's parent_agent has the event loop
-                            try:
-                                print(f"🔧 PRINT: Step 2 - Inside try, about to call run_coroutine_threadsafe...")
-                                print(f"🔧 PRINT: Loop = {self._outer.parent_agent.loop}")
-                                print(f"🔧 PRINT: Loop running = {self._outer.parent_agent.loop.is_running()}")
-                                future = asyncio.run_coroutine_threadsafe(
-                                    self._outer._process_agent_request(request, info),
-                                    self._outer.parent_agent.loop
-                                )
-                                print(f"✅ PRINT: run_coroutine_threadsafe returned future: {future}")
-                            except Exception as schedule_error:
-                                print(f"💥 PRINT: Error scheduling agent request processing: {schedule_error}")
-                                logger.error(f"Error scheduling agent request processing: {schedule_error}")
-                                logger.error(traceback.format_exc())
-                    except Exception as e:
-                        print(f"💥 PRINT: Error in AgentRequestListener.on_data_available: {e}")
-                        logger.error(f"Error in AgentRequestListener.on_data_available: {e}")
-                        logger.error(traceback.format_exc())
-            
-            # Create and attach the listener
-            self.agent_request_listener = AgentRequestListener(self)
             # Attach listener to the replier's request DataReader (not the replier itself)
             mask = dds.StatusMask.DATA_AVAILABLE
             self.agent_replier.request_datareader.set_listener(self.agent_request_listener, mask)
             
-            print("✅ PRINT: Agent-to-agent request listener attached successfully")
-            logger.info("Agent-to-agent request listener setup completed (using callback approach)")
+            logger.info("Agent-to-agent request listener setup completed")
             return True
             
         except Exception as e:
-            print(f"💥 PRINT: Failed to set up agent request listener: {e}")
             logger.error(f"Failed to set up agent request listener: {e}")
             logger.error(traceback.format_exc())
             return False
     
     async def _process_agent_request(self, request, info):
-        """Process an agent-to-agent request and send reply"""
-        # ALWAYS print at start to verify this method is being called
-        agent_name = getattr(self, 'agent_name', 'Unknown')
-        print(f"🚀🚀🚀 PRINT: _process_agent_request() STARTED for {agent_name}!")
-        logger.info(f"_process_agent_request() STARTED for {agent_name}")
+        """
+        Process an agent-to-agent request and send reply.
         
+        Extracts request data, invokes the abstract process_agent_request method,
+        and sends the reply with RPC v2 fields.
+        
+        Args:
+            request: DDS request sample
+            info: DDS sample info
+        """
         try:
-            # Check if tracing is enabled before printing
-            enable_tracing = getattr(self, 'enable_tracing', False)
-            
             # Extract request data including RPC v2 fields
-            print(f"📥 PRINT: Extracting request data...")
             request_data = {
                 "message": request.get_string("message"),
                 "conversation_id": request.get_string("conversation_id")
             }
+            
             # Extract RPC v2 fields for echo back
             try:
                 service_tag = request.get_string("service_instance_tag")
@@ -870,19 +1562,12 @@ class AgentCommunicationMixin:
             except:
                 service_tag = ""
             
-            print(f"📥 PRINT: Extracted request data: {request_data}")
-            
-            if enable_tracing:
-                print(f"📥 PRINT: Trace mode - Extracted request data: {request_data}")
-            logger.info(f"Received agent request: {request_data['message']}")
+            logger.debug(f"Received agent request: {request_data['message'][:100]}")
             
             # Process the request using the abstract method
-            print(f"🔄 PRINT: About to call process_agent_request() method...", flush=True)
             try:
                 response_data = await self.process_agent_request(request_data)
-                print(f"✅ PRINT: process_agent_request() returned: {response_data}", flush=True)
             except Exception as e:
-                print(f"💥 PRINT: Error in process_agent_request(): {e}", flush=True)
                 logger.error(f"Error processing agent request: {e}")
                 logger.error(traceback.format_exc())
                 response_data = {
@@ -890,8 +1575,6 @@ class AgentCommunicationMixin:
                     "status": -1,
                     "conversation_id": request_data.get("conversation_id", "")
                 }
-            
-            print(f"📤 PRINT: About to create reply sample with data: {response_data}", flush=True)
             
             # Create reply sample with RPC v2 fields
             reply_sample = dds.DynamicData(self.agent_reply_type)
@@ -907,33 +1590,24 @@ class AgentCommunicationMixin:
             # Echo back the service_instance_tag if present in request
             reply_sample.set_string("service_instance_tag", service_tag)
             
-            print(f"📤 PRINT: About to send reply via agent_replier...", flush=True)
-            
             # Send reply
             self.agent_replier.send_reply(reply_sample, info)
             
-            print(f"✅ PRINT: Agent-to-agent reply sent successfully! Message length: {len(str(message))}", flush=True)
-            logger.info(f"Sent reply to agent request: {response_data.get('message', '')}")
+            logger.debug(f"Sent agent reply ({len(str(message))} chars)")
             
         except Exception as e:
-            enable_tracing = getattr(self, 'enable_tracing', False)
-            if enable_tracing:
-                print(f"💥 PRINT: Error in _process_agent_request(): {e}")
-            logger.error(f"Error processing agent request: {e}")
+            logger.error(f"Error in _process_agent_request: {e}")
+            logger.error(traceback.format_exc())
             # Send error reply with RPC v2 fields
             try:
                 reply_sample = dds.DynamicData(self.agent_reply_type)
                 reply_sample.set_string("message", f"Error processing request: {str(e)}")
                 reply_sample.set_int32("status", -1)
                 reply_sample.set_string("conversation_id", request_data.get("conversation_id", ""))
-                reply_sample.set_string("replier_service_guid", self.agent_replier_guid)  # RPC v2
-                reply_sample.set_string("service_instance_tag", "")  # RPC v2
+                reply_sample.set_string("replier_service_guid", self.agent_replier_guid)
+                reply_sample.set_string("service_instance_tag", "")
                 self.agent_replier.send_reply(reply_sample, info)
-                if enable_tracing:
-                    print(f"✅ PRINT: Error reply sent")
             except Exception as reply_error:
-                if enable_tracing:
-                    print(f"💥 PRINT: Error sending error reply: {reply_error}")
                 logger.error(f"Error sending error reply: {reply_error}")
     
     async def _handle_agent_requests(self):
@@ -949,12 +1623,35 @@ class AgentCommunicationMixin:
         """
         Establish RPC connection to another agent.
         
+        Creates an RPC Requester for the target agent and waits for DDS matching.
+        Once connected, the requester is cached in self.agent_connections for reuse.
+        
+        Connection Process:
+        1. Check for existing connection (returns immediately if found)
+        2. Verify agent is discovered via advertisement
+        3. Look up agent's service name from discovered_agents
+        4. Create RPC Requester with "_AgentRPC" suffix
+        5. Wait for DDS DataReader/DataWriter matching
+        6. Cache requester for subsequent send_agent_request() calls
+        
         Args:
-            target_agent_id: ID of the target agent
-            timeout_seconds: Connection timeout
+            target_agent_id: Unique identifier of the agent to connect to
+            timeout_seconds: Maximum time to wait for DDS matching (default: 5.0s)
             
         Returns:
-            True if connection successful, False otherwise
+            True if connection established successfully, False otherwise
+            
+        Note:
+            Uses "_AgentRPC" suffix on service names to distinguish agent-to-agent
+            RPC from interface-to-agent RPC. This prevents DDS topic collisions.
+            
+        Example:
+            # Connect and send request
+            if await agent.connect_to_agent("weather-agent-uuid"):
+                response = await agent.send_agent_request(
+                    "weather-agent-uuid", 
+                    "What's the weather?"
+                )
         """
         try:
             logger.info(f"Connecting to agent {target_agent_id}")
@@ -982,18 +1679,14 @@ class AgentCommunicationMixin:
             # Get target agent's service name from discovered agent info
             agent_info = self.discovered_agents[target_agent_id]
             target_service_name = agent_info.get("service_name")
-            print(f"🔍 PRINT: target_agent_id={target_agent_id}, agent_info={agent_info}")
-            print(f"🔍 PRINT: target_service_name from agent_info: {target_service_name}")
             
             if not target_service_name:
                 # Fallback to generating service name if not stored
                 target_service_name = self._get_agent_service_name(target_agent_id)
-                print(f"⚠️ PRINT: No service_name in discovered agent info, using fallback: {target_service_name}")
                 logger.warning(f"No service_name in discovered agent info, using fallback: {target_service_name}")
             
             # CRITICAL: Agent-to-agent RPC must use "_AgentRPC" suffix to distinguish from Interface-to-Agent RPC
             agent_to_agent_service_name = f"{target_service_name}_AgentRPC"
-            print(f"🚀 PRINT: Creating RPC requester for agent-to-agent service: {agent_to_agent_service_name}")
             logger.info(f"Creating RPC requester for agent-to-agent service: {agent_to_agent_service_name}")
             
             # Create RPC requester using unified RPC v2 naming
@@ -1005,7 +1698,6 @@ class AgentCommunicationMixin:
             )
             
             # Wait for DDS match with timeout
-            print(f"⏳ PRINT: Waiting for DDS match with agent {target_agent_id} (timeout: {timeout_seconds}s)")
             logger.debug(f"Waiting for DDS match with agent {target_agent_id} (timeout: {timeout_seconds}s)")
             start_time = time.time()
             
@@ -1013,7 +1705,6 @@ class AgentCommunicationMixin:
                 # Check if we have a match
                 matched_count = requester.matched_replier_count
                 if matched_count > 0:
-                    print(f"✅ PRINT: Successfully connected to agent {target_agent_id} (matched repliers: {matched_count})")
                     logger.info(f"Successfully connected to agent {target_agent_id}")
                     self.agent_connections[target_agent_id] = requester
                     return True
@@ -1021,14 +1712,9 @@ class AgentCommunicationMixin:
                 # Check timeout
                 elapsed = time.time() - start_time
                 if elapsed >= timeout_seconds:
-                    print(f"⏰ PRINT: Timeout connecting to agent {target_agent_id} after {timeout_seconds}s (matched: {matched_count})")
                     logger.warning(f"Timeout connecting to agent {target_agent_id} after {timeout_seconds}s")
                     requester.close()
                     return False
-                
-                # Log progress every second
-                if int(elapsed) > int(elapsed - 0.1) and int(elapsed) % 1 == 0:
-                    print(f"⏳ PRINT: Still waiting for match... elapsed={int(elapsed)}s, matched={matched_count}")
                 
                 # Wait a bit before checking again
                 await asyncio.sleep(0.1)
@@ -1036,6 +1722,13 @@ class AgentCommunicationMixin:
         except Exception as e:
             logger.error(f"Error connecting to agent {target_agent_id}: {e}")
             return False
+    
+    # ==========================================================================
+    # CONNECTION MANAGEMENT AND CLEANUP
+    # ==========================================================================
+    # Public API for sending requests and managing connections to other agents.
+    # Includes cleanup methods for graceful shutdown of agent communication.
+    # ==========================================================================
     
     async def send_agent_request(self, 
                                target_agent_id: str, 
@@ -1064,16 +1757,12 @@ class AgentCommunicationMixin:
             Reply data or None if failed
         """
         try:
-            print(f"🚀 PRINT: send_agent_request() called for target {target_agent_id}")
             logger.info(f"Sending request to agent {target_agent_id}: {message}")
             
             # Ensure connection exists
-            print(f"🔗 PRINT: Calling connect_to_agent({target_agent_id}, timeout={timeout_seconds})...")
             if not await self.connect_to_agent(target_agent_id, timeout_seconds=timeout_seconds):
-                print(f"❌ PRINT: Failed to connect to agent {target_agent_id}")
                 logger.error(f"Failed to connect to agent {target_agent_id}")
                 return None
-            print(f"✅ PRINT: Connected to agent {target_agent_id}")
             
             # Get the requester
             requester = self.agent_connections[target_agent_id]
@@ -1128,7 +1817,7 @@ class AgentCommunicationMixin:
             try:
                 replier_guid = reply_sample.get_string("replier_service_guid")
                 if replier_guid and target_agent_id not in self.agent_target_guids:
-                    logger.info(f"✅ First reply from agent {target_agent_id}, locking to GUID: {replier_guid}")
+                    logger.info(f"First reply from agent {target_agent_id}, locking to GUID: {replier_guid}")
                     self.agent_target_guids[target_agent_id] = replier_guid
             except:
                 pass
@@ -1141,7 +1830,19 @@ class AgentCommunicationMixin:
             return None
     
     def _cleanup_agent_connection(self, agent_id: str):
-        """Clean up connection to a specific agent"""
+        """
+        Clean up connection to a specific agent.
+        
+        Closes the RPC Requester and removes it from the connection cache.
+        Called when an agent connection is no longer needed or has failed.
+        
+        Args:
+            agent_id: Unique identifier of the agent whose connection to clean up
+            
+        Note:
+            Errors during cleanup are logged but not raised, allowing graceful
+            degradation during shutdown or error recovery.
+        """
         if agent_id in self.agent_connections:
             try:
                 requester = self.agent_connections[agent_id]
@@ -1158,17 +1859,39 @@ class AgentCommunicationMixin:
         Process a request from another agent.
         
         This method must be implemented by subclasses to handle agent-to-agent requests.
+        It is invoked by _process_agent_request() when an agent request arrives via DDS.
         
         Args:
-            request: Dictionary containing the request data
+            request: Dictionary containing the request data:
+                - message: str - The request message/prompt
+                - conversation_id: str - Conversation ID for tracking
+                - service_instance_tag: str - Optional service tag (RPC v2)
             
         Returns:
-            Dictionary containing the response data
+            Dictionary containing the response data:
+                - message: str - The response message (required)
+                - status: int - Status code (0 = success, <0 = error)
+                - conversation_id: str - Echo back the conversation ID
+                
+        Note:
+            This abstract method is placed here (near cleanup methods) rather than
+            at the class top because it's closely related to _process_agent_request()
+            which calls it. Placement emphasizes the request processing flow.
         """
         pass
     
     def _cleanup_agent_connections(self):
-        """Clean up all agent connections"""
+        """
+        Clean up all agent connections.
+        
+        Iterates through all cached RPC Requesters and closes them.
+        Called during agent shutdown via close_agent_communication().
+        
+        Note:
+            Errors closing individual connections are logged but don't stop
+            the cleanup process. Ensures all connections are attempted even
+            if some fail.
+        """
         logger.info("Cleaning up agent connections")
         
         for agent_id, requester in self.agent_connections.items():
@@ -1183,56 +1906,54 @@ class AgentCommunicationMixin:
         logger.info("Agent connections cleanup complete")
     
     async def close_agent_communication(self):
-        """Clean up agent communication resources"""
+        """
+        Clean up all agent communication resources.
+        
+        Comprehensive shutdown method that closes:
+        - All active agent RPC connections (requesters)
+        - Agent RPC replier (for receiving requests)
+        - Advertisement reader (for agent discovery)
+        - Advertisement writer/topic (shared via AdvertisementBus)
+        
+        Called during agent shutdown to ensure graceful cleanup of DDS resources.
+        Errors during cleanup are logged but don't interrupt the shutdown process.
+        
+        Note:
+            Advertisement writer/topic are shared resources managed by AdvertisementBus,
+            so close() calls may be no-ops depending on the implementation.
+        """
         logger.info("Closing agent communication")
         
         try:
-            # Clean up connections
+            # Clean up all agent connections (RPC requesters)
             self._cleanup_agent_connections()
             
-            # Close agent replier
+            # Close agent replier (for receiving agent-to-agent requests)
             if self.agent_replier and hasattr(self.agent_replier, 'close'):
                 self.agent_replier.close()
                 self.agent_replier = None
             
-            # Close agent capability writer
-            if self.agent_capability_writer and hasattr(self.agent_capability_writer, 'close'):
-                self.agent_capability_writer.close()
-                self.agent_capability_writer = None
-            
-            # Close agent capability publisher
-            if self.agent_capability_publisher and hasattr(self.agent_capability_publisher, 'close'):
-                self.agent_capability_publisher.close()
-                self.agent_capability_publisher = None
-            
-            # Close agent capability reader
-            if self.agent_capability_reader and hasattr(self.agent_capability_reader, 'close'):
-                self.agent_capability_reader.close()
-                self.agent_capability_reader = None
-            # Close unified advertisement reader
+            # Close unified advertisement reader (for agent discovery)
             if self.advertisement_reader and hasattr(self.advertisement_reader, 'close'):
                 try:
                     self.advertisement_reader.close()
                 except Exception:
-                    pass
+                    pass  # Reader may be shared, ignore close errors
                 self.advertisement_reader = None
             
-            # Close agent capability subscriber
-            if self.agent_capability_subscriber and hasattr(self.agent_capability_subscriber, 'close'):
-                self.agent_capability_subscriber.close()
-                self.agent_capability_subscriber = None
-            # Close advertisement writer/topic
+            # Close advertisement writer/topic (shared via AdvertisementBus)
             if self.advertisement_writer and hasattr(self.advertisement_writer, 'close'):
                 try:
                     self.advertisement_writer.close()
                 except Exception:
-                    pass
+                    pass  # Shared resource, may already be closed
                 self.advertisement_writer = None
+                
             if self.advertisement_topic and hasattr(self.advertisement_topic, 'close'):
                 try:
                     self.advertisement_topic.close()
                 except Exception:
-                    pass
+                    pass  # Shared resource, may already be closed
                 self.advertisement_topic = None
             
             logger.info("Agent communication closed successfully")

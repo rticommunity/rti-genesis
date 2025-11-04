@@ -66,8 +66,7 @@ class GenericFunctionClient:
         else:
             self.function_registry = function_registry
         
-        # Store discovered functions
-        self.discovered_functions = {}
+        # Note: discovered_functions cache removed - now reading directly from registry via get_all_discovered_functions()
         
         # Store service-specific clients
         self.service_clients = {}
@@ -96,44 +95,24 @@ class GenericFunctionClient:
         except Exception as e:
              logger.error(f"===== DDS TRACE: Error waiting for function discovery event: {e} ====")
 
-        # Regardless of event, grab the current state of discovered functions from the registry
+        # Get current state of discovered functions directly from the registry
         logger.debug("===== DDS TRACE: Retrieving discovered functions from registry... =====")
-        self.discovered_functions = self.function_registry.discovered_functions.copy()
-        logger.debug(f"===== DDS TRACE: Retrieved {len(self.discovered_functions)} functions from registry. =====")
-        logger.debug("===== DDS TRACE: GenericFunctionClient internal cache content START =====")
-        for func_id, func_data in self.discovered_functions.items():
-            if isinstance(func_data, dict):
-                cap_obj = func_data.get('capability')
-                cap_type = type(cap_obj).__name__ if cap_obj else 'None'
-                # Safely get service_name from dict first, then try from capability if needed
-                service_name_from_dict = func_data.get('service_name', 'MISSING_IN_DICT')
-                service_name_from_cap = 'N/A'
-                if isinstance(cap_obj, dds.DynamicData) and 'service_name' in cap_obj:
-                     try:
-                         service_name_from_cap = cap_obj['service_name']
-                     except Exception as e:
-                         service_name_from_cap = f'ERROR_READING_CAP: {e}'
-                elif cap_obj:
-                    service_name_from_cap = 'WRONG_CAP_TYPE'
-                
-                logger.debug(f"  - ID: {func_id}, Name: {func_data.get('name')}, Provider: {func_data.get('provider_id')}, SvcName(dict): {service_name_from_dict}, CapType: {cap_type}, SvcName(cap): {service_name_from_cap}")
-            else:
-                logger.warning(f"  - ID: {func_id}, Unexpected data format: {type(func_data).__name__}")
-        logger.debug("===== DDS TRACE: GenericFunctionClient internal cache content END =====")
+        discovered_functions = self.function_registry.get_all_discovered_functions()
+        logger.debug(f"===== DDS TRACE: Retrieved {len(discovered_functions)} functions from registry. =====")
 
         # Log the discovered functions
-        if not self.discovered_functions:
+        if not discovered_functions:
             logger.warning("No functions were discovered in the registry.")
             return {}
 
-        logger.debug(f"Discovered {len(self.discovered_functions)} functions in registry")
-        for func_id, func_info in self.discovered_functions.items():
+        logger.debug(f"Discovered {len(discovered_functions)} functions in registry")
+        for func_id, func_info in discovered_functions.items():
             if isinstance(func_info, dict):
                 logger.debug(f"  - {func_id}: {func_info.get('name', 'unknown')} - {func_info.get('description', 'No description')}")
             else:
                 logger.debug(f"  - {func_id}: {func_info}")
         
-        return self.discovered_functions
+        return discovered_functions
     
     def get_service_client(self, service_name: str) -> GenesisRPCClient:
         """
@@ -253,10 +232,11 @@ class GenericFunctionClient:
         Raises:
             ValueError: If the function is not found
         """
-        if function_id not in self.discovered_functions:
+        discovered_functions = self.function_registry.get_all_discovered_functions()
+        if function_id not in discovered_functions:
             raise ValueError(f"Function not found: {function_id}")
         
-        return self.discovered_functions[function_id].schema
+        return discovered_functions[function_id].get('schema', {})
     
     def list_available_functions(self) -> List[Dict[str, Any]]:
         """
