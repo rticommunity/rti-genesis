@@ -42,10 +42,10 @@ resolve_path() {
 log() { echo "$@"; }
 dbg() { [ "$DEBUG" = "true" ] && echo "[DEBUG] $@" || true; }
 
-# Activate venv and .env if present
-if [ -z "${VIRTUAL_ENV:-}" ] && [ -f "$PROJECT_ROOT/venv/bin/activate" ]; then
+# Activate .venv and .env if present
+if [ -z "${VIRTUAL_ENV:-}" ] && [ -f "$PROJECT_ROOT/.venv/bin/activate" ]; then
   # shellcheck disable=SC1091
-  source "$PROJECT_ROOT/venv/bin/activate"
+  source "$PROJECT_ROOT/.venv/bin/activate"
 fi
 if [ -f "$PROJECT_ROOT/.env" ]; then
   # shellcheck disable=SC1091

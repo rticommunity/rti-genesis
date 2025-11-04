@@ -96,7 +96,7 @@ EOF
 )
 if [ "${PY_MM%%.*}" != "3" ] || [ "${PY_MM#*.}" != "10" ]; then
     echo "Error: Python 3.10 is required. Current python is ${PY_MM}." >&2
-    echo "Hint: run 'source venv/bin/activate' before invoking this script." >&2
+    echo "Hint: run 'source .venv/bin/activate' before invoking this script." >&2
     exit 2
 fi
 
@@ -442,6 +442,18 @@ run_with_timeout "$(resolve_path run_simple_agent.sh)" 60 || { echo "Test failed
 
 # Simple client test
 run_with_timeout "$(resolve_path run_simple_client.sh)" 60 || { echo "Test failed: run_simple_client.sh"; exit 1; }
+
+# Wait for complete cleanup before durability test
+echo "⏳ Waiting for DDS cleanup before durability test..."
+pkill -9 -f "Python -m test_functions.services.calculator_service" || true
+pkill -9 -f "python.*calculator_service" || true
+pkill -9 -f "Python -m test_functions.services.text_processor_service" || true
+pkill -9 -f "python.*text_processor_service" || true
+pkill -9 -f "Python -m test_functions.services.letter_counter_service" || true
+pkill -9 -f "python.*letter_counter_service" || true
+pkill -9 -f "python.*simple_agent" || true
+pkill -9 -f "rtiddsspy" || true
+sleep 5
 
 # Calculator durability test
 run_with_timeout "$(resolve_path test_calculator_durability.sh)" 60 || { echo "Test failed: test_calculator_durability.sh"; exit 1; }

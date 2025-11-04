@@ -152,13 +152,13 @@ if ! grep -q "Sending to agent.*message': '$QUESTION_TO_ASK'" "$STATIC_INTERFACE
 fi
 echo "  ✅ Verified: Question sent."
 
-# Check 3: GenesisRPCClient log in CalculatorService log indicating correct function call and result
-# The calculator_service.py uses GenesisRPCServer, but the *agent* uses GenesisRPCClient (via GenericFunctionClient)
+# Check 3: GenesisRequester log in CalculatorService log indicating correct function call and result
+# The calculator_service.py uses GenesisReplier, but the *agent* uses GenesisRequester (via GenericFunctionClient)
 # We need to check the *agent's* log for the client-side confirmation of the call to the calculator.
-# The agent log ($AGENT_LOG) should show this via GenericFunctionClient -> GenesisRPCClient traces.
-EXPECTED_RPC_CLIENT_LOG_PATTERN="GenesisRPCClient - INFO - Function add returned:.*{'result': $EXPECTED_SUM}"
+# The agent log ($AGENT_LOG) should show this via GenericFunctionClient -> GenesisRequester traces.
+EXPECTED_RPC_CLIENT_LOG_PATTERN="GenesisRequester - INFO - Function add returned:.*{'result': $EXPECTED_SUM}"
 if ! grep -qE "$EXPECTED_RPC_CLIENT_LOG_PATTERN" "$AGENT_LOG"; then
-    echo "ERROR: Verification FAILED. Did not find RPC client confirmation of 'add' returning result $EXPECTED_SUM in $AGENT_LOG"
+    echo "ERROR: Verification FAILED. Did not find requester confirmation of 'add' returning result $EXPECTED_SUM in $AGENT_LOG"
     echo "--- Agent Log ($AGENT_LOG) --- Tail:"
     tail -n 30 "$AGENT_LOG"
     echo "--- End Agent Log ---"

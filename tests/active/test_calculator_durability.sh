@@ -33,16 +33,25 @@ check_and_cleanup_dds() {
     # Wait a bit to see if any DDS activity is detected
     sleep 5
     
-    # Check if spy detected any activity
-    if grep -q "New writer\|New data" "$SPY_LOG"; then
-        echo "⚠️ TRACE: Detected DDS activity. Attempting to clean up..."
+    # Check if spy detected any activity - look for NEW writers/readers, NOT durable data
+    # Durable data from previous tests is expected and OK - we're checking for LIVE processes
+    if grep -E "New (writer|reader).*CalculatorService" "$SPY_LOG"; then
+        echo "⚠️ TRACE: Detected LIVE CalculatorService processes. Attempting to clean up..."
         
-        # Try to kill any DDS processes
-        pkill -f "rtiddsspy" || true
-        pkill -f "python.*genesis_lib" || true
+        # Try to kill any DDS processes - be specific about calculator and other services
+        # The actual process name is "Python -m test_functions.services.calculator_service"
+        pkill -9 -f "Python -m test_functions.services.calculator_service" || true
+        pkill -9 -f "python.*calculator_service" || true
+        pkill -9 -f "calculator_service" || true
+        pkill -9 -f "rtiddsspy" || true
+        pkill -9 -f "python.*genesis_lib" || true
+        pkill -9 -f "python.*text_processor_service" || true
+        pkill -9 -f "python.*letter_counter_service" || true
+        pkill -9 -f "python.*simple_agent" || true
+        pkill -9 -f "python.*math_test_agent" || true
         
-        # Wait a bit and check again
-        sleep 5
+        # Wait longer for processes to fully terminate
+        sleep 8
         
         # Start a new spy to verify cleanup
         rm -f "$SPY_LOG"
@@ -50,9 +59,9 @@ check_and_cleanup_dds() {
         SPY_PID=$!
         sleep 5
         
-        # Check if DDS activity is still present
-        if grep -q "New writer\|New data" "$SPY_LOG"; then
-            echo "❌ ERROR: Failed to clean up DDS processes. Please manually check and kill any running DDS processes."
+        # Check if DDS activity is still present - again, check for LIVE writers/readers only
+        if grep -E "New (writer|reader).*CalculatorService" "$SPY_LOG"; then
+            echo "❌ ERROR: Failed to clean up CalculatorService DDS processes. Please manually check and kill any running processes."
             kill $SPY_PID 2>/dev/null || true
             return 1
         fi
@@ -91,13 +100,25 @@ kill_process() {
 # Function to cleanup any existing processes
 cleanup_existing_processes() {
     echo "🧹 TRACE: Cleaning up any existing processes..."
-    # Kill any existing calculator services
-    pkill -f "python3.*calculator_service.py" || true
+    # Kill any existing calculator services (try multiple patterns)
+    # The actual process name is "Python -m test_functions.services.calculator_service"
+    pkill -9 -f "Python -m test_functions.services.calculator_service" || true
+    pkill -9 -f "python3.*calculator_service.py" || true
+    pkill -9 -f "python.*calculator_service.py" || true
+    pkill -9 -f "calculator_service" || true
     # Kill any existing agents
-    pkill -f "python3.*math_test_agent.py" || true
+    pkill -9 -f "python3.*math_test_agent.py" || true
+    pkill -9 -f "python.*math_test_agent.py" || true
+    pkill -9 -f "python.*simple_agent" || true
+    # Kill any other test services
+    pkill -9 -f "Python -m test_functions.services.text_processor_service" || true
+    pkill -9 -f "Python -m test_functions.services.letter_counter_service" || true
+    pkill -9 -f "python.*text_processor_service" || true
+    pkill -9 -f "python.*letter_counter_service" || true
     # Kill any existing DDS spies
-    pkill -f "rtiddsspy.*spy_transient.xml.*SpyLib::TransientReliable" || true
-    sleep 2  # Give processes time to clean up
+    pkill -9 -f "rtiddsspy.*spy_transient.xml.*SpyLib::TransientReliable" || true
+    pkill -9 -f "rtiddsspy" || true
+    sleep 3  # Give processes time to clean up
 }
 
 # Function to check log contents
@@ -157,9 +178,10 @@ echo "🔍 TRACE: Running Test 1 checks..."
 check_log "$SERVICE_LOG" "CalculatorService initializing" "Service initialization" true
 check_log "$SERVICE_LOG" "CalculatorService initialized" "Service initialization complete" true
 
-# Check registration announcement via unified Advertisement topic
-check_log "$REGISTRATION_SPY_LOG" 'New writer.*topic=.*Advertisement' "Advertisement writer creation" true
-check_log "$REGISTRATION_SPY_LOG" 'New data.*topic=.*Advertisement' "Function advertisement announcement" true
+# Check registration announcement via unified GraphTopology (modern durable discovery)
+# Modern Genesis uses GraphTopology for durable function advertisement
+check_log "$REGISTRATION_SPY_LOG" 'New writer.*topic=.*rti/connext/genesis/monitoring/GraphTopology' "GraphTopology writer creation" true
+check_log "$REGISTRATION_SPY_LOG" 'New data.*topic=.*rti/connext/genesis/monitoring/GraphTopology' "Function topology announcement" true
 
 # Clean up Test 1
 echo "🧹 TRACE: Cleaning up Test 1..."
@@ -202,8 +224,8 @@ echo "🔍 TRACE: Running Test 2 checks..."
 check_log "$AGENT_LOG" "✅ TRACE: Agent created, starting run..." "Agent initialization" true
 check_log "$AGENT_LOG" "MathTestAgent listening for requests" "Agent listening state" true
 
-# Check DDS Spy logs for function registration via unified Advertisement topic
-check_log "$SERVICE_SPY_LOG" 'New data.*topic=.*Advertisement' "Spy received durable Advertisement data" true
+# Check DDS Spy logs for function registration via GraphTopology (modern durable discovery)
+check_log "$SERVICE_SPY_LOG" 'New data.*topic=.*rti/connext/genesis/monitoring/GraphTopology' "Spy received durable GraphTopology data" true
 check_log "$SERVICE_SPY_LOG" 'New writer.*topic=.*rpc/CalculatorServiceReply.*type="RPCReplyV2".*name="Replier"' "Service reply writer" true
 # With lifecycle events now VOLATILE, the durable graph node metadata carries the reason
 # Accept either lifecycle 'reason:' line or durable GraphNode 'metadata:' containing the reason
