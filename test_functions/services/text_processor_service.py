@@ -39,7 +39,7 @@ import asyncio
 from typing import Dict, Any, List
 import json
 from pydantic import BaseModel, Field
-from genesis_lib.enhanced_service_base import EnhancedServiceBase
+from genesis_lib.monitored_service import MonitoredService
 from genesis_lib.decorators import genesis_function
 
 # Configure logging
@@ -58,7 +58,7 @@ class GenerateTextArgs(TextArgs):
     operation: str = Field(..., enum=["repeat", "reverse"], description="Operation to perform on text")
     count: int = Field(..., ge=1, le=100, description="Number of times to perform operation")
 
-class TextProcessorService(EnhancedServiceBase):
+class TextProcessorService(MonitoredService):
     """Implementation of the text processor service using Genesis RPC framework"""
     
     def __init__(self):

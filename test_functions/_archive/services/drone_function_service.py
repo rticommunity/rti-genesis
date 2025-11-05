@@ -17,7 +17,7 @@ import traceback # Added for detailed error logging
 # Add Genesis-LIB to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'Genesis-LIB'))
 
-from genesis_lib.enhanced_service_base import EnhancedServiceBase
+from genesis_lib.monitored_service import MonitoredService
 import rti.connextdds as dds
 
 # Configure logging
@@ -81,7 +81,7 @@ class EntityLocationListener(dds.DynamicData.DataReaderListener):
             logger.error(f"Error in DDS callback: {e}")
 
 
-class DroneFunctionService(EnhancedServiceBase):
+class DroneFunctionService(MonitoredService):
     """Service that provides drone control functions for Genesis"""
     
     def __init__(self):
@@ -93,7 +93,7 @@ class DroneFunctionService(EnhancedServiceBase):
             service_name="DroneFunctionService",
             capabilities=["DroneFunctionService", "drone", "control"]
         )
-        logger.debug("EnhancedServiceBase initialized")
+        logger.debug("MonitoredService initialized")
         
         # Initialize DDS publisher for drone commands
         try:
@@ -667,7 +667,7 @@ class DroneFunctionService(EnhancedServiceBase):
             except Exception as e:
                 logger.error(f"Error closing DDS Participant: {e}")
         super().close()
-        logger.info("EnhancedServiceBase closed.")
+        logger.info("MonitoredService closed.")
         logger.info("===== SERVICE SHUTDOWN COMPLETE ====")
 
 async def main():

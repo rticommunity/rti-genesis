@@ -26,6 +26,8 @@ from .llm import AnthropicChatAgent
 from .llm_factory import LLMFactory
 from .openai_genesis_agent import OpenAIGenesisAgent
 from .generic_function_client import GenericFunctionClient
+from .genesis_service import GenesisService
+from .monitored_service import MonitoredService
 from .utils.openai_utils import convert_functions_to_openai_schema, generate_response_with_functions
 from .utils.function_utils import call_function_thread_safe, find_function_by_name, filter_functions_by_relevance
 from .utils import get_datamodel_path, load_datamodel
@@ -41,6 +43,8 @@ __all__ = [
     'LLMFactory',
     'OpenAIGenesisAgent',
     'GenericFunctionClient',
+    'GenesisService',
+    'MonitoredService',
     'convert_functions_to_openai_schema',
     'generate_response_with_functions',
     'call_function_thread_safe',

@@ -4,7 +4,7 @@ from typing import Dict, Any
 # `datetime` was imported but not used. It can be removed if not needed for future extensions.
 # from datetime import datetime 
 from genesis_lib.decorators import genesis_function
-from genesis_lib.enhanced_service_base import EnhancedServiceBase
+from genesis_lib.monitored_service import MonitoredService
 
 # --------------------------------------------------------------------------- #
 # Exceptions                                                                  #
@@ -44,10 +44,10 @@ logger = logging.getLogger("calculator_service")
 # this specific logger would inherit it. However, explicit setting is clearer.
 logger.setLevel(logging.DEBUG)
 
-class CalculatorService(EnhancedServiceBase):
+class CalculatorService(MonitoredService):
     """Implementation of a simple calculator service.
     
-    This service demonstrates how to use the `EnhancedServiceBase` and the
+    This service demonstrates how to use the `MonitoredService` and the
     `@genesis_function` decorator to expose methods as part of a Genesis service.
     It provides basic arithmetic operations: add, subtract, multiply, and divide.
     Each operation includes input validation (implicitly by type hints, explicitly for division by zero)
@@ -59,7 +59,7 @@ class CalculatorService(EnhancedServiceBase):
         """Initializes the CalculatorService.
         
         Sets up the service name and capabilities using the parent class constructor.
-        It then calls `_advertise_functions()` which is a method from `EnhancedServiceBase`
+        It then calls `_advertise_functions()` which is a method from the service base
         that automatically registers methods decorated with `@genesis_function`.
         """
         # Call the parent class constructor to set up the service name and its capabilities.
@@ -67,7 +67,7 @@ class CalculatorService(EnhancedServiceBase):
         # "capabilities" is a list of strings that can be used for service discovery or categorization.
         super().__init__("CalculatorService", capabilities=["calculator", "math"])
 
-        # This method (from EnhancedServiceBase) finds all methods in this class
+        # This method finds all methods in this class
         # decorated with `@genesis_function` and prepares them to be called via RPC.
         self._advertise_functions()
         # logger.info(f"'{self.service_name}' initialized with capabilities: {self.capabilities}.") # Commented out due to AttributeError
@@ -232,7 +232,7 @@ def main():
         logger.error(f"SERVICE: An unexpected error occurred: {e}", exc_info=True)
     finally:
         # Ensures that if the service has a close or cleanup method, it could be called here.
-        # For EnhancedServiceBase, cleanup is typically handled within its run/stop methods
+        # For MonitoredService, cleanup is typically handled within its run/stop methods
         # or by asyncio.run() managing tasks.
         # If specific cleanup beyond what `service.run()` handles upon exit is needed,
         # it would be added here, e.g., `if service: await service.close_resources()`.

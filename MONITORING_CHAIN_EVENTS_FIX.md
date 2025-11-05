@@ -138,7 +138,7 @@ Updated the docstring for `publish_discovered_functions()` to reflect the new ed
 2. AGENT→SERVICE edges (this agent can call functions from this service)
    - Note: We publish agent->service edges instead of agent->function edges
    - This prevents edge explosion (10 agents × 20 services × 4 functions = 800 edges)
-   - Service->function edges are already published by EnhancedServiceBase
+   - Service->function edges are already published by MonitoredService
 3. REQUESTER→PROVIDER edges (DDS RPC connection topology)
 4. EXPLICIT_CONNECTION edges (direct connections)
 5. Final READY state for agent (with discovered function count)

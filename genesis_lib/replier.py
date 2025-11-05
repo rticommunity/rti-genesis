@@ -89,7 +89,7 @@ class GenesisReplier:
         except Exception:
             pass
 
-        # Function registry provided by EnhancedServiceBase via register_function
+        # Function registry provided by service base via register_function
         self.functions: Dict[str, Any] = {}
 
     def register_function(self, func, description: str, parameters: Dict[str, Any], 

@@ -18,7 +18,7 @@ This means that any MCP tool offered via an extension of this class will:
 
 import logging
 import textwrap
-from genesis_lib.enhanced_service_base import EnhancedServiceBase
+from genesis_lib.monitored_service import MonitoredService
 from genesis_lib.function_discovery import FunctionRegistry
 from genesis_lib.decorators import genesis_function
 from typing import List, Optional
@@ -52,7 +52,7 @@ class MCPServiceBase():
         """
         self.my_enhanced_service_MCP_Class = type(
             f"{service_name}_my_enhanced_service_MCP_Class",
-            (EnhancedServiceBase,),
+            (MonitoredService,),
             {
                 "__doc__": "A dynamic subclass of EnhancedServiceBase.",
             }

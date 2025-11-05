@@ -902,7 +902,7 @@ class MonitoredAgent(GenesisAgent):
         2. AGENT→SERVICE edges (this agent can call functions from this service)
            - Note: We publish agent->service edges instead of agent->function edges
            - This prevents edge explosion (10 agents × 20 services × 4 functions = 800 edges)
-           - Service->function edges are already published by EnhancedServiceBase
+           - Service->function edges are already published by MonitoredService
         3. REQUESTER→PROVIDER edges (DDS RPC connection topology)
         4. EXPLICIT_CONNECTION edges (direct connections)
         5. Final READY state for agent (with discovered function count)
@@ -980,7 +980,7 @@ class MonitoredAgent(GenesisAgent):
             
             # VISUALIZATION SIMPLIFICATION: Instead of agent->function edges,
             # publish agent->service edges. The service->function edges are
-            # already published by EnhancedServiceBase, so the path is implied.
+            # already published by MonitoredService, so the path is implied.
             # This prevents edge explosion in large topologies (10 agents × 20 services × 4 functions = 800 edges).
             if provider_id and provider_id not in services_discovered:
                 services_discovered.add(provider_id)

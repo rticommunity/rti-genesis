@@ -831,7 +831,7 @@ class FunctionRegistry:
                         "provider_id": provider_id
                     }
                     
-                    # Notify EnhancedServiceBase about the removal
+                    # Notify the service base about the removal
                     if self.service_base is not None:
                         self.service_base.handle_function_removal(
                             function_name=function_name,
