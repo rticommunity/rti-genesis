@@ -37,11 +37,11 @@ Genesis monitoring now provides **complete visibility** into distributed system 
 | Feature | Status | Published By | Visualizes |
 |---------|--------|--------------|------------|
 | **Agent Nodes** | ✅ Working | `MonitoredAgent.__init__` | All agents in the network |
-| **Service Nodes** | ✅ Working | `EnhancedServiceBase._advertise_functions` | All services |
-| **Function Nodes** | ✅ Working | `EnhancedServiceBase._advertise_functions` | All available functions |
+| **Service Nodes** | ✅ Working | `MonitoredService._advertise_functions` | All services |
+| **Function Nodes** | ✅ Working | `MonitoredService._advertise_functions` | All available functions |
 | **Agent→Service Edges** | ✅ Working | `MonitoredAgent.publish_discovered_functions` | Which services each agent can call |
 | **Agent→Agent Edges** | ✅ **NOW WORKING** | `MonitoredAgent._on_agent_discovered` | Agent-to-agent communication patterns |
-| **Service→Function Edges** | ✅ Working | `EnhancedServiceBase._advertise_functions` | Which functions belong to which service |
+| **Service→Function Edges** | ✅ Working | `MonitoredService._advertise_functions` | Which functions belong to which service |
 
 #### Chain Events (Runtime Behavior)
 

@@ -91,9 +91,28 @@ class MonitoredInterface(GenesisInterface):
             
             # Load volatile events QoS from XML profile (no historical data for real-time events)
             # Profile defined in genesis_lib/config/USER_QOS_PROFILES.xml
-            writer_qos = provider.datawriter_qos_from_profile(
-                "cft_Library::VolatileEventsProfile"
-            )
+            # Try default provider first (may already have profiles loaded), then explicit file, then fallback
+            try:
+                writer_qos = dds.QosProvider.default.datawriter_qos_from_profile(
+                    "cft_Library::VolatileEventsProfile"
+                )
+            except Exception:
+                try:
+                    import os
+                    config_dir = os.path.dirname(get_datamodel_path())
+                    user_qos_path = os.path.join(config_dir, "USER_QOS_PROFILES.xml")
+                    qos_provider = dds.QosProvider(user_qos_path)
+                    writer_qos = qos_provider.datawriter_qos_from_profile(
+                        "cft_Library::VolatileEventsProfile"
+                    )
+                except Exception:
+                    # Last-resort sane defaults for Event writer
+                    writer_qos = dds.QosProvider.default.datawriter_qos
+                    try:
+                        writer_qos.durability.kind = dds.DurabilityKind.VOLATILE
+                        writer_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
+                    except Exception:
+                        pass
             
             unified_type = provider.type("genesis_lib", "MonitoringEventUnified")
             participant_id = id(self.app.participant)

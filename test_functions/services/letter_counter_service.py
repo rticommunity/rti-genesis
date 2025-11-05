@@ -25,7 +25,7 @@ import asyncio
 import json
 from typing import Dict, Any, List
 import re
-from genesis_lib.enhanced_service_base import EnhancedServiceBase
+from genesis_lib.monitored_service import MonitoredService
 import rti.connextdds as dds
 from genesis_lib.utils import get_datamodel_path
 
@@ -34,7 +34,7 @@ logging.basicConfig(level=logging.DEBUG,
                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("letter_counter_service")
 
-class LetterCounterService(EnhancedServiceBase):
+class LetterCounterService(MonitoredService):
     """Implementation of the letter counter service using Genesis RPC framework"""
     
     def __init__(self):

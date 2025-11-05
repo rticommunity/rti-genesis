@@ -8,7 +8,7 @@ Provides basic arithmetic operations: add and multiply.
 import logging
 import asyncio
 from typing import Dict, Any
-from genesis_lib.enhanced_service_base import EnhancedServiceBase
+from genesis_lib.monitored_service import MonitoredService
 from genesis_lib.decorators import genesis_function
 
 # Configure logging to show INFO level messages
@@ -16,7 +16,7 @@ from genesis_lib.decorators import genesis_function
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("hello_calculator")
 
-class HelloCalculator(EnhancedServiceBase):
+class HelloCalculator(MonitoredService):
     """A simple calculator service demonstrating Genesis functionality."""
     
     def __init__(self):

@@ -5,7 +5,7 @@ This example demonstrates a complete pipeline involving a command-line interface
 ## Purpose
 
 The primary goal of this example is to showcase:
-1.  **Service Creation**: How to create a simple service (`CalculatorService`) using `EnhancedServiceBase` with functions exposed via the `@genesis_function` decorator.
+1.  **Service Creation**: How to create a simple service (`CalculatorService`) using `MonitoredService` with functions exposed via the `@genesis_function` decorator.
 2.  **Agent Implementation**: How to build a basic agent (`SimpleGenesisAgent`) derived from `OpenAIGenesisAgent` that can be discovered and communicated with.
 3.  **Interface Interaction**: How to use a `MonitoredInterface` (`SimpleGenesisInterfaceCLI`) to discover available agents, connect to one, and send requests.
 4.  **Orchestration**: How to manage these components using a shell script (`run_example.sh`) that handles backgrounding processes, logging, and graceful shutdown.
@@ -17,7 +17,7 @@ The example consists of the following key files:
 
 *   `example_service.py`:
     *   Implements `CalculatorService`, which offers basic arithmetic operations (`add`, `subtract`, `multiply`, `divide`).
-    *   Extends `EnhancedServiceBase` for automatic function registration and discovery.
+    *   Extends `MonitoredService` for automatic function registration and discovery.
     *   Includes custom exceptions for operations like division by zero.
 *   `example_agent.py`:
     *   Implements `SimpleGenesisAgent`, a basic agent built on `OpenAIGenesisAgent`.
@@ -77,7 +77,7 @@ The example consists of the following key files:
 
 ## Key Genesis LIB Features Demonstrated
 
-*   **Service Implementation**: `EnhancedServiceBase` for robust service creation.
+*   **Service Implementation**: `MonitoredService` for robust service creation.
 *   **Function Exposure**: `@genesis_function` decorator for easily making service methods available via RPC.
 *   **Agent Architecture**: `OpenAIGenesisAgent` as a base for creating AI agents.
 *   **Interface Development**: `MonitoredInterface` for discovering and interacting with agents.

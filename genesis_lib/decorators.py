@@ -181,7 +181,7 @@ def genesis_function(
     common_patterns: Optional[Dict[str, Any]] = None,
 ):
     """
-    Attach JSON‑schema & metadata to a function so EnhancedServiceBase can
+    Attach JSON‑schema & metadata to a function so the service base can
     auto‑register it.
     
     The schema can be provided in three ways:

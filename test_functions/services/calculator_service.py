@@ -49,7 +49,7 @@ import logging, asyncio, sys, os
 from typing import Dict, Any
 from datetime import datetime
 from genesis_lib.decorators import genesis_function
-from genesis_lib.enhanced_service_base import EnhancedServiceBase
+from genesis_lib.monitored_service import MonitoredService
 import contextlib
 
 # --------------------------------------------------------------------------- #
@@ -76,18 +76,18 @@ logging.basicConfig(level=logging.DEBUG,
 logger = logging.getLogger("calculator_service")
 logger.setLevel(logging.DEBUG)  # Explicitly set logger level
 
-class CalculatorService(EnhancedServiceBase):
+class CalculatorService(MonitoredService):
     """Implementation of the calculator service using the decorator pattern.
     
     This service provides basic arithmetic operations with input validation
-    and standardized response formatting. It extends EnhancedServiceBase to
+    and standardized response formatting. It extends MonitoredService to
     leverage built-in function registration, monitoring, and discovery.
     """
 
     def __init__(self):
         logger.info("===== DDS TRACE: CalculatorService initializing... =====")
         super().__init__("CalculatorService", capabilities=["calculator", "math"])
-        logger.info("===== DDS TRACE: CalculatorService EnhancedServiceBase initialized. =====")
+        logger.info("===== DDS TRACE: CalculatorService MonitoredService initialized. =====")
         logger.info("===== DDS TRACE: Calling _advertise_functions... =====")
         self._advertise_functions()
         logger.info("===== DDS TRACE: _advertise_functions called. =====")

@@ -943,13 +943,13 @@ This service exposes an `add` and `multiply` function using the Genesis `@genesi
 import logging
 import asyncio
 from typing import Dict, Any
-from genesis_lib.enhanced_service_base import EnhancedServiceBase
+from genesis_lib.monitored_service import MonitoredService
 from genesis_lib.decorators import genesis_function
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("simple_calculator")
 
-class SimpleCalculator(EnhancedServiceBase):
+class SimpleCalculator(MonitoredService):
     def __init__(self):
         super().__init__("SimpleCalculator", capabilities=["calculator", "math"])
         self._advertise_functions()
