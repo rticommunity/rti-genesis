@@ -84,12 +84,12 @@ python -c "
 import sys
 import time
 import asyncio
-from genesis_lib.rpc_client import GenesisRPCClient
+from genesis_lib.requester import GenesisRequester
 
 async def test_client():
     try:
         # Test calculator service
-        calc_client = GenesisRPCClient(service_type='CalculatorService')
+        calc_client = GenesisRequester(service_type='CalculatorService')
         print('Waiting for calculator service to be available...')
         await calc_client.wait_for_service(timeout_seconds=10)
         result = await calc_client.call_function('add', x=10, y=20)
@@ -99,7 +99,7 @@ async def test_client():
         print(f'Calculator test passed: 10 + 20 = {result_value}')
 
         # Test text processor service
-        text_client = GenesisRPCClient(service_type='TextProcessorService')
+        text_client = GenesisRequester(service_type='TextProcessorService')
         print('Waiting for text processor service to be available...')
         await text_client.wait_for_service(timeout_seconds=15)
         result = await text_client.call_function('count_words', text='This is a test sentence with seven words.')
@@ -109,7 +109,7 @@ async def test_client():
         print(f'Text processor test passed: Word count = {result_value}')
 
         # Test letter counter service
-        letter_client = GenesisRPCClient(service_type='LetterCounterService')
+        letter_client = GenesisRequester(service_type='LetterCounterService')
         print('Waiting for letter counter service to be available...')
         await letter_client.wait_for_service(timeout_seconds=15)
         result = await letter_client.call_function('count_letter', text='Hello World', letter='l')

@@ -1,25 +1,57 @@
 """
-Genesis Function Discovery System
+Function Discovery - Distributed Capability Advertisement and Matching
 
-This module provides the core function discovery and registration system for the Genesis
-framework, enabling dynamic discovery and matching of functions across the distributed
-network. It implements a DDS-based discovery mechanism that allows functions to be
-advertised, discovered, and matched based on capabilities and requirements.
+This module provides the core discovery and registration system for Genesis services.
+It integrates with DDS via a unified `GenesisAdvertisement` topic and DDS RPC to:
+- Register local functions and advertise their capabilities
+- Discover remote functions provided by other services
+- Match user requests to available functions (LLM-assisted with fallback)
 
-Key responsibilities include:
-- DDS-based function capability advertisement and discovery
-- Function registration and metadata management
-- Intelligent function matching using LLM analysis
-- Function validation and schema management
-- Service integration and lifecycle management
+=================================================================================================
+ARCHITECTURE OVERVIEW
+=================================================================================================
 
-Known Limitations:
-- Current implementation may lead to recursive function discovery due to its deep
-  integration in the library stack. This can cause functions to discover each other
-  in unintended ways. Future versions will address this by:
-  1. Moving function discovery to a higher level in the framework
-  2. Implementing clearer boundaries between function providers and consumers
-  3. Adding explicit discovery scoping and filtering
+Components:
+- FunctionRegistry: Registers local functions, advertises them to DDS, discovers remote ones,
+  and exposes query utilities. Owns the DDS entities (publisher, subscriber, readers).
+- FunctionMatcher: Classifies/matches functions against user requests (LLM or fallback).
+- GenesisAdvertisementListener: Handles unified advertisements delivered via a content-filtered
+  topic for FUNCTION-kind ads.
+
+Data Model (Advertisement payload JSON):
+- parameter_schema: JSON Schema of the function parameters
+- capabilities: List[str] tags describing the function and service
+- performance_metrics: Dict[str, Any]
+- security_requirements: Dict[str, Any]
+- classification: Dict[str, Any] (optional metadata)
+
+=================================================================================================
+WHAT YOU GET
+=================================================================================================
+- Distributed discovery out-of-the-box using TRANSIENT_LOCAL durability
+- Content-filtered topic to receive only FUNCTION advertisements
+- Registry API to register, discover, and match functions
+- Structured logging for discover/advertise/match lifecycle
+
+=================================================================================================
+DATA FLOW
+=================================================================================================
+1) register_function() → publishes `GenesisAdvertisement(kind=FUNCTION)` with payload
+2) other registries receive via content-filtered reader → handle_advertisement()
+3) get_all_discovered_functions() reads current ALIVE instances from DDS (no side cache)
+4) find_matching_functions() (registry) → delegates to FunctionMatcher
+
+=================================================================================================
+ERROR HANDLING POLICY
+=================================================================================================
+All external operations are guarded and logged. Business-logic errors use INFO; unexpected
+exceptions use ERROR. Silent failures are considered bugs, and defensive checks are employed.
+
+=================================================================================================
+KNOWN LIMITATIONS
+=================================================================================================
+- The system can become recursive if discovery and consumption are deeply intertwined.
+  Future work: decouple provider/consumer roles and add explicit discovery scoping.
 
 Copyright (c) 2025, RTI & Jason Upchurch
 """
@@ -42,23 +74,7 @@ import asyncio
 import sys
 import traceback
 
-# Configure root logger to handle all loggers
-# logging.basicConfig( # REMOVE THIS BLOCK
-#     level=logging.DEBUG,
-#     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-#     handlers=[
-#         logging.StreamHandler()
-#     ]
-# )
-
-# Configure function discovery logger specifically
-# Use genesis_lib prefix so it inherits from the genesis_lib logger configuration
 logger = logging.getLogger("genesis_lib.function_discovery")
-# logger.setLevel(logging.DEBUG) # REMOVE - Let the script control the level
-
-# Set all genesis_lib loggers to DEBUG
-# for name in ['genesis_lib', 'genesis_lib.function_discovery', 'genesis_lib.agent', 'genesis_lib.monitored_agent', 'genesis_lib.genesis_app']:
-#     logging.getLogger(name).setLevel(logging.DEBUG) # REMOVE THIS LOOP
 
 @dataclass
 class FunctionInfo:
@@ -154,6 +170,36 @@ class FunctionInfo:
                 
             if pattern.get("maximum") is not None and value > pattern["maximum"]:
                 raise ValueError(f"{parameter_name} cannot exceed {pattern['maximum']}")
+
+
+@dataclass
+class AdvertisementPayload:
+    """Structured payload for `GenesisAdvertisement(kind=FUNCTION)`.
+
+    Fields:
+        parameter_schema: JSON schema for function parameters
+        capabilities: List of capability tags
+        performance_metrics: Arbitrary perf metrics
+        security_requirements: Arbitrary security metadata
+        classification: Optional classification metadata
+
+    Methods:
+        to_json(): JSON string of the payload suitable for DDS DynamicData field
+    """
+    parameter_schema: Dict[str, Any]
+    capabilities: List[str]
+    performance_metrics: Dict[str, Any]
+    security_requirements: Dict[str, Any]
+    classification: Dict[str, Any]
+
+    def to_json(self) -> str:
+        return json.dumps({
+            "parameter_schema": self.parameter_schema,
+            "capabilities": self.capabilities,
+            "performance_metrics": self.performance_metrics,
+            "security_requirements": self.security_requirements,
+            "classification": self.classification,
+        })
 
 class FunctionMatcher:
     """Matches functions based on LLM analysis of requirements and available functions"""
@@ -268,57 +314,7 @@ Only include functions that are actually relevant to the request. Do not return 
             )
             return self._fallback_matching(user_request, available_functions)
     
-    def _prepare_function_descriptions(self, functions: List[Dict[str, Any]]) -> str:
-        """Prepare function descriptions for LLM analysis"""
-        descriptions = []
-        for func in functions:
-            desc = f"Function: {func['name']}\n"
-            desc += f"Description: {func.get('description', '')}\n"
-            desc += "Parameters:\n"
-            
-            # Add parameter descriptions
-            if "parameter_schema" in func and "properties" in func["parameter_schema"]:
-                for param_name, param_schema in func["parameter_schema"]["properties"].items():
-                    desc += f"- {param_name}: {param_schema.get('description', param_schema.get('type', 'unknown'))}"
-                    if param_schema.get("required", False):
-                        desc += " (required)"
-                    desc += "\n"
-            
-            # Add performance and security info if available
-            if "performance_metrics" in func:
-                desc += "Performance:\n"
-                for metric, value in func["performance_metrics"].items():
-                    desc += f"- {metric}: {value}\n"
-            
-            if "security_requirements" in func:
-                desc += "Security:\n"
-                for req, value in func["security_requirements"].items():
-                    desc += f"- {req}: {value}\n"
-            
-            descriptions.append(desc)
-        
-        return "\n".join(descriptions)
-    
-    def _convert_matches_to_metadata(self, 
-                                   matches: List[Dict[str, Any]], 
-                                   available_functions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Convert LLM matches to function metadata format"""
-        result = []
-        for match in matches:
-            # Find the original function metadata
-            func = next((f for f in available_functions if f["name"] == match["function_name"]), None)
-            if func:
-                # Add match information
-                func["match_info"] = {
-                    "relevance_score": match["relevance_score"],
-                    "explanation": match["explanation"],
-                    "inferred_params": match["inferred_params"],
-                    "considerations": match["considerations"],
-                    "domain": match.get("domain", "unknown"),
-                    "operation_type": match.get("operation_type", "unknown")
-                }
-                result.append(func)
-        return result
+    # Removed unused helpers: _prepare_function_descriptions, _convert_matches_to_metadata
     
     def _fallback_matching(self, user_request: str, available_functions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Fallback to basic matching if LLM is not available"""
@@ -426,6 +422,9 @@ class FunctionRegistry:
             domain_id: DDS domain ID to use if creating a participant
             enable_discovery_listener: Whether to enable the discovery listener
         """
+        # Possible improvement: Consider requiring callers to pass a non-None DomainParticipant
+        # rather than creating one here. This avoids per-node participant creation and makes
+        # ownership/lifecycle explicit. Keeping current behavior for back-compat and tests.
         logger.debug("Initializing FunctionRegistry")
         
         # Store configuration
@@ -489,14 +488,7 @@ class FunctionRegistry:
             self.execution_reply_type = self.type_provider.type("genesis_lib", "FunctionExecutionReply")
 
             # Create DataReader(s) for discovery
-            # NOTE: This QoS is for legacy capability readers if needed
-            reader_qos = dds.QosProvider.default.datareader_qos
-            reader_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
-            reader_qos.history.kind = dds.HistoryKind.KEEP_LAST
-            reader_qos.history.depth = 500
-            reader_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
-            reader_qos.liveliness.kind = dds.LivelinessKind.AUTOMATIC
-            reader_qos.liveliness.lease_duration = dds.Duration(seconds=2)
+            # QoS sourced from XML profiles (no inline overrides)
 
             # Phase 3b: prefer unified advertisement; do not create legacy FunctionCapability reader
             self.capability_listener = None
@@ -517,14 +509,16 @@ class FunctionRegistry:
                         dds.Filter("kind = %0", ["0"])  # FUNCTION kind enum value
                     )
                     
-                    # CRITICAL: Create separate QoS for Advertisement reader that matches AdvertisementBus writer QoS
-                    # The writer doesn't use liveliness settings, so reader must not either (or match defaults)
-                    ad_reader_qos = dds.QosProvider.default.datareader_qos
-                    ad_reader_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
-                    ad_reader_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
-                    ad_reader_qos.history.kind = dds.HistoryKind.KEEP_LAST
-                    ad_reader_qos.history.depth = 500
-                    # Do NOT set liveliness - must match AdvertisementBus writer (default AUTOMATIC/INFINITE)
+                    # CRITICAL: Use the same XML QoS profile as the AdvertisementBus writer
+                    # Try default provider first, then explicit USER_QOS_PROFILES.xml fallback
+                    try:
+                        ad_reader_qos = dds.QosProvider.default.datareader_qos_from_profile("cft_Library::cft_Profile")
+                    except Exception:
+                        import os as _os
+                        _config_dir = _os.path.dirname(get_datamodel_path())
+                        _user_qos_path = _os.path.join(_config_dir, "USER_QOS_PROFILES.xml")
+                        _qos_provider = dds.QosProvider(_user_qos_path)
+                        ad_reader_qos = _qos_provider.datareader_qos_from_profile("cft_Library::cft_Profile")
                     
                     self.advertisement_reader = dds.DynamicData.DataReader(
                         cft=filtered_topic,  # Use content-filtered topic instead of base topic
@@ -536,13 +530,27 @@ class FunctionRegistry:
                     logger.info(f"FunctionRegistry: Created Advertisement reader with matching QoS")
                     print(f"📚 PRINT: FunctionRegistry about to retrieve historical advertisements...", flush=True)
                     
-                    # CRITICAL: For TRANSIENT_LOCAL, manually retrieve historical data
-                    # The listener might miss historical samples if they arrive before callback setup
+                    # CRITICAL: For TRANSIENT_LOCAL, retrieve historical data without sleeps
+                    # Use a WaitSet + ReadCondition to wait for available samples
                     try:
-                        # Small delay to allow DDS discovery to propagate before reading historical samples
-                        # This prevents a race condition where the reader is created before writers are discovered
-                        import time
-                        time.sleep(0.1)  # 100ms should be sufficient for DDS discovery
+                        data_state = dds.DataState(
+                            sample_state=dds.SampleState.ANY,
+                            view_state=dds.ViewState.ANY,
+                            instance_state=dds.InstanceState.ALIVE,
+                        )
+                        read_condition = dds.ReadCondition(self.advertisement_reader, data_state)
+                        waitset = dds.WaitSet()
+                        try:
+                            waitset.attach_condition(read_condition)
+                        except AttributeError:
+                            # Fallback for API variants
+                            waitset.attach(read_condition)
+                        print(f"📚 PRINT: Waiting for historical FUNCTION advertisements...", flush=True)
+                        try:
+                            waitset.wait(dds.Duration.from_seconds(1))
+                        except dds.TimeoutError:
+                            # It's okay if no historical samples are available within the window
+                            pass
                         print(f"📚 PRINT: Calling read() on advertisement_reader...", flush=True)
                         historical_samples = self.advertisement_reader.read()
                         print(f"📚 PRINT: Retrieved {len(historical_samples)} historical advertisement samples", flush=True)
@@ -557,6 +565,14 @@ class FunctionRegistry:
                         print(f"📚 PRINT: ERROR retrieving historical advertisements: {hist_err}", flush=True)
                         logger.warning(f"Could not retrieve historical advertisements: {hist_err}")
                         logger.warning(traceback.format_exc())
+                    finally:
+                        try:
+                            try:
+                                waitset.detach_condition(read_condition)
+                            except AttributeError:
+                                waitset.detach(read_condition)
+                        except Exception:
+                            pass
                 except Exception as e:
                     logger.error(f"Unified advertisement reader setup FAILED: {e}")
                     logger.error(traceback.format_exc())
@@ -570,6 +586,16 @@ class FunctionRegistry:
                 service_name="rti/connext/genesis/rpc/FunctionExecution"
             )
         else:
+            # Rationale: Allow constructing a registry without a discovery listener in
+            # narrowly scoped scenarios where discovery is not required or is owned
+            # elsewhere. Examples include:
+            #  - Offline/unit tests that exercise schema/matching without DDS I/O
+            #  - Provider-only flows where a higher layer owns DDS readers/subscriber
+            #  - Benchmarks or minimal-footprint runs that don't consume remote ads
+            #
+            # In production, discovery should typically be enabled. This flag exists
+            # to support the above cases and to avoid duplicate DDS entities when a
+            # caller injects a preconfigured participant/subscriber.
             self.subscriber = None
             self.capability_reader = None
             self.capability_listener = None
@@ -679,13 +705,22 @@ class FunctionRegistry:
                               min_similarity: float = 0.7) -> List[FunctionInfo]:
         """
         Find functions that match the user's request.
-        
+
         Args:
-            user_request: The user's natural language request
+            user_request: Natural-language request
             min_similarity: Minimum similarity score (0-1)
-            
+
         Returns:
-            List of matching FunctionInfo objects
+            List[FunctionInfo] annotated with `match_info` per item, where
+            match_info has the shape:
+            {
+              "relevance_score": float,
+              "explanation": str,
+              "inferred_params": Dict[str, Any],
+              "considerations": List[str],
+              "domain": str,
+              "operation_type": str
+            }
         """
         # Convert functions to format expected by matcher
         available_functions = [
@@ -741,14 +776,14 @@ class FunctionRegistry:
                 ad["provider_id"] = str(self.advertisement_writer.instance_handle)
                 ad["service_name"] = service_name
                 ad["last_seen"] = int(time.time() * 1000)
-                payload = {
-                    "parameter_schema": function_info.schema,
-                    "capabilities": list(function_info.categories or []),
-                    "performance_metrics": dict(function_info.performance_metrics or {}),
-                    "security_requirements": dict(function_info.security_requirements or {}),
-                    "classification": dict(function_info.classification or {}),
-                }
-                ad["payload"] = json.dumps(payload)
+                payload_obj = AdvertisementPayload(
+                    parameter_schema=function_info.schema,
+                    capabilities=list(function_info.categories or []),
+                    performance_metrics=dict(function_info.performance_metrics or {}),
+                    security_requirements=dict(function_info.security_requirements or {}),
+                    classification=dict(function_info.classification or {}),
+                )
+                ad["payload"] = payload_obj.to_json()
                 self.advertisement_writer.write(ad)
                 self.advertisement_writer.flush()
                 logger.debug(f"===== DDS TRACE: Published GenesisAdvertisement(kind=FUNCTION) for {function_info.name} =====")
@@ -760,7 +795,21 @@ class FunctionRegistry:
     # handle_capability_advertisement() removed - now using handle_advertisement() for unified discovery
 
     def handle_advertisement(self, ad: dds.DynamicData, info: dds.SampleInfo):
-        """Handle received GenesisAdvertisement for FUNCTION kind."""
+        """Handle received GenesisAdvertisement for FUNCTION kind.
+
+        Builds a transient function_info dict with the shape:
+        {
+          "name": str,
+          "description": str,
+          "provider_id": str,
+          "schema": Dict[str, Any],
+          "capabilities": List[str],
+          "service_name": str,
+          "capability": {"service_name": str},
+          "advertisement": DynamicData
+        }
+        and invokes discovery callbacks with (function_id, function_info).
+        """
         try:
             # Content filter ensures only FUNCTION ads are delivered - no in-code filtering needed
             function_id = ad.get_string("advertisement_id") or ""
@@ -812,8 +861,13 @@ class FunctionRegistry:
             logger.error(f"Error handling GenesisAdvertisement: {e}")
     
     def handle_capability_removal(self, reader: dds.DynamicData.DataReader):
-        """Handle removal of function capabilities when a provider goes offline"""
+        """DEPRECATED: Legacy FunctionCapability path.
+
+        This method is kept for backward compatibility. Unified advertisements are the
+        preferred mechanism. If invoked, it logs a warning and attempts to notify service_base.
+        """
         try:
+            logger.warning("handle_capability_removal called on unified advertisement path (deprecated)")
             samples = reader.take()
             for data, info in samples:
                 if data and info.state.instance_state != dds.InstanceState.ALIVE:
@@ -871,11 +925,37 @@ class FunctionRegistry:
     
     def get_all_discovered_functions(self) -> Dict[str, Dict[str, Any]]:
         """
-        Returns currently discovered functions by reading directly from DDS.
-        The dictionary maps function_id to its details.
-        
-        This method reads from the DDS DataReader on-demand rather than maintaining
-        a separate cache, making DDS the single source of truth.
+        Read ALIVE function advertisements directly from DDS and return a mapping.
+
+        Returns:
+            Dict[str, Dict[str, Any]] where the key is `function_id` and the value has shape:
+            {
+              "name": str,
+              "description": str,
+              "provider_id": str,
+              "schema": Dict[str, Any],
+              "capabilities": List[str],
+              "service_name": str,
+              "capability": {"service_name": str},
+              "advertisement": DynamicData
+            }
+
+        Example minimal structure:
+            {
+              "<uuid>": {
+                "name": "add",
+                "description": "Add two numbers",
+                "provider_id": "<writer handle>",
+                "schema": {"type": "object", "properties": {"a": {"type": "number"}, "b": {"type": "number"}}},
+                "capabilities": ["math", "calculator"],
+                "service_name": "CalculatorService",
+                "capability": {"service_name": "CalculatorService"},
+                "advertisement": <DynamicData>
+              }
+            }
+
+        Notes:
+            - No additional in-memory cache is maintained; DDS is the source of truth.
         """
         if not self.enable_discovery_listener or self.advertisement_reader is None:
             return {}
@@ -931,7 +1011,6 @@ class FunctionRegistry:
 
     def close(self):
         """Clean up resources"""
-        print("===== PRINT TRACE: FunctionRegistry.close() ENTERED =====", flush=True) # ADDED FOR DEBUGGING
         logger.debug("===== DDS TRACE: FunctionRegistry.close() ENTERED LOGGER =====") # ADDED FOR DEBUGGING
 
         if hasattr(self, '_closed') and self._closed:
