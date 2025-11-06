@@ -2,24 +2,91 @@
 # Copyright (c) 2025, RTI & Jason Upchurch
 
 """
-GENESIS MCP Service Base
+GENESIS MCP Service Base - Export MCP Tools as Genesis Functions
 
-This module provides an extension to the EnhancedServiceBase, adding basic functionality 
-to export any MCP tool offered by an MCP server using streamale http as a 
-genesis_function. The result is that any MCP tool can be used as a genesis function,
-allowing for easy integration with the GENESIS framework.
+This module provides a base class that connects to an MCP server and exports any
+available MCP tools as `genesis_function`s on a monitored Genesis service. The
+result: any MCP tool can be invoked as a Genesis RPC function with monitoring and
+discovery integrated automatically.
 
-This means that any MCP tool offered via an extension of this class will:
-- have function registration and discovery
-- come with Monitoring event publication
-- have error handling
-- have resource management
+=================================================================================================
+ARCHITECTURE OVERVIEW - Components
+=================================================================================================
+
+1) MCPServiceBase (This class)
+   - Creates a dynamic subclass of MonitoredService to host exported tools
+   - Manages the MCP client session lifecycle
+   - Generates Python coroutine methods for each MCP tool (decorated with
+     `@genesis_function`) and binds them to the dynamic service class
+   - Delegates run/advertise calls to the monitored service instance
+
+2) MonitoredService (from genesis_lib.monitored_service)
+   - Provides monitoring, topology publishing, and eventing for functions
+   - Ensures exported tools are visible in the graph and traced via events
+
+3) MCP Client Integration
+   - Uses `mcp.client.streamable_http.streamablehttp_client` and `mcp.ClientSession`
+   - Discovers available tools via `list_tools()`
+
+=================================================================================================
+CURRENT RUNTIME USAGE - Typical Flow
+=================================================================================================
+
+1) connect_to_mcp_server(server_url)
+   - Open streamable HTTP connection and create ClientSession
+   - Initialize session; list tools; generate/bind decorated methods for each tool
+   - Create a monitored service instance to host exported functions
+
+2) _advertise_functions()
+   - Delegate to monitored service to publish function advertisements
+
+3) run()
+   - Delegate to monitored service to start handling requests
+
+Call Chain (simplified):
+```
+connect_to_mcp_server → list_tools → add_tool_method (per tool)
+                      → create MonitoredService instance with bound functions
+                      → advertise → run
+```
+
+=================================================================================================
+STATUS & TODO - Implemented vs Future Enhancements
+=================================================================================================
+
+Implemented:
+- Dynamic function generation for MCP tools
+- Monitoring integration via MonitoredService
+- Discovery/advertising via FunctionRegistry
+
+TODO (not blocking current usage):
+- Input validation & type coercion for tool parameters (based on schemas)
+- Standardize return format for tools (e.g., {"message": str, "status": int})
+- Streaming/tool output variants (non-text content, multiple parts)
+- Timeouts, retries, and richer error classification
+- Secure auth/session management for MCP servers
+
+=================================================================================================
+EXTENSION POINTS - How to Customize
+=================================================================================================
+
+1) Override add_tool_method() to customize codegen behavior and return shapes
+2) Provide a custom MonitoredService subclass (if you need additional hooks)
+3) Wrap/transform tool schemas before generation to enforce typing policies
+
+=================================================================================================
+DESIGN RATIONALE - Why Dynamic Generation
+=================================================================================================
+
+Dynamic code generation avoids hand-writing wrappers for each tool and ensures
+new tools appear automatically after `list_tools()`. Decorating with
+`@genesis_function` integrates discovery and monitoring with minimal glue code.
 """
 
 import logging
 import textwrap
 from genesis_lib.monitored_service import MonitoredService
-from genesis_lib.function_discovery import FunctionRegistry
+from genesis_lib.function_discovery import InternalFunctionRegistry
 from genesis_lib.decorators import genesis_function
 from typing import List, Optional
 
@@ -36,10 +103,21 @@ logger = logging.getLogger("enhanced_service_base")
 
 class MCPServiceBase():
     """
-    Base class for MCP services
+    Base class that connects to an MCP server and exposes its tools as Genesis
+    functions on a monitored service.
+
+    Responsibilities:
+    - Manage MCP session lifecycle (connect, initialize, list tools)
+    - Generate and bind `@genesis_function` methods for each tool
+    - Delegate advertise/run to a dynamic MonitoredService subclass instance
+
+    Call Sequence:
+    - connect_to_mcp_server() → generate functions → create monitored service instance
+    - _advertise_functions() → advertise
+    - run() → serve requests
     """
 
-    def __init__(self, service_name: str, capabilities: List[str], participant=None, domain_id=0, registry: FunctionRegistry = None):
+    def __init__(self, service_name: str, capabilities: List[str], participant=None, domain_id=0, registry: InternalFunctionRegistry = None):
         """
         Initialize the MCP service with a name and capabilities.
         
@@ -62,7 +140,7 @@ class MCPServiceBase():
         self.capabilities = capabilities
         self.participant = participant
         self.domain_id = domain_id
-        self.registry = registry or FunctionRegistry()
+        self.registry = registry or InternalFunctionRegistry()
         self.mcp_session: Optional[ClientSession] = None
         self.exit_stack = AsyncExitStack()
         
@@ -91,10 +169,16 @@ class MCPServiceBase():
 
     async def connect_to_mcp_server(self, server_url: str):
         """
-        Connect to the MCP server and process all the tools.
+        Connect to the MCP server, discover tools, and generate exported functions.
 
-        This method establishes a connection to the MCP server,
-        sets up communication channels, and registers available tools.
+        Steps:
+        1. Open streamable HTTP connection and create ClientSession
+        2. Initialize session and list available tools
+        3. For each tool, generate a coroutine method decorated with @genesis_function
+        4. Create a monitored service instance to host the exported functions
+
+        TODO: Add timeouts/retries and richer error handling (classification).
+        TODO: Support non-text/streaming tool results and standardized return shapes.
         """
         logger.info("Connecting to MCP server")
         read_stream, write_stream, _ = await self.exit_stack.enter_async_context(streamablehttp_client(server_url))
@@ -121,6 +205,17 @@ class MCPServiceBase():
         
 
     def add_tool_method(self, tool):
+        """
+        Dynamically generate and bind a `@genesis_function` method for an MCP tool.
+
+        Behavior:
+        - Builds a coroutine with a signature derived from the tool's input schema
+        - Calls `self.mcp_session.call_tool(tool.name, tool_args)`
+        - Returns the first text element of the MCP response (exact return type: str)
+
+        TODO: Validate and coerce parameter types per schema; handle required/optional.
+        TODO: Consider a standardized return format (e.g., {"message": str, "status": int}).
+        """
         # Extract parameter names and types from the tool's inputSchema
         params = tool.inputSchema["properties"]
         required = tool.inputSchema.get("required", [])
@@ -136,13 +231,13 @@ class MCPServiceBase():
         # Build the function source code as a string
         func_src = f"""
 @genesis_function()
-async def {tool.name}(self, {param_sig}, request_info=None) -> dict:
+async def {tool.name}(self, {param_sig}, request_info=None) -> str:
     \"\"\"{tool.description}
     Args:
 {chr(10).join(doc_params)}
         request_info: Optional request metadata
     Returns:
-        dict: result from MCP call
+        str: first text item from MCP tool result (exact)
     \"\"\"
     try:
         tool_args = {{{', '.join([f"'{k}': {k}" for k in params.keys()])}}}

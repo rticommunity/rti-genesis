@@ -1,23 +1,51 @@
 """
-Genesis Generic Function Client
+Genesis Generic Function Client — Discover and Invoke Network Functions
 
-This module provides a high-level client implementation for the Genesis framework that
-enables dynamic discovery and invocation of functions across the distributed network.
-It serves as a key integration point for agents and services to discover and utilize
-functions without requiring prior knowledge of their implementation or location.
+High-level client for dynamic discovery and invocation of functions across the Genesis
+distributed network. Serves as the primary integration point for agents and services
+to find and call functions without prior knowledge of their implementation or location.
 
-Key responsibilities include:
-- Dynamic discovery of functions through the Genesis function registry
-- Automatic service client lifecycle management
-- Intelligent function routing based on service capabilities
-- Schema validation and function metadata handling
-- Seamless integration with the Genesis RPC system
+=================================================================================================
+ARCHITECTURE OVERVIEW — What This Module Does
+=================================================================================================
 
-The GenericFunctionClient is designed to be the primary interface for agents and
-services to discover and call functions in the Genesis network. It handles all the
-complexity of function discovery, service management, and RPC communication, allowing
-developers to focus on building their agents and services without worrying about
-the underlying communication details.
+Responsibilities:
+- Dynamic discovery via `DDSFunctionDiscovery` (direct DDS reads, no caching)
+- Service client lifecycle management (creates `GenesisRequester` per service)
+- Intelligent routing by service capability metadata
+- Schema access and function metadata handling
+- Clean integration with the Genesis RPC system
+
+Lifecycle:
+1. Construct client (optionally with an existing `DDSFunctionDiscovery`)
+2. List available functions for schema/capabilities
+3. Resolve service name for a function and obtain a `GenesisRequester`
+4. Invoke function via RPC
+5. Cleanup: close per-service clients and discovery (if the client created it)
+
+Failure Handling & Cleanup:
+- Functions are read on-demand from DDSFunctionDiscovery (no caching, always current)
+- If a function or service name cannot be resolved, raises descriptive errors
+- No participant sprawl: reuses `DDSFunctionDiscovery` participant for requesters
+- `close()` shuts down created requesters and (optionally) the discovery
+
+Thread-safety:
+- Intended for typical async usage patterns; external synchronization is the caller's responsibility
+- Maintains internal maps of service clients; not designed for concurrent mutation from many tasks
+
+Public API:
+- `GenericFunctionClient(discovery=None, participant=None, domain_id=0)`
+- `list_available_functions() -> list[dict]`
+- `call_function(function_id, **kwargs) -> dict`
+- `get_function_schema(function_id) -> dict`
+- `get_service_client(service_name) -> GenesisRequester`
+- `close()`
+
+Usage:
+    client = GenericFunctionClient()
+    funcs = client.list_available_functions()
+    result = await client.call_function(funcs[0]["function_id"], param="value")
+    client.close()
 
 Copyright (c) 2025, RTI & Jason Upchurch
 """
@@ -32,7 +60,7 @@ import uuid
 from typing import Dict, Any, List, Optional
 import rti.connextdds as dds
 from genesis_lib.requester import GenesisRequester
-from genesis_lib.function_discovery import FunctionRegistry
+from genesis_lib.dds_function_discovery import DDSFunctionDiscovery
 
 # Configure logging
 # logging.basicConfig(level=logging.WARNING,  # REMOVE THIS
@@ -42,78 +70,97 @@ logger = logging.getLogger("generic_function_client")
 
 class GenericFunctionClient:
     """
-    A truly generic function client that can discover and call any function service
-    without prior knowledge of the specific functions.
+    Generic function client for discovering and invoking functions over Genesis RPC.
+
+    Design:
+    - Uses `DDSFunctionDiscovery` as the source of truth for discovered functions
+    - Creates one `GenesisRequester` per service and reuses it for subsequent calls
+    - Avoids creating additional DDS participants by reusing the discovery's participant
+
+    Attributes:
+        function_discovery: The DDSFunctionDiscovery instance used for discovery
+        _created_discovery: Whether this client created the discovery (affects cleanup)
+        service_clients: Map of `service_name` → `GenesisRequester`
+        function_registry: Backward-compat adapter exposing get_all_discovered_functions()
     """
     
-    def __init__(self, function_registry: Optional[FunctionRegistry] = None, participant: Optional[dds.DomainParticipant] = None, domain_id: int = 0):
+    #TODO: Remove this adapter after all tests are migrated to the new discovery API
+    class _LegacyRegistryAdapter:
+        """
+        Backward-compatibility adapter that exposes a minimal FunctionRegistry-like API
+        backed by DDSFunctionDiscovery. It does NOT cache; it constructs the mapping
+        on each call by reading directly from DDS.
+        """
+        def __init__(self, parent: "GenericFunctionClient"):
+            self._parent = parent
+        
+        def get_all_discovered_functions(self) -> Dict[str, Dict[str, Any]]:
+            """
+            Returns a dict keyed by function_id with values matching the legacy shape:
+            {
+              "name": str,
+              "description": str,
+              "provider_id": str,
+              "schema": Dict[str, Any],
+              "capabilities": List[str],
+              "service_name": str,
+              "capability": {"service_name": str},
+              "advertisement": None
+            }
+            """
+            result: Dict[str, Dict[str, Any]] = {}
+            try:
+                functions = self._parent.function_discovery.list_functions()
+                for func in functions:
+                    fid = func.get("function_id")
+                    if not fid:
+                        continue
+                    service_name = func.get("service_name", "UnknownService")
+                    result[fid] = {
+                        "name": func.get("name", fid),
+                        "description": func.get("description", ""),
+                        "provider_id": func.get("provider_id", ""),
+                        "schema": func.get("schema", {}),
+                        "capabilities": func.get("capabilities", []),
+                        "service_name": service_name,
+                        "capability": {"service_name": service_name},
+                        # Advertisement DynamicData is not stored in this path; keep None for compat
+                        "advertisement": None,
+                    }
+            except Exception as e:
+                logger.error(f"Legacy registry adapter failed to read functions: {e}")
+                return {}
+            return result
+    
+    def __init__(self, discovery: Optional[DDSFunctionDiscovery] = None, 
+                 participant: Optional[dds.DomainParticipant] = None, 
+                 domain_id: int = 0):
         """
         Initialize the generic function client.
         
         Args:
-            function_registry: Optional existing FunctionRegistry instance to use.
-                             If None, a new one will be created.
-            participant: Optional existing DDS Participant instance to use for the registry.
-            domain_id: DDS domain ID to use if creating a new registry without a participant.
+            discovery: Optional existing DDSFunctionDiscovery instance to use.
+                      If None, a new one will be created.
+            participant: Optional existing DDS Participant instance to use for discovery.
+            domain_id: DDS domain ID to use if creating a new discovery without a participant.
         """
         logger.debug("Initializing GenericFunctionClient")
         
-        # Track if we created the registry
-        self._created_registry = False
-        if function_registry is None:
-            self.function_registry = FunctionRegistry(participant=participant, domain_id=domain_id)
-            self._created_registry = True
+        # Track if we created the discovery
+        self._created_discovery = False
+        if discovery is None:
+            self.function_discovery = DDSFunctionDiscovery(participant=participant, domain_id=domain_id)
+            self._created_discovery = True
         else:
-            self.function_registry = function_registry
-        
-        # Note: discovered_functions cache removed - now reading directly from registry via get_all_discovered_functions()
+            self.function_discovery = discovery
         
         # Store service-specific clients
         self.service_clients = {}
         
-    async def discover_functions(self, timeout_seconds: int = 10) -> Dict[str, Any]:
-        """
-        Discover available functions in the distributed system.
-        Waits until functions are discovered (signaled by registry event) or the timeout is reached.
-
-        Args:
-            timeout_seconds: How long to wait for functions to be discovered
-
-        Returns:
-            Dictionary of discovered functions
-        """
-        logger.debug(f"===== DDS TRACE: Waiting for function discovery event (timeout: {timeout_seconds}s)... =====")
-
-        try:
-            # Wait for the registry's discovery event or timeout
-            registry_event = self.function_registry._discovery_event
-            logger.debug(f"===== DDS TRACE: Waiting on event {id(registry_event)}... =====")
-            await asyncio.wait_for(registry_event.wait(), timeout=timeout_seconds)
-            logger.debug(f"===== DDS TRACE: Function discovery event received or already set (event: {id(registry_event)}). =====")
-        except asyncio.TimeoutError:
-            logger.warning(f"===== DDS TRACE: Timeout ({timeout_seconds}s) reached waiting for function discovery event. =====")
-        except Exception as e:
-             logger.error(f"===== DDS TRACE: Error waiting for function discovery event: {e} ====")
-
-        # Get current state of discovered functions directly from the registry
-        logger.debug("===== DDS TRACE: Retrieving discovered functions from registry... =====")
-        discovered_functions = self.function_registry.get_all_discovered_functions()
-        logger.debug(f"===== DDS TRACE: Retrieved {len(discovered_functions)} functions from registry. =====")
-
-        # Log the discovered functions
-        if not discovered_functions:
-            logger.warning("No functions were discovered in the registry.")
-            return {}
-
-        logger.debug(f"Discovered {len(discovered_functions)} functions in registry")
-        for func_id, func_info in discovered_functions.items():
-            if isinstance(func_info, dict):
-                logger.debug(f"  - {func_id}: {func_info.get('name', 'unknown')} - {func_info.get('description', 'No description')}")
-            else:
-                logger.debug(f"  - {func_id}: {func_info}")
+        # Backward-compatibility: expose a minimal registry-like adapter so existing
+        # tests and integrations that poll client.function_registry continue to work.
+        self.function_registry = GenericFunctionClient._LegacyRegistryAdapter(self)
         
-        return discovered_functions
-    
     def get_service_client(self, service_name: str) -> GenesisRequester:
         """
         Get or create a client for a specific service.
@@ -126,9 +173,9 @@ class GenericFunctionClient:
         """
         if service_name not in self.service_clients:
             logger.debug(f"Creating new requester for service: {service_name}")
-            # Reuse the participant from function_registry to avoid participant sprawl
+            # Reuse the participant from function_discovery to avoid participant sprawl
             # This ensures each application has only ONE DDS participant
-            participant = self.function_registry.participant
+            participant = self.function_discovery.participant
             client = GenesisRequester(
                 service_type=service_name, 
                 participant=participant,
@@ -153,50 +200,22 @@ class GenericFunctionClient:
             ValueError: If the function is not found
             RuntimeError: If the function call fails
         """
-        # Get function info directly from the registry
-        registry_functions = self.function_registry.get_all_discovered_functions()
-        func_info = registry_functions.get(function_id)
+        # Get function info directly from discovery
+        func_info = self.function_discovery.get_function_by_id(function_id)
 
         if not func_info:
-            # Attempt to refresh the function list from the registry if not found initially
-            # This handles cases where functions might appear between the agent's last check and the call attempt.
-            # However, OpenAIGenesisAgent now calls _ensure_functions_discovered (which uses list_available_functions)
-            # on every request, so GenericFunctionClient's list_available_functions is already fresh.
-            # The discover_functions method in GFC is more for an initial blocking discovery.
-            # For call_function, if it's not in the registry's current snapshot, it's safer to error out.
-            logger.error(f"Function ID {function_id} not found in FunctionRegistry's current list.")
+            logger.error(f"Function ID {function_id} not found in DDSFunctionDiscovery.")
             raise ValueError(f"Function not found: {function_id}")
         
-        # Extract function name and provider ID
-        if isinstance(func_info, dict):
-            function_name = func_info.get('name')
-            provider_id = func_info.get('provider_id')
-            capability = func_info.get('capability') # Get the stored capability object
-        else:
-            raise RuntimeError(f"Invalid function info format for {function_id}")
+        # Extract function name and service info
+        function_name = func_info.get('name')
+        provider_id = func_info.get('provider_id')
+        service_name = func_info.get('service_name')
         
         if not function_name:
             raise RuntimeError(f"Function name not found for {function_id}")
         
-        # Determine the service name dynamically from the capability object
-        service_name = None
-        if capability:
-            try:
-                # Attempt to get service_name directly from the capability object
-                # Access using dictionary syntax for dds.DynamicData
-                if 'service_name' in capability:
-                    service_name = capability['service_name']
-                else:
-                    logger.warning(f"'service_name' field missing in capability for {function_id}")
-            except TypeError:
-                logger.warning(f"Capability object for {function_id} is not dictionary-like or does not contain 'service_name'. Type: {type(capability)}")
-            except KeyError:
-                 logger.warning(f"'service_name' field not found in capability for {function_id}")
-            except Exception as e:
-                logger.warning(f"Error accessing service_name from capability for {function_id}: {e}")
-        
         if not service_name:
-            # If service_name couldn't be determined, raise an error
             logger.error(f"Could not determine service name for function {function_id} (provider: {provider_id})")
             raise RuntimeError(f"Service name not found for function {function_id}")
         
@@ -232,87 +251,49 @@ class GenericFunctionClient:
         Raises:
             ValueError: If the function is not found
         """
-        discovered_functions = self.function_registry.get_all_discovered_functions()
-        if function_id not in discovered_functions:
+        func_info = self.function_discovery.get_function_by_id(function_id)
+        if not func_info:
             raise ValueError(f"Function not found: {function_id}")
         
-        return discovered_functions[function_id].get('schema', {})
+        return func_info.get('schema', {})
     
     def list_available_functions(self) -> List[Dict[str, Any]]:
         """
         List all available functions with their descriptions and schemas.
-        Directly queries the FunctionRegistry for the most up-to-date list.
+        Directly queries DDSFunctionDiscovery for the most up-to-date list.
         
         Returns:
             List of function information dictionaries
         """
+        # Get functions from DDS discovery
+        functions_list = self.function_discovery.list_functions()
+        
+        # Return in expected format
         result = []
-        # Directly access the FunctionRegistry's list of discovered functions
-        # The FunctionRegistry.get_all_discovered_functions() returns a copy of its internal dict.
-        registry_functions = self.function_registry.get_all_discovered_functions()
-
-        for func_id, func_info in registry_functions.items():
-            if isinstance(func_info, dict):
-                # Get the schema directly from the function info
-                schema = func_info.get('schema', {})
-                function_name = func_info.get('name', func_id)
-                provider_id = func_info.get('provider_id')
-                capability = func_info.get('capability')
-
-                # Determine the service name dynamically
-                service_name = None
-                if capability:
-                    try:
-                        # Attempt to get service_name directly from the capability object
-                        # Access using dictionary syntax for dds.DynamicData
-                        if 'service_name' in capability:
-                            service_name = capability['service_name']
-                        else:
-                            logger.warning(f"'service_name' field missing in capability for {func_id}")
-                    except TypeError:
-                         logger.warning(f"Capability object for {func_id} is not dictionary-like or does not contain 'service_name'. Type: {type(capability)}")
-                    except KeyError:
-                         logger.warning(f"'service_name' field not found in capability for {func_id}")
-                    except Exception as e:
-                        logger.warning(f"Error accessing service_name from capability for {func_id}: {e}")
-                
-                if not service_name:
-                    # Fallback or default if service name cannot be determined
-                    logger.warning(f"Could not determine service name for function {func_id} (provider: {provider_id}), using 'UnknownService'")
-                    service_name = "UnknownService" 
-                
-                result.append({
-                    "function_id": func_id,
-                    "name": function_name,
-                    "description": func_info.get('description', 'No description'),
-                    "schema": schema,
-                    "service_name": service_name,
-                    # Include provider_id so callers (e.g., agents) can emit AGENT↔SERVICE activations
-                    "provider_id": provider_id
-                })
-            else:
-                # Handle non-dictionary function info (unlikely but for robustness)
-                result.append({
-                    "function_id": func_id,
-                    "name": str(func_info),
-                    "description": "Unknown function format",
-                    "schema": {},
-                    "service_name": "UnknownService"
-                })
+        for func in functions_list:
+            result.append({
+                "function_id": func["function_id"],
+                "name": func["name"],
+                "description": func["description"],
+                "schema": func["schema"],
+                "service_name": func["service_name"],
+                "provider_id": func.get("provider_id")
+            })
+        
         return result
     
     def close(self):
-        """Close all client resources, including the FunctionRegistry if created by this instance"""
+        """Close all client resources, including the DDSFunctionDiscovery if created by this instance"""
         logger.debug("Cleaning up GenericFunctionClient resources...")
         # Close service-specific clients
         for client in self.service_clients.values():
             client.close()
             
-        # Close the FunctionRegistry if this client created it
-        if self._created_registry and hasattr(self, 'function_registry') and self.function_registry:
-            logger.debug("Closing FunctionRegistry created by GenericFunctionClient...")
-            self.function_registry.close()
-            self.function_registry = None # Clear reference
+        # Close the DDSFunctionDiscovery if this client created it
+        if self._created_discovery and hasattr(self, 'function_discovery') and self.function_discovery:
+            logger.debug("Closing DDSFunctionDiscovery created by GenericFunctionClient...")
+            self.function_discovery.close()
+            self.function_discovery = None # Clear reference
             
         logger.debug("GenericFunctionClient cleanup complete.")
 
@@ -325,9 +306,6 @@ async def run_generic_client_test():
     client = GenericFunctionClient()
     
     try:
-        # Discover available functions
-        await client.discover_functions()
-        
         # List available functions
         functions = client.list_available_functions()
         print("\nAvailable Functions:")

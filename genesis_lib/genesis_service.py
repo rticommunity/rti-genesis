@@ -23,7 +23,7 @@ import asyncio
 import json
 from typing import Dict, Any, List, Optional, Callable
 from genesis_lib.replier import GenesisReplier
-from genesis_lib.function_discovery import FunctionRegistry
+from genesis_lib.function_discovery import InternalFunctionRegistry
 
 logger = logging.getLogger("genesis_service")
 
@@ -42,7 +42,7 @@ class GenesisService(GenesisReplier):
     - Graph topology publishing (added by MonitoredService)
     """
 
-    def __init__(self, service_name: str, capabilities: List[str], participant=None, domain_id=0, registry: FunctionRegistry = None):
+    def __init__(self, service_name: str, capabilities: List[str], participant=None, domain_id=0, registry: InternalFunctionRegistry = None):
         """
         Initialize the Genesis service.
         
@@ -51,7 +51,7 @@ class GenesisService(GenesisReplier):
             capabilities: List of capability tags (e.g., ["calculator", "math"])
             participant: Optional DDS participant (if None, one will be created)
             domain_id: DDS domain ID (default: 0)
-            registry: Optional FunctionRegistry instance (if None, one will be created)
+            registry: Optional InternalFunctionRegistry instance (if None, one will be created)
         """
         # Create participant FIRST if needed, before calling super().__init__
         if participant is None:
@@ -76,7 +76,7 @@ class GenesisService(GenesisReplier):
         self.logger = logging.getLogger("genesis_service")
         
         # Local registry for this service's own functions (discovery disabled; DDS handles discovery)
-        self.registry = registry if registry is not None else FunctionRegistry(
+        self.registry = registry if registry is not None else InternalFunctionRegistry(
             participant=self.participant,
             domain_id=domain_id,
             enable_discovery_listener=False
@@ -84,7 +84,7 @@ class GenesisService(GenesisReplier):
         self.registry.service_base = self
         
         # Get GUID from Advertisement writer
-        # The FunctionRegistry owns the DDS Advertisement writer and advertises this service's functions.
+        # The InternalFunctionRegistry owns the DDS Advertisement writer and advertises this service's functions.
         # Use the writer's instance_handle as the app GUID so advertisements and monitoring share a stable provider_id.
         # Fallback to participant handle if the writer is not available.
         self.app_guid = str(self.registry.advertisement_writer.instance_handle) if self.registry.advertisement_writer else str(self.participant.instance_handle)

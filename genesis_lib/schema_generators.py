@@ -1,10 +1,98 @@
 #!/usr/bin/env python3
 """
-Genesis Schema Generators
+Genesis Schema Generators - Provider-Specific Tool Schema Adapters
 
-This module provides automatic schema generation for different LLM providers
-from Genesis tool metadata. It converts Python type hints and function metadata
-into provider-specific tool schemas (OpenAI, Anthropic, etc.).
+This module converts Genesis tool metadata (captured by decorators) into the
+provider-specific tool schema formats required by different LLMs (OpenAI, Anthropic, local).
+
+=================================================================================================
+ARCHITECTURE OVERVIEW - Components
+=================================================================================================
+
+1) SchemaGenerator (Abstract Base)
+   - Defines the interface for provider adapters:
+     • generate_tool_schema(tool_meta) → provider-specific tool schema
+     • generate_tools_list(tool_metas) → list of provider-specific schemas
+
+2) Provider Implementations
+   - OpenAISchemaGenerator: outputs OpenAI function-calling format
+   - AnthropicSchemaGenerator: outputs Anthropic tool format
+   - LocalLLMSchemaGenerator: generic/local schema for non-vended LLMs
+
+3) Registry + Factory
+   - _schema_generators: map of provider key → generator instance
+   - get_schema_generator(format_type): returns the appropriate adapter
+
+=================================================================================================
+CURRENT RUNTIME USAGE - Where It’s Used Today
+=================================================================================================
+
+- Provider agents (e.g., OpenAIGenesisAgent) call get_schema_generator(...)
+  and pass the universal tool metadata harvested by @genesis_tool to produce
+  provider-specific schemas exposed to the LLM at runtime.
+
+Call Chain (simplified):
+```
+@genesis_tool → tool.__genesis_tool_meta__ (provider-agnostic metadata)
+  → provider agent caches internal tools
+  → get_schema_generator(\"openai\") (or other)
+  → generate_tool_schema(meta) per tool
+  → LLM API receives provider-specific tool schemas
+```
+
+=================================================================================================
+WHY THIS IS SEPARATED - Decorators vs Schema Generators vs Function Patterns
+=================================================================================================
+
+- Decorators (decorators.py):
+  • Capture provider-agnostic metadata at definition time (names, params, types)
+  • Perform annotation-based schema inference/validation for RPC and tools
+  • DO NOT commit to any provider’s schema shape
+
+- Schema Generators (THIS MODULE):
+  • Adapt that universal metadata into provider-specific formats at runtime
+  • Isolate provider churn (OpenAI vs Anthropic vs local) from core metadata
+  • Allow adding new providers without changing decorator logic
+
+- Function Patterns (function_patterns.py):
+  • Classify execution results AFTER a function is called (success/failure, hints)
+  • Orthogonal to schema generation (result semantics vs input schema)
+
+Separation of concerns:
+- Decorators define how to describe and validate tools/functions (agnostic).
+- Schema generators define how to present those tools to specific LLMs.
+- Patterns define how to interpret results from executed functions.
+
+=================================================================================================
+STATUS & TODO
+=================================================================================================
+
+Implemented:
+- OpenAI, Anthropic, and Local adapters
+- Simple registry + factory (auto defaults to OpenAI)
+
+TODO (future enhancements):
+- Add additional providers (e.g., Google/Gemini) with parity tests
+- Support advanced/nested types and richer constraints consistently
+- Versioned provider mappings and compatibility gates
+- Streaming/partial tool schemas where supported
+- Validation/asserts to catch mismatches between metadata and provider expectations
+
+=================================================================================================
+EXTENSION POINTS - Adding a New Provider
+=================================================================================================
+
+1) Implement a SchemaGenerator subclass:
+   - generate_tool_schema(tool_meta) → dict in provider shape
+   - generate_tools_list(tool_metas) → list of dicts
+
+2) Register it in _schema_generators with a unique key.
+
+3) In your provider agent, call get_schema_generator(\"your_key\").
+
+Design note:
+This keeps provider-specific schema churn localized and testable, while the rest
+of the system continues to operate on a single provider-agnostic metadata format.
 
 Copyright (c) 2025, RTI & Jason Upchurch
 """

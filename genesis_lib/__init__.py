@@ -18,9 +18,10 @@ from .genesis_app import GenesisApp
 from .genesis_agent import GenesisAgent
 from .interface import GenesisInterface
 from .function_discovery import (
-    FunctionRegistry,
+    InternalFunctionRegistry,
     FunctionInfo
 )
+from .dds_function_discovery import DDSFunctionDiscovery
 from .function_classifier import FunctionClassifier
 from .llm import AnthropicChatAgent
 from .llm_factory import LLMFactory
@@ -36,7 +37,8 @@ __all__ = [
     'GenesisApp',
     'GenesisAgent',
     'GenesisInterface',
-    'FunctionRegistry',
+    'InternalFunctionRegistry',
+    'DDSFunctionDiscovery',
     'FunctionInfo',
     'FunctionClassifier',
     'AnthropicChatAgent',

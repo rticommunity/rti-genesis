@@ -5,7 +5,7 @@ This module provides the core discovery and registration system for Genesis serv
 It integrates with DDS via a unified `GenesisAdvertisement` topic and DDS RPC to:
 - Register local functions and advertise their capabilities
 - Discover remote functions provided by other services
-- Match user requests to available functions (LLM-assisted with fallback)
+- Query available functions from the distributed system
 
 =================================================================================================
 ARCHITECTURE OVERVIEW
@@ -14,7 +14,6 @@ ARCHITECTURE OVERVIEW
 Components:
 - FunctionRegistry: Registers local functions, advertises them to DDS, discovers remote ones,
   and exposes query utilities. Owns the DDS entities (publisher, subscriber, readers).
-- FunctionMatcher: Classifies/matches functions against user requests (LLM or fallback).
 - GenesisAdvertisementListener: Handles unified advertisements delivered via a content-filtered
   topic for FUNCTION-kind ads.
 
@@ -30,8 +29,8 @@ WHAT YOU GET
 =================================================================================================
 - Distributed discovery out-of-the-box using TRANSIENT_LOCAL durability
 - Content-filtered topic to receive only FUNCTION advertisements
-- Registry API to register, discover, and match functions
-- Structured logging for discover/advertise/match lifecycle
+- Registry API to register and discover functions
+- Structured logging for discover/advertise lifecycle
 
 =================================================================================================
 DATA FLOW
@@ -39,7 +38,14 @@ DATA FLOW
 1) register_function() → publishes `GenesisAdvertisement(kind=FUNCTION)` with payload
 2) other registries receive via content-filtered reader → handle_advertisement()
 3) get_all_discovered_functions() reads current ALIVE instances from DDS (no side cache)
-4) find_matching_functions() (registry) → delegates to FunctionMatcher
+
+=================================================================================================
+FUNCTION CLASSIFICATION
+=================================================================================================
+For intelligent function selection based on natural language queries, use the separate
+FunctionClassifier component (genesis_lib/function_classifier.py). The FunctionClassifier
+uses LLM-based semantic analysis to match user requests to relevant functions, following
+Genesis's agentic design principles.
 
 =================================================================================================
 ERROR HANDLING POLICY
@@ -201,216 +207,32 @@ class AdvertisementPayload:
             "classification": self.classification,
         })
 
-class FunctionMatcher:
-    """Matches functions based on LLM analysis of requirements and available functions"""
-    
-    def __init__(self, llm_client=None):
-        """Initialize the matcher with optional LLM client"""
-        self.logger = logging.getLogger("function_matcher")
-        self.llm_client = llm_client
-    
-    def find_matching_functions(self,
-                              user_request: str,
-                              available_functions: List[Dict[str, Any]],
-                              min_similarity: float = 0.7) -> List[Dict[str, Any]]:
-        """
-        Find functions that match the user's request using LLM analysis.
-        
-        Args:
-            user_request: The user's natural language request
-            available_functions: List of available function metadata
-            min_similarity: Minimum similarity score (0-1)
-            
-        Returns:
-            List of matching function metadata with relevance scores
-        """
-        if not self.llm_client:
-            self.logger.warning("No LLM client provided, falling back to basic matching")
-            return self._fallback_matching(user_request, available_functions)
-        
-        # Create prompt for LLM
-        prompt = f"""Given the following user request:
 
-{user_request}
-
-And the following functions:
-
-{json.dumps([{
-    "function_name": f["name"],
-    "function_description": f.get("description", "")
-} for f in available_functions], indent=2)}
-
-For each relevant function, return a JSON array where each object has:
-- function_name: The name of the matching function
-- domain: The primary domain/category this function belongs to (e.g., "weather", "mathematics")
-- operation_type: The type of operation this function performs (e.g., "lookup", "calculation")
-
-Only include functions that are actually relevant to the request. Do not return anything else."""
-
-        # Log the prompt being sent to the LLM
-        self.logger.info(
-            "LLM Classification Prompt",
-            extra={
-                "user_request": user_request,
-                "prompt": prompt,
-                "available_functions": [f["name"] for f in available_functions]
-            }
-        )
-
-        try:
-            # Get LLM response
-            response = self.llm_client.generate_response(prompt, "function_matching")
-            
-            # Log the raw LLM response for monitoring
-            self.logger.info(
-                "LLM Function Classification Response",
-                extra={
-                    "user_request": user_request,
-                    "raw_response": response[0],
-                    "response_status": response[1],
-                    "available_functions": [f["name"] for f in available_functions]
-                }
-            )
-            
-            # Parse response
-            matches = json.loads(response[0])
-            
-            # Convert matches to full metadata
-            result = []
-            for match in matches:
-                func = next((f for f in available_functions if f["name"] == match["function_name"]), None)
-                if func:
-                    # Add match info
-                    func["match_info"] = {
-                        "relevance_score": 1.0,  # Since we're just doing exact matches
-                        "explanation": "Function name matched by LLM",
-                        "inferred_params": {},  # Parameter inference happens later
-                        "considerations": [],
-                        "domain": match.get("domain", "unknown"),
-                        "operation_type": match.get("operation_type", "unknown")
-                    }
-                    result.append(func)
-            
-            # Log the processed matches for monitoring
-            self.logger.info(
-                "Processed Function Matches",
-                extra={
-                    "user_request": user_request,
-                    "matches": result,
-                    "min_similarity": min_similarity
-                }
-            )
-            
-            return result
-            
-        except Exception as e:
-            self.logger.error(
-                "Error in LLM-based matching",
-                extra={
-                    "user_request": user_request,
-                    "error": str(e),
-                    "available_functions": [f["name"] for f in available_functions]
-                }
-            )
-            return self._fallback_matching(user_request, available_functions)
-    
-    # Removed unused helpers: _prepare_function_descriptions, _convert_matches_to_metadata
-    
-    def _fallback_matching(self, user_request: str, available_functions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Fallback to basic matching if LLM is not available"""
-        # Simple text-based matching as fallback
-        matches = []
-        request_lower = user_request.lower()
-        request_words = set(request_lower.split())
-        
-        for func in available_functions:
-            # Check function name and description
-            name_match = func["name"].lower() in request_lower
-            desc_match = func.get("description", "").lower() in request_lower
-            
-            # Check for word matches in both name and description
-            func_name_words = set(func["name"].lower().split())
-            func_desc_words = set(func.get("description", "").lower().split())
-            
-            # Calculate word overlap
-            name_word_overlap = bool(func_name_words & request_words)
-            desc_word_overlap = bool(func_desc_words & request_words)
-            
-            if name_match or desc_match or name_word_overlap or desc_word_overlap:
-                # Calculate a simple relevance score based on matches
-                if name_match and desc_match:
-                    relevance_score = 0.5
-                elif name_match or desc_match:
-                    relevance_score = 0.5
-                elif name_word_overlap and desc_word_overlap:
-                    relevance_score = 0.5
-                elif name_word_overlap or desc_word_overlap:
-                    relevance_score = 0.4
-                else:
-                    relevance_score = 0.3
-                
-                # Try to infer parameters from the request
-                inferred_params = {}
-                if "parameter_schema" in func and "properties" in func["parameter_schema"]:
-                    for param_name, param_schema in func["parameter_schema"]["properties"].items():
-                        # Look for parameter values in the request
-                        param_desc = param_schema.get("description", "").lower()
-                        if param_desc in request_lower:
-                            # Extract the value after the parameter description
-                            value_start = request_lower.find(param_desc) + len(param_desc)
-                            value_end = request_lower.find(" ", value_start)
-                            if value_end == -1:
-                                value_end = len(request_lower)
-                            value = request_lower[value_start:value_end].strip()
-                            if value:
-                                inferred_params[param_name] = value
-                
-                # Log the fallback matching details
-                self.logger.info(
-                    "Fallback Matching Details",
-                    extra={
-                        "user_request": user_request,
-                        "function_name": func["name"],
-                        "name_match": name_match,
-                        "desc_match": desc_match,
-                        "name_word_overlap": name_word_overlap,
-                        "desc_word_overlap": desc_word_overlap,
-                        "relevance_score": relevance_score,
-                        "inferred_params": inferred_params
-                    }
-                )
-                
-                func["match_info"] = {
-                    "relevance_score": relevance_score,
-                    "explanation": "Basic text matching",
-                    "inferred_params": inferred_params,
-                    "considerations": ["Using basic text matching - results may be less accurate"],
-                    "domain": "unknown",
-                    "operation_type": "unknown"
-                }
-                matches.append(func)
-        
-        # Sort matches by relevance score
-        matches.sort(key=lambda x: x["match_info"]["relevance_score"], reverse=True)
-        
-        return matches 
-
-class FunctionRegistry:
+class InternalFunctionRegistry:
     """
-    Registry for functions that can be called by the agent.
+    Registry for LOCAL/INTERNAL functions within a service (same process).
     
-    This implementation supports DDS-based distributed function discovery
-    and execution, where functions can be provided by:
-    1. Other agents with specific expertise
-    2. Traditional ML models wrapped as function providers
-    3. Planning agents for complex task decomposition
-    4. Simple procedural code exposed as functions
+    ⚠️  ARCHITECTURE NOTE: This registry is for INTERNAL functions only!
+    For discovering functions from OTHER applications, use DDSFunctionDiscovery instead.
+    
+    Use InternalFunctionRegistry when:
+    - Registering functions that exist in THIS service/process
+    - Publishing function advertisements to the network
+    - Managing local function metadata and execution
+    
+    Do NOT use InternalFunctionRegistry for:
+    - Discovering functions from other services (use DDSFunctionDiscovery)
+    - Agent-side function discovery (agents should use DDSFunctionDiscovery)
+    
+    This implementation supports DDS-based distributed function advertisement
+    where functions are provided by:
+    1. Service methods decorated with @genesis_function
+    2. Programmatically registered functions via register_function()
+    3. MCP server tools exported as Genesis functions
     
     The distributed implementation uses DDS topics for:
-    - Function capability advertisement
-    - Function discovery and matching
-    - Function execution requests via DDS RPC
-    - Function execution results via DDS RPC
+    - Function capability advertisement (publishes to GenesisAdvertisement)
+    - Function execution via DDS RPC (handled by GenesisReplier)
     """
     
     def __init__(self, participant=None, domain_id=0, enable_discovery_listener: bool = True):
@@ -603,9 +425,6 @@ class FunctionRegistry:
             self.execution_client = None
             logger.info("FunctionRegistry initialized with discovery listener DISABLED.")
         
-        # Initialize function matcher with LLM support
-        self.matcher = FunctionMatcher()
-        
         logger.debug("FunctionRegistry initialized successfully")
     
     def register_function(self, 
@@ -700,58 +519,6 @@ class FunctionRegistry:
                         })
             raise
     
-    def find_matching_functions(self,
-                              user_request: str,
-                              min_similarity: float = 0.7) -> List[FunctionInfo]:
-        """
-        Find functions that match the user's request.
-
-        Args:
-            user_request: Natural-language request
-            min_similarity: Minimum similarity score (0-1)
-
-        Returns:
-            List[FunctionInfo] annotated with `match_info` per item, where
-            match_info has the shape:
-            {
-              "relevance_score": float,
-              "explanation": str,
-              "inferred_params": Dict[str, Any],
-              "considerations": List[str],
-              "domain": str,
-              "operation_type": str
-            }
-        """
-        # Convert functions to format expected by matcher
-        available_functions = [
-            {
-                "name": func.name,
-                "description": func.description,
-                "parameter_schema": func.schema,
-                "capabilities": func.categories,
-                "performance_metrics": func.performance_metrics,
-                "security_requirements": func.security_requirements
-            }
-            for func in self.functions.values()
-        ]
-        
-        # Find matches using the matcher
-        matches = self.matcher.find_matching_functions(
-            user_request=user_request,
-            available_functions=available_functions,
-            min_similarity=min_similarity
-        )
-        
-        # Convert matches back to FunctionInfo objects
-        result = []
-        for match in matches:
-            function_id = self.function_by_name.get(match["name"])
-            if function_id and function_id in self.functions:
-                func_info = self.functions[function_id]
-                func_info.match_info = match.get("match_info", {})
-                result.append(func_info)
-        
-        return result
     
     def _advertise_function(self, function_info: FunctionInfo):
         """Advertise function capability via unified Advertisement topic"""

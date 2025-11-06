@@ -1676,22 +1676,23 @@ Be specific and accurate based on the actual tools and methods available."""
     
     def _get_available_functions(self) -> Dict[str, Any]:
         """
-        Get currently available functions from FunctionRegistry via GenericFunctionClient.
-        This is the single source of truth for function availability, querying DDS directly.
+        Get currently available functions by reading from DDS directly via DDSFunctionDiscovery.
+        Uses DDS DataReader as the single source of truth (no caching).
         Available to all agents regardless of LLM backend (OpenAI, Anthropic, custom).
         
         Returns:
             Dict[str, Dict]: Dictionary keyed by function name, containing:
-                - function_id: Unique identifier for the function
+                - function_id: Unique identifier
                 - description: Human-readable description
-                - schema: JSON schema for function parameters
+                - schema: JSON schema for parameters
                 - provider_id: ID of the service providing this function
         """
         # Lazy init GenericFunctionClient if needed
         if not hasattr(self, '_generic_client'):
             from genesis_lib.generic_function_client import GenericFunctionClient
+            # Pass the DDSFunctionDiscovery from app
             self._generic_client = GenericFunctionClient(
-                function_registry=self.app.function_registry
+                discovery=self.app.function_discovery
             )
         
         functions = self._generic_client.list_available_functions()
@@ -2091,6 +2092,9 @@ Be specific and accurate based on the actual tools and methods available."""
         """
         user_message = request.get("message", "")
         
+        # Store user message for tool classification (used by provider implementations)
+        self._current_user_message = user_message
+        
         # Ensure internal tools are discovered
         await self._ensure_internal_tools_discovered()
         
@@ -2103,6 +2107,9 @@ Be specific and accurate based on the actual tools and methods available."""
         
         # Get tools in provider-specific format
         tools = await self._get_tool_schemas()
+        
+        # Clear the message after tool schema generation
+        self._current_user_message = None
         
         if not tools:
             # Simple conversation (no tools available)

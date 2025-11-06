@@ -3,7 +3,7 @@ Genesis Application Base Class - DDS Infrastructure Foundation
 
 This module provides the foundational base class `GenesisApp` that serves as the core
 integration point for all components in the Genesis framework. It establishes the
-essential DDS infrastructure, function registration capabilities, and lifecycle
+essential DDS infrastructure, function discovery capabilities, and lifecycle
 management that are required by both agents and interfaces.
 
 =================================================================================================
@@ -13,7 +13,7 @@ ARCHITECTURE OVERVIEW - Understanding the GenesisApp Foundation
 GenesisApp is the foundational infrastructure layer that provides:
 
 1. **DDS Infrastructure**: Participant, publisher, subscriber, and QoS management
-2. **Function Discovery**: Automatic registration and discovery of network functions
+2. **Function Discovery**: Access to DDSFunctionDiscovery for reading function advertisements
 3. **Resource Management**: Lifecycle management for DDS entities and resources
 4. **Error Handling**: Pattern-based error detection and recovery mechanisms
 5. **Integration Point**: Common base for GenesisAgent and GenesisInterface
@@ -41,7 +41,7 @@ GenesisApp establishes the DDS infrastructure required for real-time communicati
 
 1. **Participant Management**: Creates and manages DDS domain participants
 2. **QoS Configuration**: Optimizes reliability, durability, and performance
-3. **Topic Management**: Handles unified advertisement and function discovery topics
+3. **Topic Management**: Handles unified advertisement and discovery topics
 4. **Resource Lifecycle**: Ensures proper cleanup and resource management
 
 The infrastructure supports:
@@ -54,18 +54,19 @@ The infrastructure supports:
 FUNCTION DISCOVERY - Network Service Integration
 =================================================================================================
 
-GenesisApp provides comprehensive function discovery capabilities:
+GenesisApp provides DDSFunctionDiscovery for discovering functions from other applications:
 
-1. **Automatic Registration**: Functions are automatically discovered and registered
-2. **Network-Wide Discovery**: Functions from all participants are available
-3. **Dynamic Updates**: Real-time updates as functions come online/offline
-4. **Metadata Management**: Rich function metadata for intelligent routing
+1. **Direct DDS Access**: Reads from DDS Advertisement DataReader without caching
+2. **On-Demand Queries**: Functions are queried when needed, not cached
+3. **Real-time View**: Always reflects current network state
+4. **Stateless Design**: No callbacks, no local state beyond DataReader
 
 This enables:
-- **Service Mesh**: Automatic discovery of network services
-- **Load Balancing**: Intelligent routing to available function instances
-- **Fault Tolerance**: Automatic failover to healthy instances
-- **Scalability**: Dynamic scaling as services are added/removed
+- **Agent Discovery**: Agents use self.app.function_discovery to find available functions
+- **Client Integration**: GenericFunctionClient uses DDSFunctionDiscovery for function lookup
+- **Dynamic Tool Sets**: LLMs get current function list each time they need it
+
+Note: For INTERNAL function registration (within a service), use InternalFunctionRegistry instead.
 
 =================================================================================================
 ERROR HANDLING - Pattern-Based Recovery
@@ -110,13 +111,14 @@ USAGE PATTERNS - Common Integration Scenarios
    # GenesisAgent automatically creates GenesisApp
    agent = OpenAIGenesisAgent(agent_name="MyAgent")
    # DDS infrastructure is automatically available
+   # Discovery: agent.app.function_discovery.list_functions()
    ```
 
 2. **Interface Integration** (Manual):
    ```python
    # GenesisInterface uses GenesisApp for DDS infrastructure
    interface = GenesisInterface()
-   # Function discovery and DDS communication available
+   # Function discovery available via interface.app.function_discovery
    ```
 
 3. **Custom Component Integration**:
@@ -124,7 +126,7 @@ USAGE PATTERNS - Common Integration Scenarios
    # Create GenesisApp for custom components
    app = GenesisApp(domain_id=0, preferred_name="CustomComponent")
    # Access DDS infrastructure and function discovery
-   functions = app.get_available_functions()
+   functions = app.function_discovery.list_functions()
    ```
 
 =================================================================================================
@@ -156,7 +158,8 @@ import time
 from typing import Dict, List, Any, Optional, Callable
 import uuid
 import rti.connextdds as dds
-from genesis_lib.function_discovery import FunctionRegistry, FunctionInfo
+from genesis_lib.dds_function_discovery import DDSFunctionDiscovery
+from genesis_lib.function_discovery import FunctionInfo
 from .function_patterns import SuccessPattern, FailurePattern, pattern_registry
 import os
 import traceback
@@ -246,16 +249,15 @@ class GenesisApp:
         # AUTOMATIC liveliness (2s lease), SHARED ownership, ASYNCHRONOUS publish mode
         # This provides a single source of truth for DDS QoS configuration
         
-        # Initialize function registry and pattern registry
-        logger.debug("===== DDS TRACE: Initializing FunctionRegistry in GenesisApp =====")
-        self.function_registry = FunctionRegistry(self.participant, domain_id)
-        logger.debug(f"===== DDS TRACE: FunctionRegistry initialized with participant {self.participant.instance_handle} =====")
+        # Initialize function discovery (reads from DDS, no caching)
+        logger.debug("===== DDS TRACE: Initializing DDSFunctionDiscovery in GenesisApp =====")
+        self.function_discovery = DDSFunctionDiscovery(self.participant, domain_id)
+        logger.debug(f"===== DDS TRACE: DDSFunctionDiscovery initialized with participant {self.participant.instance_handle} =====")
         self.pattern_registry = pattern_registry
         
-        # Register built-in functions
-        logger.debug("===== DDS TRACE: Starting built-in function registration =====")
-        self._register_builtin_functions()
-        logger.debug("===== DDS TRACE: Completed built-in function registration =====")
+        # Note: No built-in function registration needed - GenesisApp is for discovery only
+        # Services use InternalFunctionRegistry for registering their own functions
+        logger.debug("===== DDS TRACE: GenesisApp initialization complete =====")
         
         logger.info(f"GenesisApp initialized with agent_id={self.agent_id}, dds_guid={self.dds_guid}")
 
@@ -263,44 +265,10 @@ class GenesisApp:
     # FUNCTION DISCOVERY METHODS - NETWORK SERVICE INTEGRATION
     # =============================================================================
     # Methods for discovering and accessing network functions and services
+    # Note: GenesisApp provides DDSFunctionDiscovery for reading function advertisements.
+    # Use self.function_discovery.list_functions() to discover available functions.
     # =============================================================================
     
-    def get_available_functions(self) -> Dict[str, Dict[str, Any]]:
-        """
-        Get all currently discovered functions available on the network.
-        
-        This method provides a real-time snapshot of all functions discovered
-        across the Genesis network. Functions are automatically discovered and
-        registered as participants come online/offline.
-        
-        Returns:
-            Dictionary mapping function_id to function details:
-            - name: Human-readable function name
-            - description: Function description and capabilities
-            - provider_id: ID of the service providing this function
-            - schema: JSON schema for function parameters
-            - metadata: Additional function metadata
-            
-        Examples:
-            # Get all available functions
-            functions = app.get_available_functions()
-            print(f"Found {len(functions)} functions")
-            
-            # Access specific function details
-            for func_id, details in functions.items():
-                print(f"Function: {details['name']}")
-                print(f"Description: {details['description']}")
-                
-        Note:
-            This method returns a snapshot at the time of the call. For real-time
-            updates, use the FunctionRegistry's event system or polling.
-        """
-        if hasattr(self, 'function_registry') and self.function_registry:
-            return self.function_registry.get_all_discovered_functions()
-        else:
-            logger.warning("FunctionRegistry not available in GenesisApp, cannot get available functions.")
-            return {}
-
     # =============================================================================
     # LIFECYCLE MANAGEMENT METHODS - RESOURCE CLEANUP
     # =============================================================================
@@ -357,6 +325,14 @@ class GenesisApp:
             return
 
         try:
+            # Close function discovery first
+            try:
+                if hasattr(self, 'function_discovery') and self.function_discovery:
+                    self.function_discovery.close()
+                    logger.debug("Function discovery closed")
+            except Exception as e:
+                logger.warning(f"Error closing function discovery: {e}")
+            
             # Close subscriber first (reverse order of creation)
             try:
                 self.subscriber.close()
@@ -391,18 +367,6 @@ class GenesisApp:
             # Always mark as closed, even if there were errors
             self._closed = True
             logger.info(f"GenesisApp {self.agent_id} closed")
-
-    # =============================================================================
-    # INTERNAL METHODS - INFRASTRUCTURE SETUP
-    # =============================================================================
-    # Internal methods for setting up DDS infrastructure and function registration
-    # =============================================================================
-    
-    def _register_builtin_functions(self):
-        """Register any built-in functions for this application"""
-        logger.debug("===== DDS TRACE: _register_builtin_functions called =====")
-        # Override this method in subclasses to register built-in functions
-        pass
 
     # =============================================================================
     # FUNCTION EXECUTION METHODS - PATTERN-BASED ERROR HANDLING
