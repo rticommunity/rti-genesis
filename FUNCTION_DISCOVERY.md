@@ -3,15 +3,16 @@
 ### Architecture Overview
 - Registry (`genesis_lib.function_discovery.FunctionRegistry`):
   - Registers local functions, advertises them to DDS (`GenesisAdvertisement`), discovers remote ones
-  - Exposes APIs to query and match functions
-- Matcher (`FunctionMatcher`): Optional LLM-assisted matching, with robust fallback
+  - Exposes APIs to query available functions
 - Listener (`GenesisAdvertisementListener`): Reads unified ads via a content-filtered topic (FUNCTION kind)
+- For intelligent function selection, use `FunctionClassifier` from `genesis_lib.function_classifier`
 
 ### Data Flow
 1. Service creates `FunctionRegistry` (typically via `GenesisService`)
 2. Service registers functions → Registry publishes `GenesisAdvertisement(kind=FUNCTION)`
 3. Peers receive ads and call `handle_advertisement()`
-4. Consumers query `get_all_discovered_functions()` or use `find_matching_functions()`
+4. Consumers query `get_all_discovered_functions()`
+5. For intelligent selection, use `FunctionClassifier.classify_functions()` with LLM-based semantic analysis
 
 ### Advertisement Payload Schema (JSON)
 ```json
@@ -41,18 +42,30 @@
       "capability": {"service_name": "CalculatorService"}
     }
     ```
-- `find_matching_functions(user_request: str) -> List[FunctionInfo]`
-  - Each `FunctionInfo.match_info` has:
-    ```json
-    {
-      "relevance_score": 0.5,
-      "explanation": "Basic text matching",
-      "inferred_params": {},
-      "considerations": ["..."],
-      "domain": "unknown",
-      "operation_type": "unknown"
-    }
-    ```
+
+### Intelligent Function Selection
+For matching user requests to available functions, use the `FunctionClassifier`:
+
+```python
+from genesis_lib.function_classifier import FunctionClassifier
+from genesis_lib.llm_factory import LLMFactory
+
+# Initialize classifier with LLM
+classifier = FunctionClassifier()
+classifier.llm = LLMFactory.create_llm(purpose="classifier", provider="openai")
+
+# Get available functions
+available_functions = registry.get_all_discovered_functions()
+
+# Classify functions based on user request
+relevant_functions = classifier.classify_functions(
+    query="add two numbers",
+    functions=list(available_functions.values())
+)
+```
+
+The `FunctionClassifier` uses LLM-based semantic analysis to intelligently match user
+requests to relevant functions, following Genesis's agentic design principles.
 
 ### Usage Example
 ```python
@@ -77,7 +90,11 @@ class CalculatorService(GenesisService):
 # Discovery (consumer side)
 registry = CalculatorService(...).registry
 functions = registry.get_all_discovered_functions()
-matches = registry.find_matching_functions("add two numbers")
+
+# Use FunctionClassifier for intelligent selection
+from genesis_lib.function_classifier import FunctionClassifier
+classifier = FunctionClassifier(llm=your_llm_client)
+relevant = classifier.classify_functions("add two numbers", list(functions.values()))
 ```
 
 ### Notes
@@ -87,5 +104,7 @@ matches = registry.find_matching_functions("add two numbers")
   - INFO: business events (ads discovered/processed)
   - DEBUG: detailed traces
   - ERROR: unexpected exceptions
+- For function selection, always use `FunctionClassifier` with LLM-based semantic analysis
+  rather than keyword/regex matching to ensure agentic behavior
 
 
