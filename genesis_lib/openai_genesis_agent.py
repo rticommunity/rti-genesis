@@ -261,10 +261,10 @@ class OpenAIGenesisAgent(MonitoredAgent):
         self.openai_tool_choice = os.getenv("GENESIS_TOOL_CHOICE", "auto")
         
         # Initialize generic function client for RPC calls
-        # Uses the agent's FunctionRegistry (shared with GenesisApp) for function discovery
+        # Uses the agent's DDSFunctionDiscovery (shared with GenesisApp) for function discovery
         # This is provider-agnostic - same for all LLM providers
-        logger.debug(f"===== TRACING: Initializing GenericFunctionClient using agent app's FunctionRegistry: {id(self.app.function_registry)} =====")
-        self.generic_client = GenericFunctionClient(function_registry=self.app.function_registry)
+        logger.debug(f"===== TRACING: Initializing GenericFunctionClient using agent app's DDSFunctionDiscovery: {id(self.app.function_discovery)} =====")
+        self.generic_client = GenericFunctionClient(discovery=self.app.function_discovery)
         
         # Initialize function classifier (OpenAI-specific)
         # Used to intelligently select relevant functions from large function sets

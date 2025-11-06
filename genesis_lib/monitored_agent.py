@@ -434,15 +434,10 @@ class MonitoredAgent(GenesisAgent):
         Note: self.app and self.app.participant are guaranteed to exist here because
         super().__init__() would have raised an exception if they failed to create.
         """
-        # Register callback to publish graph topology when functions are discovered
-        # This is critical for network monitoring and visualization
-        if self.enable_monitoring and hasattr(self.app, 'function_registry') and self.app.function_registry:
-            logger.info(f"✅ Registering discovery callback for agent {self.agent_name} (ID: {self.app.agent_id})")
-            self.app.function_registry.add_discovery_callback(self._on_function_discovered)
-        elif not self.enable_monitoring:
-            logger.debug(f"Monitoring disabled - skipping discovery callback registration for {self.agent_name}")
-        else:
-            logger.error(f"❌ CRITICAL: Cannot register discovery callback - function_registry not available for agent {self.agent_name}")
+        # Note: Function discovery is now stateless via DDSFunctionDiscovery
+        # Graph topology for discovered functions is published on-demand when functions are called
+        # rather than via discovery callbacks. This aligns with the DDS-as-source-of-truth architecture.
+        logger.debug(f"Function discovery setup complete for {self.agent_name} - using on-demand DDS reads")
     
     def _on_function_discovered(self, function_id: str, function_info: Dict[str, Any]):
         """

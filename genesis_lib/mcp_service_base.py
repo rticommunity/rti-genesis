@@ -86,7 +86,7 @@ new tools appear automatically after `list_tools()`. Decorating with
 import logging
 import textwrap
 from genesis_lib.monitored_service import MonitoredService
-from genesis_lib.function_discovery import FunctionRegistry
+from genesis_lib.function_discovery import InternalFunctionRegistry
 from genesis_lib.decorators import genesis_function
 from typing import List, Optional
 
@@ -117,7 +117,7 @@ class MCPServiceBase():
     - run() → serve requests
     """
 
-    def __init__(self, service_name: str, capabilities: List[str], participant=None, domain_id=0, registry: FunctionRegistry = None):
+    def __init__(self, service_name: str, capabilities: List[str], participant=None, domain_id=0, registry: InternalFunctionRegistry = None):
         """
         Initialize the MCP service with a name and capabilities.
         
@@ -140,7 +140,7 @@ class MCPServiceBase():
         self.capabilities = capabilities
         self.participant = participant
         self.domain_id = domain_id
-        self.registry = registry or FunctionRegistry()
+        self.registry = registry or InternalFunctionRegistry()
         self.mcp_session: Optional[ClientSession] = None
         self.exit_stack = AsyncExitStack()
         

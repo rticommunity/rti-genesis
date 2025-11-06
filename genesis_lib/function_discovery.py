@@ -208,22 +208,31 @@ class AdvertisementPayload:
         })
 
 
-class FunctionRegistry:
+class InternalFunctionRegistry:
     """
-    Registry for functions that can be called by the agent.
+    Registry for LOCAL/INTERNAL functions within a service (same process).
     
-    This implementation supports DDS-based distributed function discovery
-    and execution, where functions can be provided by:
-    1. Other agents with specific expertise
-    2. Traditional ML models wrapped as function providers
-    3. Planning agents for complex task decomposition
-    4. Simple procedural code exposed as functions
+    ⚠️  ARCHITECTURE NOTE: This registry is for INTERNAL functions only!
+    For discovering functions from OTHER applications, use DDSFunctionDiscovery instead.
+    
+    Use InternalFunctionRegistry when:
+    - Registering functions that exist in THIS service/process
+    - Publishing function advertisements to the network
+    - Managing local function metadata and execution
+    
+    Do NOT use InternalFunctionRegistry for:
+    - Discovering functions from other services (use DDSFunctionDiscovery)
+    - Agent-side function discovery (agents should use DDSFunctionDiscovery)
+    
+    This implementation supports DDS-based distributed function advertisement
+    where functions are provided by:
+    1. Service methods decorated with @genesis_function
+    2. Programmatically registered functions via register_function()
+    3. MCP server tools exported as Genesis functions
     
     The distributed implementation uses DDS topics for:
-    - Function capability advertisement
-    - Function discovery and matching
-    - Function execution requests via DDS RPC
-    - Function execution results via DDS RPC
+    - Function capability advertisement (publishes to GenesisAdvertisement)
+    - Function execution via DDS RPC (handled by GenesisReplier)
     """
     
     def __init__(self, participant=None, domain_id=0, enable_discovery_listener: bool = True):
