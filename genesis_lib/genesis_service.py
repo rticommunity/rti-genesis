@@ -56,9 +56,10 @@ class GenesisService(GenesisReplier):
         # Create participant FIRST if needed, before calling super().__init__
         if participant is None:
             import rti.connextdds as dds
-            qos = dds.DomainParticipantQos()
-            qos.transport_builtin.mask = dds.TransportBuiltinMask.UDPv4
-            participant = dds.DomainParticipant(domain_id, qos)
+            # Transport configuration (UDPv4) is set in USER_QOS_PROFILES.xml
+            # UDPv4 is the default for Genesis distributed systems; users can modify the XML
+            # to use shared memory (SHMEM) or other transports for single-host deployments.
+            participant = dds.DomainParticipant(domain_id)
         
         # Now call parent __init__ with the participant and service_type
         # V2 uses 'service_type' parameter instead of 'service_name'
@@ -74,7 +75,7 @@ class GenesisService(GenesisReplier):
         self._call_ids = {}
         self.logger = logging.getLogger("genesis_service")
         
-        # Create or use provided FunctionRegistry
+        # Local registry for this service's own functions (discovery disabled; DDS handles discovery)
         self.registry = registry if registry is not None else FunctionRegistry(
             participant=self.participant,
             domain_id=domain_id,
@@ -83,6 +84,9 @@ class GenesisService(GenesisReplier):
         self.registry.service_base = self
         
         # Get GUID from Advertisement writer
+        # The FunctionRegistry owns the DDS Advertisement writer and advertises this service's functions.
+        # Use the writer's instance_handle as the app GUID so advertisements and monitoring share a stable provider_id.
+        # Fallback to participant handle if the writer is not available.
         self.app_guid = str(self.registry.advertisement_writer.instance_handle) if self.registry.advertisement_writer else str(self.participant.instance_handle)
 
         # Auto-register decorated functions
@@ -90,7 +94,7 @@ class GenesisService(GenesisReplier):
 
     def _auto_register_decorated_functions(self):
         """
-        Automatically discover and register methods decorated with @genesis_function.
+        Automatically find and register methods decorated with @genesis_function.
         
         Scans the service instance for methods with __genesis_meta__ attribute
         and registers them as callable functions.
@@ -119,6 +123,13 @@ class GenesisService(GenesisReplier):
         """
         Register a function with enhanced metadata.
         
+        This is the programmatic alternative to using the @genesis_function decorator.
+        Decorated methods are auto-found and forwarded here; call this directly to
+        register functions without decorators (e.g., dynamically created callables,
+        wrappers, or functions loaded from external modules/config) by supplying
+        explicit description and parameter schema.
+        Both paths converge to the same pipeline (wrapping, local registry, DDS advertisement).
+
         Args:
             func: The function to register
             description: Human-readable description of the function
@@ -182,10 +193,15 @@ class GenesisService(GenesisReplier):
             schema = json.loads(func_data["tool"].function.parameters)
             description = func_data["tool"].function.description
             capabilities = self.service_capabilities.copy()
+            # operation_type: optional per-function classification tag (e.g., "analysis").
+            # Used to append a keyword to capabilities for better discovery/prompting; execution is unchanged.
+            # Needed so dynamic services can expose fine-grained tags beyond service-level capabilities.
             if func_data.get("operation_type"):
                 capabilities.append(func_data["operation_type"])
 
             # Register the function in the FunctionRegistry to obtain the canonical function_id
+            # Note: performance_metrics and security_requirements are placeholders that demonstrate
+            # the pattern for future performance-based routing or security filtering implementations.
             function_id = self.registry.register_function(
                 func=func_data["implementation"],
                 description=description,

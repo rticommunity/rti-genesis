@@ -55,12 +55,12 @@ echo "Running test client..."
 python -c "
 import sys
 import asyncio
-from genesis_lib.rpc_client import GenesisRPCClient
+from genesis_lib.requester import GenesisRequester
 
 async def test_calculator():
     try:
         # Create client and wait for service
-        client = GenesisRPCClient(service_type='CalculatorService')
+        client = GenesisRequester(service_type='CalculatorService')
         print('Waiting for calculator service to be available...')
         await client.wait_for_service(timeout_seconds=10)
 

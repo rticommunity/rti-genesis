@@ -110,6 +110,7 @@ class MonitoredService(GenesisService):
             participant: Optional DDS participant (if None, one will be created)
             domain_id: DDS domain ID (default: 0)
             registry: Optional FunctionRegistry instance (if None, one will be created)
+                      Allows dependency injection for tests or preconfigured discovery/QoS settings.
             enable_monitoring: Enable monitoring and observability features (default True)
                               When False: No GraphMonitor created, no state tracking, no events published
                               Use False for: lightweight testing, performance benchmarking, minimal deployments
@@ -207,10 +208,15 @@ class MonitoredService(GenesisService):
             schema = json.loads(func_data["tool"].function.parameters)
             description = func_data["tool"].function.description
             capabilities = self.service_capabilities.copy()
+            # operation_type: optional per-function classification tag (e.g., "analysis").
+            # Used to append a keyword to capabilities for better discovery/prompting; execution is unchanged.
+            # Needed so dynamic services can expose fine-grained tags beyond service-level capabilities.
             if func_data.get("operation_type"):
                 capabilities.append(func_data["operation_type"])
 
             # Register the function in the FunctionRegistry to obtain the canonical function_id
+            # Note: performance_metrics and security_requirements are placeholders that demonstrate
+            # the pattern for future performance-based routing or security filtering implementations.
             function_id = self.registry.register_function(
                 func=func_data["implementation"],
                 description=description,

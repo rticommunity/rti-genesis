@@ -13,8 +13,8 @@ GENESIS_LIB_LOGGERS = [
     "genesis_lib.function_classifier",
     "genesis_lib.function_discovery",
     "genesis_lib.generic_function_client",
-    "genesis_lib.rpc_client",
-    "genesis_lib.rpc_service",
+    "genesis_lib.requester",
+    "genesis_lib.replier",
     "genesis_lib.genesis_app",
     # Add other genesis_lib logger names here as they are created
 ]
