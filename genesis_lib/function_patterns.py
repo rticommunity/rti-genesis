@@ -1,20 +1,74 @@
 # Copyright (c) 2025, RTI & Jason Upchurch
 
 """
-Function success and failure patterns for the GENESIS distributed system.
+Function Patterns - Pattern-Based Result Classification for Genesis
 
-NOTE: This module is not currently in use in the codebase. It is kept for potential future use
-when a more robust pattern-based error handling system is needed. The current implementation
-handles errors directly in:
-- GenericFunctionClient for function discovery and calling
-- OpenAIGenesisAgent for agent-specific error handling
-- utils/function_utils.py for function utilities
+This module provides the pattern registry used to classify function results and exceptions
+into structured success/error outcomes with optional recovery hints. It is used by
+`genesis_lib.genesis_app.GenesisApp` to analyze results returned from function execution.
 
-The module provides useful abstractions for:
-- Pattern-based success/failure detection
-- Structured error handling with recovery hints
-- Type-based and regex-based pattern matching
-- Centralized pattern registry
+=================================================================================================
+ARCHITECTURE OVERVIEW - Components
+=================================================================================================
+
+1) SuccessPattern / FailurePattern (Data Models)
+   - Declarative descriptions of what “success” and “failure” look like
+   - Support regex, type checks, value ranges, and exception types
+
+2) FunctionPatternRegistry (Runtime Classifier)
+   - Registers patterns per function ID
+   - `check_result(function_id, result_or_exception)` → (is_success, error_code, recovery_hint)
+
+3) pattern_registry (Global Instance)
+   - Shared registry instance imported by `GenesisApp`
+   - Enables centralized, consistent classification across the system
+
+=================================================================================================
+CURRENT RUNTIME USAGE - Where It’s Used Today
+=================================================================================================
+
+- `genesis_lib.genesis_app.GenesisApp`:
+  • Stores `self.pattern_registry = pattern_registry`
+  • Calls `check_result(...)` after function execution to classify success/failure
+  • On failure, returns structured fields: error_code, message, recovery_hint
+
+Call Chain (simplified):
+```
+execute_function(...) → result/exception
+  → self.pattern_registry.check_result(function_id, result_or_exception)
+  → structured response (status, error_code, recovery_hint)
+```
+
+=================================================================================================
+WHY THIS MATTERS - Role vs Decorators and Schema Generation
+=================================================================================================
+
+- Decorators (`@genesis_function`, `@genesis_tool`) capture provider‑agnostic metadata
+  and infer/define schemas for function/tool invocation and validation.
+- Schema generators (`schema_generators.py`) convert that universal metadata into
+  provider‑specific tool schemas (OpenAI, Anthropic, local).
+- Function patterns (THIS MODULE) classify outcomes AFTER execution, independent of
+  how schemas were created or which provider was used.
+
+Separation of concerns:
+- Decorators/schema: how to call a function/tool (input/shape, validation, provider formats)
+- Patterns/registry: how to interpret the result (success/failure classification, recovery)
+
+This split keeps classification logic centralized and provider‑agnostic, while allowing
+providers to evolve their schema formats without touching runtime error/result semantics.
+
+=================================================================================================
+STATUS & TODO
+=================================================================================================
+
+Implemented:
+- Type/regex/value‑range/exception‑based pattern checks
+- Global registry with common example patterns (calculator, letter counter)
+
+TODO (future enhancements):
+- Add composable policies (e.g., AND/OR of patterns, thresholds)
+- Enrich failure metadata (severity, category) and analytics hooks
+- Support structured result paths (e.g., JSONPointer selectors)
 """
 
 from typing import Dict, Any, List, Optional

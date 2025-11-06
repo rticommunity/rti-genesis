@@ -465,10 +465,49 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         """
         Get all tool schemas in provider-specific format.
         
+        Uses FunctionClassifier to pre-filter functions when there are many available,
+        reducing token usage and improving LLM performance.
+        
         Returns:
             List of tool schemas in OpenAI format
         """
-        return self._get_all_tool_schemas_for_openai()
+        relevant_functions = None
+        
+        # Use FunctionClassifier if we have a user message and many functions
+        if hasattr(self, '_current_user_message') and self._current_user_message:
+            available_functions = self._get_available_functions()
+            
+            # Only classify if we have many functions (threshold: 10)
+            if len(available_functions) > 10 and self.function_classifier:
+                logger.debug(f"===== TRACING: Using FunctionClassifier to filter {len(available_functions)} functions =====")
+                
+                try:
+                    # Convert to format expected by classifier
+                    functions_list = [
+                        {
+                            "name": name,
+                            "description": info["description"],
+                            "schema": info["schema"]
+                        }
+                        for name, info in available_functions.items()
+                    ]
+                    
+                    # Classify functions based on user request
+                    relevant_funcs = self.function_classifier.classify_functions(
+                        query=self._current_user_message,
+                        functions=functions_list
+                    )
+                    
+                    # Extract function names
+                    relevant_functions = [f["name"] for f in relevant_funcs]
+                    
+                    logger.debug(f"===== TRACING: FunctionClassifier selected {len(relevant_functions)} relevant functions =====")
+                    
+                except Exception as e:
+                    logger.warning(f"Function classification failed, using all functions: {e}")
+                    relevant_functions = None
+        
+        return self._get_all_tool_schemas_for_openai(relevant_functions)
     
     def _get_tool_choice(self) -> str:
         """

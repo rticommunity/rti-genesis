@@ -1,18 +1,52 @@
 #!/usr/bin/env python3
 """
-Unified Graph Monitoring Helper for Genesis
+Unified Graph Monitoring — Topology and Event Publishing
 
-Provides a single interface for publishing node and edge events
-to DDS (ComponentLifecycleEvent), with optional legacy MonitoringEvent
-support for backward compatibility.
+Provides a single, consistent interface for publishing graph topology (nodes/edges)
+and lifecycle events to DDS. Consolidates multiple prior topics into:
+- GraphTopology (durable): Nodes and edges for visualization and topology state
+- Event (volatile): Lifecycle and chain events for monitoring and tracing
 
-- publish_node: emits NODE_DISCOVERY for agents, interfaces, services, functions
-- publish_edge: emits EDGE_DISCOVERY for connections (DDS, agent, function, etc.)
+=================================================================================================
+ARCHITECTURE OVERVIEW — What This Module Does
+=================================================================================================
 
-DDS setup is handled as a singleton per process.
-Enums/constants are shared for all monitoring users.
+- GraphTopology writer (TRANSIENT_LOCAL, RELIABLE) for durable topology
+  visualization. Publishes:
+  - Nodes: agents, interfaces, services, functions
+  - Edges: connections (DDS endpoints, agent-to-agent, agent-to-service, etc.)
+- Event writer (VOLATILE, RELIABLE) for lifecycle/chain events
+  - Used by agents/services for operational monitoring and tracing
+- One set of writers per DDS participant, shared across components in-process
 
-Legacy MonitoringEvent emission is controlled by GENESIS_MON_LEGACY=1.
+Topic Sharing Pattern:
+- Multiple Genesis components (Interface, Agent, Services) can share a single
+  `dds.DomainParticipant` for efficiency.
+- Topics must be unique within a participant. We use a process-wide registry
+  keyed by (participant_id, topic_name) to reuse the same Topic instances.
+- Cleanup is delegated to `participant.close()`, which closes all DDS entities.
+
+Failure Handling & Cleanup:
+- Topic creation failures fall back to creation after lookup; on unexpected errors,
+  exceptions propagate during initialization (allowing callers to handle).
+- No explicit `close()` on topics/writers; participant lifecycle manages cleanup.
+
+Thread-safety:
+- Writer bundle creation is protected by a class-level lock in `_DDSWriters`.
+- One writer bundle per participant ensures consistent reuse across components.
+
+Public API:
+- `GraphMonitor(participant)`
+- `GraphMonitor.publish_node(component_id, component_type, state, attrs=None)`
+- `GraphMonitor.publish_edge(source_id, target_id, edge_type, attrs=None, component_type=None)`
+
+Usage:
+    monitor = GraphMonitor(participant)
+    monitor.publish_node(agent_id, COMPONENT_TYPE["AGENT_PRIMARY"], STATE["READY"], {"agent_name": "WeatherAgent"})
+    monitor.publish_edge(agent_id, service_id, EDGE_TYPE["FUNCTION_CONNECTION"], {"reason": "discovered"})
+
+Enums:
+- `COMPONENT_TYPE`, `STATE`, `EVENT_CATEGORY`, `EDGE_TYPE`
 
 Copyright (c) 2025, RTI & Jason Upchurch
 """
@@ -91,10 +125,33 @@ EDGE_TYPE = {
 
 # Singleton DDS setup
 class _DDSWriters:
+    """
+    Per-participant singleton bundle of DDS writers for unified monitoring.
+
+    Responsibilities:
+    - Create/reuse GraphTopology Topic and DataWriter (durable)
+    - Create/reuse Event Topic and DataWriter (volatile)
+    - Share Topics across components in the same process via `_TOPIC_REGISTRY`
+
+    Thread-safety:
+    - Instance creation guarded by `_lock`
+    - One instance per participant (keyed by `id(participant)`)
+    """
     _instances = {}
     _lock = threading.Lock()
 
     def __init__(self, participant):
+        """
+        Initialize writers and topics for a given participant.
+
+        Args:
+            participant: `dds.DomainParticipant` that owns all created DDS entities.
+
+        Notes:
+            - GraphTopology uses TRANSIENT_LOCAL durability for topology persistence
+            - Event uses VOLATILE durability for real-time lifecycle/chain events
+            - Topics are reused via `_TOPIC_REGISTRY` to avoid duplicates
+        """
         config_path = get_datamodel_path()
         self.type_provider = dds.QosProvider(config_path)
         self.participant = participant
@@ -153,6 +210,11 @@ class _DDSWriters:
 
     @classmethod
     def get(cls, participant):
+        """
+        Return the per-participant `_DDSWriters` instance.
+
+        Ensures writer bundle reuse across components sharing the same participant.
+        """
         with cls._lock:
             key = id(participant)
             if key not in cls._instances:
@@ -160,10 +222,25 @@ class _DDSWriters:
             return cls._instances[key]
 
 class GraphMonitor:
+    """
+    High-level helper for publishing graph nodes/edges and lifecycle events.
+
+    Use this from agents, interfaces, and services to publish topology changes and
+    lifecycle updates in a consistent, provider-agnostic way.
+    """
     def __init__(self, participant):
+        """
+        Initialize the monitor for a given participant.
+
+        Args:
+            participant: `dds.DomainParticipant` used for all monitoring traffic.
+        """
         self.dds = _DDSWriters.get(participant)
 
     def _derive_node_name(self, component_type: int, attrs: dict | None, component_id: str) -> str:
+        """
+        Derive a human-readable component name for visualization based on type and attributes.
+        """
         attrs = attrs or {}
         try:
             ct_str = [k for k, v in COMPONENT_TYPE.items() if v == int(component_type)][0]

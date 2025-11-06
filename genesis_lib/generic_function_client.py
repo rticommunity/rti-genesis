@@ -1,23 +1,51 @@
 """
-Genesis Generic Function Client
+Genesis Generic Function Client — Discover and Invoke Network Functions
 
-This module provides a high-level client implementation for the Genesis framework that
-enables dynamic discovery and invocation of functions across the distributed network.
-It serves as a key integration point for agents and services to discover and utilize
-functions without requiring prior knowledge of their implementation or location.
+High-level client for dynamic discovery and invocation of functions across the Genesis
+distributed network. Serves as the primary integration point for agents and services
+to find and call functions without prior knowledge of their implementation or location.
 
-Key responsibilities include:
-- Dynamic discovery of functions through the Genesis function registry
-- Automatic service client lifecycle management
-- Intelligent function routing based on service capabilities
-- Schema validation and function metadata handling
-- Seamless integration with the Genesis RPC system
+=================================================================================================
+ARCHITECTURE OVERVIEW — What This Module Does
+=================================================================================================
 
-The GenericFunctionClient is designed to be the primary interface for agents and
-services to discover and call functions in the Genesis network. It handles all the
-complexity of function discovery, service management, and RPC communication, allowing
-developers to focus on building their agents and services without worrying about
-the underlying communication details.
+Responsibilities:
+- Dynamic discovery via `FunctionRegistry`
+- Service client lifecycle management (creates `GenesisRequester` per service)
+- Intelligent routing by service capability metadata
+- Schema access and function metadata handling
+- Clean integration with the Genesis RPC system
+
+Lifecycle:
+1. Construct client (optionally with an existing `FunctionRegistry`)
+2. List available functions for schema/capabilities
+3. Resolve service name for a function and obtain a `GenesisRequester`
+4. Invoke function via RPC
+5. Cleanup: close per-service clients and registry (if the client created it)
+
+Failure Handling & Cleanup:
+- Functions are read on-demand from the registry (always current state)
+- If a function or service name cannot be resolved, raises descriptive errors
+- No participant sprawl: reuses `FunctionRegistry` participant for requesters
+- `close()` shuts down created requesters and (optionally) the registry
+
+Thread-safety:
+- Intended for typical async usage patterns; external synchronization is the caller’s responsibility
+- Maintains internal maps of service clients; not designed for concurrent mutation from many tasks
+
+Public API:
+- `GenericFunctionClient(function_registry=None, participant=None, domain_id=0)`
+- `list_available_functions() -> list[dict]`
+- `call_function(function_id, **kwargs) -> dict`
+- `get_function_schema(function_id) -> dict`
+- `get_service_client(service_name) -> GenesisRequester`
+- `close()`
+
+Usage:
+    client = GenericFunctionClient()
+    funcs = client.list_available_functions()
+    result = await client.call_function(funcs[0]["function_id"], param="value")
+    client.close()
 
 Copyright (c) 2025, RTI & Jason Upchurch
 """
@@ -42,8 +70,17 @@ logger = logging.getLogger("generic_function_client")
 
 class GenericFunctionClient:
     """
-    A truly generic function client that can discover and call any function service
-    without prior knowledge of the specific functions.
+    Generic function client for discovering and invoking functions over Genesis RPC.
+
+    Design:
+    - Uses `FunctionRegistry` as the source of truth for discovered functions
+    - Creates one `GenesisRequester` per service and reuses it for subsequent calls
+    - Avoids creating additional DDS participants by reusing the registry’s participant
+
+    Attributes:
+        function_registry: The registry instance used for discovery
+        _created_registry: Whether this client created the registry (affects cleanup)
+        service_clients: Map of `service_name` → `GenesisRequester`
     """
     
     def __init__(self, function_registry: Optional[FunctionRegistry] = None, participant: Optional[dds.DomainParticipant] = None, domain_id: int = 0):
@@ -66,54 +103,9 @@ class GenericFunctionClient:
         else:
             self.function_registry = function_registry
         
-        # Note: discovered_functions cache removed - now reading directly from registry via get_all_discovered_functions()
-        
         # Store service-specific clients
         self.service_clients = {}
         
-    async def discover_functions(self, timeout_seconds: int = 10) -> Dict[str, Any]:
-        """
-        Discover available functions in the distributed system.
-        Waits until functions are discovered (signaled by registry event) or the timeout is reached.
-
-        Args:
-            timeout_seconds: How long to wait for functions to be discovered
-
-        Returns:
-            Dictionary of discovered functions
-        """
-        logger.debug(f"===== DDS TRACE: Waiting for function discovery event (timeout: {timeout_seconds}s)... =====")
-
-        try:
-            # Wait for the registry's discovery event or timeout
-            registry_event = self.function_registry._discovery_event
-            logger.debug(f"===== DDS TRACE: Waiting on event {id(registry_event)}... =====")
-            await asyncio.wait_for(registry_event.wait(), timeout=timeout_seconds)
-            logger.debug(f"===== DDS TRACE: Function discovery event received or already set (event: {id(registry_event)}). =====")
-        except asyncio.TimeoutError:
-            logger.warning(f"===== DDS TRACE: Timeout ({timeout_seconds}s) reached waiting for function discovery event. =====")
-        except Exception as e:
-             logger.error(f"===== DDS TRACE: Error waiting for function discovery event: {e} ====")
-
-        # Get current state of discovered functions directly from the registry
-        logger.debug("===== DDS TRACE: Retrieving discovered functions from registry... =====")
-        discovered_functions = self.function_registry.get_all_discovered_functions()
-        logger.debug(f"===== DDS TRACE: Retrieved {len(discovered_functions)} functions from registry. =====")
-
-        # Log the discovered functions
-        if not discovered_functions:
-            logger.warning("No functions were discovered in the registry.")
-            return {}
-
-        logger.debug(f"Discovered {len(discovered_functions)} functions in registry")
-        for func_id, func_info in discovered_functions.items():
-            if isinstance(func_info, dict):
-                logger.debug(f"  - {func_id}: {func_info.get('name', 'unknown')} - {func_info.get('description', 'No description')}")
-            else:
-                logger.debug(f"  - {func_id}: {func_info}")
-        
-        return discovered_functions
-    
     def get_service_client(self, service_name: str) -> GenesisRequester:
         """
         Get or create a client for a specific service.
@@ -158,12 +150,6 @@ class GenericFunctionClient:
         func_info = registry_functions.get(function_id)
 
         if not func_info:
-            # Attempt to refresh the function list from the registry if not found initially
-            # This handles cases where functions might appear between the agent's last check and the call attempt.
-            # However, OpenAIGenesisAgent now calls _ensure_functions_discovered (which uses list_available_functions)
-            # on every request, so GenericFunctionClient's list_available_functions is already fresh.
-            # The discover_functions method in GFC is more for an initial blocking discovery.
-            # For call_function, if it's not in the registry's current snapshot, it's safer to error out.
             logger.error(f"Function ID {function_id} not found in FunctionRegistry's current list.")
             raise ValueError(f"Function not found: {function_id}")
         
@@ -325,9 +311,6 @@ async def run_generic_client_test():
     client = GenericFunctionClient()
     
     try:
-        # Discover available functions
-        await client.discover_functions()
-        
         # List available functions
         functions = client.list_available_functions()
         print("\nAvailable Functions:")

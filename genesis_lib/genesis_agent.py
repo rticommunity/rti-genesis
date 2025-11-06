@@ -2091,6 +2091,9 @@ Be specific and accurate based on the actual tools and methods available."""
         """
         user_message = request.get("message", "")
         
+        # Store user message for tool classification (used by provider implementations)
+        self._current_user_message = user_message
+        
         # Ensure internal tools are discovered
         await self._ensure_internal_tools_discovered()
         
@@ -2103,6 +2106,9 @@ Be specific and accurate based on the actual tools and methods available."""
         
         # Get tools in provider-specific format
         tools = await self._get_tool_schemas()
+        
+        # Clear the message after tool schema generation
+        self._current_user_message = None
         
         if not tools:
             # Simple conversation (no tools available)
