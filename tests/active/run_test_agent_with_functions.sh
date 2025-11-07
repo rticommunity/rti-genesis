@@ -17,6 +17,10 @@ mkdir -p "$LOG_DIR"
 PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 [ "$DEBUG" = "true" ] && echo "Project root: $PROJECT_ROOT"
 
+# Get domain ID from environment (default to 0)
+DOMAIN_ID="${GENESIS_DOMAIN_ID:-0}"
+echo "Using DDS domain: $DOMAIN_ID"
+
 # Set PYTHONPATH to include the project root
 export PYTHONPATH="$PROJECT_ROOT:$PYTHONPATH"
 
@@ -24,7 +28,7 @@ SPY_LOG="$LOG_DIR/spy_run_test_agent_with_functions.log"
 
 # Start rtiddsspy to monitor DDS traffic
 if [ -n "$NDDSHOME" ] && [ -f "$NDDSHOME/bin/rtiddsspy" ]; then
-    RTIDDSSPY_PROFILEFILE="$PROJECT_ROOT/spy_transient.xml" "$NDDSHOME/bin/rtiddsspy" > "$SPY_LOG" 2>&1 &
+    RTIDDSSPY_PROFILEFILE="$PROJECT_ROOT/spy_transient.xml" "$NDDSHOME/bin/rtiddsspy" -domainId $DOMAIN_ID > "$SPY_LOG" 2>&1 &
     SPY_PID=$!
     [ "$DEBUG" = "true" ] && echo "Started rtiddsspy monitoring (PID: $SPY_PID, Log: $SPY_LOG)"
 fi
@@ -61,7 +65,8 @@ cleanup() {
             wait "$pid" 2>/dev/null || true
         fi
     done
-    pkill -f "python.*test_agent" || true
+    # PARALLEL-SAFE: Only kill processes tracked by PID, no broad pkill
+    # The pkill command below is REMOVED to prevent killing other parallel tests
 }
 
 # Set up trap for cleanup on script termination
@@ -78,10 +83,17 @@ fi
 echo "Starting TestAgent with functions test..."
 [ "$DEBUG" = "true" ] && echo "Logs will be saved to $LOG_DIR"
 
+# Get domain argument if set
+DOMAIN_ARG=""
+if [ -n "${GENESIS_DOMAIN_ID:-}" ]; then
+    DOMAIN_ARG="--domain ${GENESIS_DOMAIN_ID}"
+    echo "Using domain ${GENESIS_DOMAIN_ID} for services"
+fi
+
 # Start multiple calculator services in the background
 echo "Starting calculator services..."
 for i in {1..3}; do
-    python -m test_functions.services.calculator_service > "$LOG_DIR/calculator_service_$i.log" 2>&1 &
+    python -m test_functions.services.calculator_service $DOMAIN_ARG > "$LOG_DIR/calculator_service_$i.log" 2>&1 &
     CALC_PID=$!
     pids+=("$CALC_PID")
     echo "Started calculator service $i with PID $CALC_PID"
@@ -89,14 +101,14 @@ done
 
 # Start Letter Counter Service
 echo "Starting Letter Counter service..."
-python -m test_functions.services.letter_counter_service > "$LOG_DIR/letter_counter_service.log" 2>&1 &
+python -m test_functions.services.letter_counter_service $DOMAIN_ARG > "$LOG_DIR/letter_counter_service.log" 2>&1 &
 LC_PID=$!
 pids+=("$LC_PID")
 echo "Started Letter Counter service with PID $LC_PID"
 
 # Start Text Processor Service
 echo "Starting Text Processor service..."
-python -m test_functions.services.text_processor_service > "$LOG_DIR/text_processor_service.log" 2>&1 &
+python -m test_functions.services.text_processor_service $DOMAIN_ARG > "$LOG_DIR/text_processor_service.log" 2>&1 &
 TP_PID=$!
 pids+=("$TP_PID")
 echo "Started Text Processor service with PID $TP_PID"

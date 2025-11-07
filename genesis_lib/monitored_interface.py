@@ -71,8 +71,8 @@ class MonitoredInterface(GenesisInterface):
     Extends GenesisInterface to add standardized monitoring.
     """
 
-    def __init__(self, interface_name: str, service_name: str):
-        super().__init__(interface_name=interface_name, service_name=service_name)
+    def __init__(self, interface_name: str, service_name: str, domain_id: int = 0):
+        super().__init__(interface_name=interface_name, service_name=service_name, domain_id=domain_id)
         self.graph = GraphMonitor(self.app.participant)
         self.available_agents: Dict[str, Dict[str, Any]] = {}
         self._agent_found_event = asyncio.Event()

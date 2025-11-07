@@ -51,8 +51,8 @@ cleanup() {
             wait "$pid" 2>/dev/null || true
         fi
     done
-    pkill -f "python.*test_monitoring" || true
-    pkill -f "python.*example_agent1" || true
+    # PARALLEL-SAFE: Only kill processes tracked by PID, no broad pkill
+    # The pkill commands below are REMOVED to prevent killing other parallel tests
 }
 
 # Set up trap for cleanup on script termination

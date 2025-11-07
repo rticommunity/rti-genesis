@@ -53,10 +53,12 @@ def start_calculator_service() -> tuple[subprocess.Popen, str]:
     script = os.path.join(REPO_ROOT, "test_functions", "services", "calculator_service.py")
     env = os.environ.copy()
     env["PYTHONPATH"] = f"{REPO_ROOT}:{env.get('PYTHONPATH', '')}"
+    # Pass domain ID from environment
+    domain_id = int(os.environ.get('GENESIS_DOMAIN_ID', 0))
     log_path = os.path.join(LOG_DIR, "monitor_calc_service.log")
     log_fp = open(log_path, "w")
     proc = subprocess.Popen(
-        [sys.executable, script],
+        [sys.executable, script, "--domain", str(domain_id)],
         stdout=log_fp,
         stderr=subprocess.STDOUT,
         text=True,
@@ -81,7 +83,9 @@ async def main() -> int:
         print("ERROR: NDDSHOME is not set. DDS is required for monitoring test.")
         return 2
 
-    graph = GraphService()
+    # Get domain from environment
+    domain_id = int(os.environ.get('GENESIS_DOMAIN_ID', 0))
+    graph = GraphService(domain_id=domain_id)
     obs = Observed(service_nodes={}, function_nodes={}, edges=[], service_busy_events=[], service_ready_events=[])
 
     def on_graph(event: str, payload: Dict[str, Any]):

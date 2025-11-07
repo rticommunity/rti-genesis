@@ -10,6 +10,10 @@ PROJECT_ROOT=$(dirname $(dirname $(dirname $(realpath $0))))
 # Temporarily disabled as it's not needed for current testing
 # source "${PROJECT_ROOT}/setup.sh"
 
+# Get domain ID from environment (default to 0)
+DOMAIN_ID="${GENESIS_DOMAIN_ID:-0}"
+echo "Using DDS domain: $DOMAIN_ID"
+
 # Set PYTHONPATH to include project root
 export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH}"
 
@@ -24,7 +28,7 @@ SPY_LOG="${PROJECT_ROOT}/logs/spy_test_genesis_framework.log"
 
 # Start rtiddsspy to monitor DDS traffic
 if [ -n "$NDDSHOME" ] && [ -f "$NDDSHOME/bin/rtiddsspy" ]; then
-    RTIDDSSPY_PROFILEFILE="${PROJECT_ROOT}/spy_transient.xml" "$NDDSHOME/bin/rtiddsspy" > "$SPY_LOG" 2>&1 &
+    RTIDDSSPY_PROFILEFILE="${PROJECT_ROOT}/spy_transient.xml" "$NDDSHOME/bin/rtiddsspy" -domainId $DOMAIN_ID > "$SPY_LOG" 2>&1 &
     SPY_PID=$!
     echo "Started rtiddsspy monitoring (PID: $SPY_PID, Log: $SPY_LOG)"
 fi
@@ -61,23 +65,30 @@ check_process() {
 run_service_tests() {
     log_message "===== Running Service Tests ====="
     
+    # Get domain from environment (set by parallel test runner)
+    DOMAIN_ARG=""
+    if [ -n "${GENESIS_DOMAIN_ID:-}" ]; then
+        DOMAIN_ARG="--domain ${GENESIS_DOMAIN_ID}"
+        log_message "Using domain ${GENESIS_DOMAIN_ID} for services"
+    fi
+    
     # Start multiple calculator services
     log_message "Starting Calculator Service instances..."
-    python3 "${PROJECT_ROOT}/test_functions/services/calculator_service.py" &
+    python3 "${PROJECT_ROOT}/test_functions/services/calculator_service.py" $DOMAIN_ARG &
     CALCULATOR_PID_1=$!
-    python3 "${PROJECT_ROOT}/test_functions/services/calculator_service.py" &
+    python3 "${PROJECT_ROOT}/test_functions/services/calculator_service.py" $DOMAIN_ARG &
     CALCULATOR_PID_2=$!
-    python3 "${PROJECT_ROOT}/test_functions/services/calculator_service.py" &
+    python3 "${PROJECT_ROOT}/test_functions/services/calculator_service.py" $DOMAIN_ARG &
     CALCULATOR_PID_3=$!
     
     # Start letter counter service
     log_message "Starting Letter Counter Service..."
-    python3 "${PROJECT_ROOT}/test_functions/services/letter_counter_service.py" &
+    python3 "${PROJECT_ROOT}/test_functions/services/letter_counter_service.py" $DOMAIN_ARG &
     LETTER_COUNTER_PID=$!
     
     # Start text processor service
     log_message "Starting Text Processor Service..."
-    python3 "${PROJECT_ROOT}/test_functions/services/text_processor_service.py" &
+    python3 "${PROJECT_ROOT}/test_functions/services/text_processor_service.py" $DOMAIN_ARG &
     TEXT_PROCESSOR_PID=$!
     
     # Wait for services to initialize
@@ -90,10 +101,13 @@ run_service_tests() {
 import asyncio
 import time
 import json
+import os
 from genesis_lib.generic_function_client import GenericFunctionClient
 
 async def verify_functions():
-    client = GenericFunctionClient()
+    # Get domain from environment
+    domain_id = int(os.environ.get('GENESIS_DOMAIN_ID', 0))
+    client = GenericFunctionClient(domain_id=domain_id)
     
     timeout_seconds = 45
     start_time = time.time()
@@ -234,9 +248,11 @@ run_dds_tests() {
     log_message "Testing DDS domain participant creation..."
     python3 -c "
 import rti.connextdds as dds
+import os
 try:
-    participant = dds.DomainParticipant(domain_id=0)
-    print('DDS domain participant creation: SUCCESS')
+    domain_id = int(os.environ.get('GENESIS_DOMAIN_ID', 0))
+    participant = dds.DomainParticipant(domain_id=domain_id)
+    print(f'DDS domain participant creation: SUCCESS (domain {domain_id})')
     participant.close()
 except Exception as e:
     print(f'DDS domain participant creation: FAILED - {str(e)}')
@@ -259,12 +275,14 @@ run_rpc_tests() {
     # Test RPC client/service creation
     log_message "Testing RPC client/service creation..."
     python3 -c "
+import os
 from genesis_lib.requester import GenesisRequester
 from genesis_lib.replier import GenesisReplier
 try:
+    domain_id = int(os.environ.get('GENESIS_DOMAIN_ID', 0))
     client = GenesisRequester('TestService')
-    service = GenesisReplier(service_type='TestService')
-    print('RPC client/service creation: SUCCESS')
+    service = GenesisReplier(service_type='TestService', domain_id=domain_id)
+    print(f'RPC client/service creation: SUCCESS (domain {domain_id})')
     client.close()
     service.close()
 except Exception as e:

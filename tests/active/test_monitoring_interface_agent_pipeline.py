@@ -38,7 +38,9 @@ async def main() -> int:
         print("ERROR: NDDSHOME is not set. DDS is required for monitoring test.")
         return 2
 
-    graph = GraphService()
+    # Get domain from environment
+    domain_id = int(os.environ.get('GENESIS_DOMAIN_ID', 0))
+    graph = GraphService(domain_id=domain_id)
     edges: List[Dict[str, Any]] = []
     activities: List[Dict[str, Any]] = []
 
@@ -62,13 +64,18 @@ async def main() -> int:
     pipeline_script = os.path.join(REPO_ROOT, "tests", "active", "run_interface_agent_service_test.sh")
     env = os.environ.copy()
     env["PYTHONPATH"] = f"{REPO_ROOT}:{env.get('PYTHONPATH', '')}"
-    proc = subprocess.Popen(["bash", pipeline_script], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env, cwd=os.path.join(REPO_ROOT, "tests", "active"))
+    # Preserve GENESIS_DOMAIN_ID for the subprocess
+    if 'GENESIS_DOMAIN_ID' in os.environ:
+        env['GENESIS_DOMAIN_ID'] = os.environ['GENESIS_DOMAIN_ID']
+    proc = subprocess.Popen(["bash", pipeline_script], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, cwd=os.path.join(REPO_ROOT, "tests", "active"))
 
     try:
         # Wait for process to finish, but keep collecting events
         try:
-            outs, _ = proc.communicate(timeout=120)
-            if outs:
+            outs_bytes, _ = proc.communicate(timeout=120)
+            # Decode with error handling for any binary data
+            if outs_bytes:
+                outs = outs_bytes.decode('utf-8', errors='replace')
                 sys.stdout.write(outs)
         except subprocess.TimeoutExpired:
             proc.kill()

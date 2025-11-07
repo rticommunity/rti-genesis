@@ -28,8 +28,8 @@ class PersonalAssistant(OpenAIGenesisAgent):
     Test personal assistant with enhanced built-in tracing.
     """
     
-    def __init__(self):
-        print("🚀 TRACE: PersonalAssistant.__init__() starting...")
+    def __init__(self, domain_id=0):
+        print(f"🚀 TRACE: PersonalAssistant.__init__() starting on domain {domain_id}...")
         
         # Initialize with built-in enhanced tracing enabled
         super().__init__(
@@ -38,18 +38,28 @@ class PersonalAssistant(OpenAIGenesisAgent):
             base_service_name="PersonalAssistant",
             description="Test personal assistant with access to specialized agents and services",
             enable_agent_communication=True,
-            enable_tracing=True  # Enable built-in enhanced tracing
+            enable_tracing=True,  # Enable built-in enhanced tracing
+            domain_id=domain_id
         )
         
-        print(f"✅ TRACE: PersonalAssistant initialized with agent_id: {self.app.agent_id}")
-        logger.info("PersonalAssistant ready for multi-agent interactions")
+        print(f"✅ TRACE: PersonalAssistant initialized with agent_id: {self.app.agent_id} on domain {domain_id}")
+        logger.info(f"PersonalAssistant ready for multi-agent interactions on domain {domain_id}")
 
 async def main():
     """Main entry point for PersonalAssistant"""
-    print("🤖 Starting PersonalAssistant test service...")
-    logger.info("Starting PersonalAssistant test service...")
+    import argparse
+    parser = argparse.ArgumentParser(description='Personal Assistant Service')
+    parser.add_argument('--domain', type=int, default=None,
+                       help='DDS domain ID (default: 0 or GENESIS_DOMAIN_ID env var)')
+    args = parser.parse_args()
     
-    agent = PersonalAssistant()
+    # Priority: command line arg > env var > default (0)
+    domain_id = args.domain if args.domain is not None else int(os.environ.get('GENESIS_DOMAIN_ID', 0))
+    
+    print(f"🤖 Starting PersonalAssistant test service on domain {domain_id}...")
+    logger.info(f"Starting PersonalAssistant test service on domain {domain_id}...")
+    
+    agent = PersonalAssistant(domain_id=domain_id)
 
     # Give auto-start a moment to announce and match
     await asyncio.sleep(2)

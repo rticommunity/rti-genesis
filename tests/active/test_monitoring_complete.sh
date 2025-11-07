@@ -26,10 +26,8 @@ cleanup() {
             wait "$pid" 2>/dev/null || true
         fi
     done
-    pkill -f "python.*test_complete_monitoring_coverage" || true
-    pkill -f "python.*personal_assistant" || true  
-    pkill -f "python.*weather_agent" || true
-    pkill -f "python.*calculator_service" || true
+    # PARALLEL-SAFE: Only kill processes tracked by PID, no broad pkill
+    # The pkill commands below are REMOVED to prevent killing other parallel tests
 }
 
 trap cleanup EXIT

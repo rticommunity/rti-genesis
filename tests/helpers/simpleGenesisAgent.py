@@ -11,7 +11,7 @@ import argparse # Added for command-line arguments
 logger = logging.getLogger("SimpleGenesisAgentScript")
 
 class SimpleGenesisAgent(OpenAIGenesisAgent):
-    def __init__(self):
+    def __init__(self, domain_id=0):
         # Initialize the base class with our specific configuration
         super().__init__(
             model_name="gpt-4o",  # You can change this to your preferred model
@@ -19,16 +19,17 @@ class SimpleGenesisAgent(OpenAIGenesisAgent):
             agent_name="SimpleGenesisAgentForTheWin",  # Friendly name for this agent instance
             # base_service_name="MyCustomChatService", # Optional: Override default OpenAIChat
             description="A simple agent that listens for messages via Genesis interface and processes them.", 
-            enable_tracing=True  # Enable tracing for testing
+            enable_tracing=True,  # Enable tracing for testing
+            domain_id=domain_id
         )
         # The base class (OpenAIGenesisAgent) also has its own logging for initialization details
-        logger.info(f"'{self.agent_name}' instance created. RPC Service: '{self.base_service_name}' (unified topics). Ready to connect to Genesis services.")
+        logger.info(f"'{self.agent_name}' instance created on domain {domain_id}. RPC Service: '{self.base_service_name}' (unified topics). Ready to connect to Genesis services.")
 
-async def main(tag: str = None, verbose: bool = False): # tag parameter kept for CLI compatibility but not used
+async def main(tag: str = None, verbose: bool = False, domain_id: int = 0): # tag parameter kept for CLI compatibility but not used
     # Note: tag parameter is no longer used - RPC v2 uses unified topics with GUID-based targeting
     if tag:
         logger.warning(f"Tag '{tag}' specified but ignored - RPC v2 uses unified topics with GUID targeting")
-    print(f"###### AGENT MAIN STARTED - Verbose: {verbose} ######") 
+    print(f"###### AGENT MAIN STARTED - Verbose: {verbose}, Domain: {domain_id} ######") 
     # ---- START DIAGNOSTIC BLOCK ----
     # import logging # logging is already imported at the top of the file
     root_logger = logging.getLogger()
@@ -63,9 +64,9 @@ async def main(tag: str = None, verbose: bool = False): # tag parameter kept for
         print(f"###### genesis_lib logger level AFTER EXPLICIT SET: {logging.getLevelName(genesis_lib_logger.level)} ######") # New diagnostic
 
     agent_display_name = "SimpleGenesisAgent"
-    logger.info(f"Initializing '{agent_display_name}' (Log Level: {logging.getLevelName(log_level)})...")
+    logger.info(f"Initializing '{agent_display_name}' on domain {domain_id} (Log Level: {logging.getLevelName(log_level)})...")
     # Initialize the agent
-    agent = SimpleGenesisAgent() # RPC v2: No tag needed, uses unified topics
+    agent = SimpleGenesisAgent(domain_id=domain_id) # RPC v2: No tag needed, uses unified topics
     
     try:
         # Give some time for initialization and announcement propagation (e.g., DDS discovery)
@@ -106,6 +107,7 @@ async def main(tag: str = None, verbose: bool = False): # tag parameter kept for
 if __name__ == "__main__":
     # Run the async main function
     # asyncio.run(main()) # Old way
+    import os
 
     parser = argparse.ArgumentParser(description="Run the SimpleGenesisAgent.")
     parser.add_argument(
@@ -119,6 +121,15 @@ if __name__ == "__main__":
         action="store_true",
         help="Enable verbose logging (DEBUG level) for the agent script and Genesis libraries."
     )
+    parser.add_argument(
+        "--domain",
+        type=int,
+        default=None,
+        help="DDS domain ID (default: 0 or GENESIS_DOMAIN_ID env var)"
+    )
     args = parser.parse_args()
 
-    asyncio.run(main(tag=args.tag, verbose=args.verbose)) # Pass verbose flag to main
+    # Priority: command line arg > env var > default (0)
+    domain_id = args.domain if args.domain is not None else int(os.environ.get('GENESIS_DOMAIN_ID', 0))
+
+    asyncio.run(main(tag=args.tag, verbose=args.verbose, domain_id=domain_id)) # Pass domain_id to main

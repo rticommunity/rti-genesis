@@ -40,18 +40,19 @@ class MathTestAgent(MonitoredAgent):
     """
     print("🏗️ TRACE: Starting MathTestAgent initialization... (print)")
     logger.info("🏗️ TRACE: Starting MathTestAgent initialization... (logger)")
-    def __init__(self):
-        logger.info("🏗️ TRACE: Starting MathTestAgent initialization...")
+    def __init__(self, domain_id=0):
+        logger.info(f"🏗️ TRACE: Starting MathTestAgent initialization on domain {domain_id}...")
         try:
             super().__init__(
                 agent_name="MathTestAgent",
                 base_service_name="MathTestService",
                 agent_type="TEST_AGENT",
-                agent_id=str(uuid.uuid4())
+                agent_id=str(uuid.uuid4()),
+                domain_id=domain_id
             )
             logger.info("✅ TRACE: MonitoredAgent base class initialized")
             self._shutdown_event = asyncio.Event()
-            logger.info("✅ TRACE: MathTestAgent initialization complete")
+            logger.info(f"✅ TRACE: MathTestAgent initialization complete on domain {domain_id}")
         except Exception as e:
             logger.error(f"💥 TRACE: Error during MathTestAgent initialization: {e}")
             logger.error(f"Stack trace: {traceback.format_exc()}")
@@ -132,10 +133,14 @@ class MathTestAgent(MonitoredAgent):
 
 async def main():
     """Main function"""
+    import os
+    # Get domain from environment (set by test runner)
+    domain_id = int(os.environ.get('GENESIS_DOMAIN_ID', 0))
+    
     try:
         # Create and run agent
-        agent = MathTestAgent()
-        logger.info("✅ TRACE: Agent created, starting run...")
+        agent = MathTestAgent(domain_id=domain_id)
+        logger.info(f"✅ TRACE: Agent created on domain {domain_id}, starting run...")
         await agent.run()
     except KeyboardInterrupt:
         logger.info("👋 TRACE: Received keyboard interrupt, shutting down...")

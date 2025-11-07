@@ -33,18 +33,19 @@ root_logger.setLevel(logging.DEBUG) # Set root logger level to DEBUG
 logger.setLevel(logging.INFO)       # Keep MathTestInterface script's own direct logs at INFO
 
 class MathTestInterface:
-    def __init__(self, interface_id):
+    def __init__(self, interface_id, domain_id=0):
         self.interface_id = interface_id
         self.interface = None
         self.conversation_id = str(uuid.uuid4())
-        logger.info(f"🚀 TRACE: MathTestInterface {interface_id} starting - Conversation ID: {self.conversation_id}")
+        self.domain_id = domain_id
+        logger.info(f"🚀 TRACE: MathTestInterface {interface_id} starting on domain {domain_id} - Conversation ID: {self.conversation_id}")
 
     async def run(self):
         interface = None # Ensure interface is defined in outer scope for finally block
         try:
             logger.info("🏗️ TRACE: Creating MathService interface...")
             # Create interface - now using MonitoredInterface directly
-            interface = MonitoredInterface(interface_name="MathTestInterface", service_name="InterfaceAgent111")
+            interface = MonitoredInterface(interface_name="MathTestInterface", service_name="InterfaceAgent111", domain_id=self.domain_id)
 
             logger.info(f"🔍 TRACE: Waiting for agent discovery event...")
             try:
@@ -157,8 +158,10 @@ class MathTestInterface:
         return None
 
 async def main():
-    logger.info("🚀 TRACE: MathTestInterface starting")
-    interface = MathTestInterface("Interface1")
+    # Get domain from environment (set by test runner)
+    domain_id = int(os.environ.get('GENESIS_DOMAIN_ID', 0))
+    logger.info(f"🚀 TRACE: MathTestInterface starting on domain {domain_id}")
+    interface = MathTestInterface("Interface1", domain_id=domain_id)
     exit_code = await interface.run()
     logger.info(f"🏁 TRACE: MathTestInterface ending with exit code: {exit_code}")
     return exit_code

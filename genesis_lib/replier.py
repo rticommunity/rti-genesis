@@ -38,7 +38,7 @@ class GenesisReplier:
         Args:
             service_name: Name of the service (legacy parameter, used as service_type if service_type not provided)
             service_type: Service type for unified request/reply topics (if None, uses service_name)
-            participant: Optional DDS participant (if None, one will be created)
+            participant: Optional DDS participant (if None, one will be created on domain 0 or GENESIS_DOMAIN_ID env var)
         """
         # Accept either service_name (legacy) or service_type (new)
         if service_type is None and service_name is None:
@@ -47,9 +47,13 @@ class GenesisReplier:
         self.service_type = service_type if service_type is not None else service_name
         
         if participant is None:
+            # Read from environment if not explicitly provided
+            import os
+            domain_id = int(os.environ.get('GENESIS_DOMAIN_ID', 0))
             qos = dds.DomainParticipantQos()
             qos.transport_builtin.mask = dds.TransportBuiltinMask.UDPv4
-            participant = dds.DomainParticipant(domain_id=0, qos=qos)
+            participant = dds.DomainParticipant(domain_id=domain_id, qos=qos)
+            logger.debug(f"Created DomainParticipant on domain {domain_id} for {self.service_type}")
         self.participant = participant
 
         request_topic_name = f"rti/connext/genesis/rpc/{self.service_type}Request"

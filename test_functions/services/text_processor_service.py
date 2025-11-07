@@ -61,10 +61,10 @@ class GenerateTextArgs(TextArgs):
 class TextProcessorService(MonitoredService):
     """Implementation of the text processor service using Genesis RPC framework"""
     
-    def __init__(self):
+    def __init__(self, domain_id=0):
         """Initialize the text processor service"""
-        super().__init__(service_name="TextProcessorService", capabilities=["text_processor", "text_manipulation"])
-        logger.info("TextProcessorService initialized")
+        super().__init__(service_name="TextProcessorService", capabilities=["text_processor", "text_manipulation"], domain_id=domain_id)
+        logger.info(f"TextProcessorService initialized on domain {domain_id}")
         # Everything is now auto-registered; just advertise
         self._advertise_functions()
         logger.info("Functions advertised")
@@ -187,9 +187,20 @@ class TextProcessorService(MonitoredService):
 
 def main():
     """Main entry point for the text processor service."""
-    logger.info("Starting text processor service")
+    import argparse
+    import os
+    
+    parser = argparse.ArgumentParser(description='Text Processor Service')
+    parser.add_argument('--domain', type=int, default=None,
+                       help='DDS domain ID (default: 0 or GENESIS_DOMAIN_ID env var)')
+    args = parser.parse_args()
+    
+    # Priority: command line arg > env var > default (0)
+    domain_id = args.domain if args.domain is not None else int(os.environ.get('GENESIS_DOMAIN_ID', 0))
+    
+    logger.info(f"Starting text processor service on domain {domain_id}")
     try:
-        service = TextProcessorService()
+        service = TextProcessorService(domain_id=domain_id)
         asyncio.run(service.run())
     except KeyboardInterrupt:
         logger.info("Shutting down text processor service")

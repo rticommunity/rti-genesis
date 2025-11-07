@@ -14,6 +14,10 @@ PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 LOG_DIR="$PROJECT_ROOT/logs"
 export PYTHONPATH=$PYTHONPATH:$PROJECT_ROOT
 
+# Get domain ID from environment (default to 0)
+DOMAIN_ID="${GENESIS_DOMAIN_ID:-0}"
+echo "Using DDS domain: $DOMAIN_ID"
+
 # Ensure log directory exists
 mkdir -p "$LOG_DIR"
 
@@ -32,10 +36,8 @@ cleanup() {
     for pid in "${pids[@]}"; do
         kill "$pid" 2>/dev/null || true
     done
-    # Extra cleanup for rtiddsspy if it was left running
-    pkill -f "rtiddsspy.*RegistrationAnnouncement" || true
-    pkill -f "rtiddsspy.*InterfaceAgentRequest" || true
-    pkill -f "rtiddsspy.*rpc.*Request" || true
+    # PARALLEL-SAFE: Only kill rtiddsspy on OUR domain, not all rtiddsspy processes
+    # The broad pkill commands below are REMOVED to prevent killing other parallel tests
     echo "Pipeline test cleanup complete."
 }
 trap cleanup EXIT
@@ -61,7 +63,7 @@ if [ ! -f "$NDDSHOME/bin/rtiddsspy" ]; then
 fi
 
 # Spy on topics that should be quiet before our test starts
-"$NDDSHOME/bin/rtiddsspy" -printSample -topic 'RegistrationAnnouncement' -topic 'InterfaceAgentRequest' -topic 'rti/connext/genesis/rpc/CalculatorServiceRequest' -duration 5 > "$SPY_LOG" 2>&1 &
+"$NDDSHOME/bin/rtiddsspy" -domainId $DOMAIN_ID -printSample -topic 'RegistrationAnnouncement' -topic 'InterfaceAgentRequest' -topic 'rti/connext/genesis/rpc/CalculatorServiceRequest' -duration 5 > "$SPY_LOG" 2>&1 &
 SPY_PID=$!
 pids+=("$SPY_PID") # Add spy to cleanup, though it should exit on its own
 wait "$SPY_PID" # Wait for spy to finish its 5-second run
@@ -82,14 +84,22 @@ rm -f "$SPY_LOG" # Clean up the spy log for this check
 echo "Starting SimpleGenesisAgent..."
 # Force the agent to always use tools for this test to ensure the RPC path is exercised.
 export GENESIS_TOOL_CHOICE="required"
+
+# Get domain argument if set
+DOMAIN_ARG=""
+if [ -n "${GENESIS_DOMAIN_ID:-}" ]; then
+    DOMAIN_ARG="--domain ${GENESIS_DOMAIN_ID}"
+    echo "Using domain ${GENESIS_DOMAIN_ID}"
+fi
+
 # Start the agent with verbose logging to aid discovery diagnostics
 # RPC v2: No --tag needed, uses unified topics with GUID targeting
-python "$SCRIPT_DIR/../helpers/simpleGenesisAgent.py" --verbose > "$AGENT_LOG" 2>&1 &
+python "$SCRIPT_DIR/../helpers/simpleGenesisAgent.py" --verbose $DOMAIN_ARG > "$AGENT_LOG" 2>&1 &
 pids+=("$!")
 
 # --- 3. Start CalculatorService ---
 echo "Starting CalculatorService..."
-python "$PROJECT_ROOT/test_functions/services/calculator_service.py" --service-name PipelineCalcTest > "$CALC_LOG" 2>&1 &
+python "$PROJECT_ROOT/test_functions/services/calculator_service.py" $DOMAIN_ARG > "$CALC_LOG" 2>&1 &
 pids+=("$!")
 
 echo "Waiting 5 seconds for agent and service to initialize..."
@@ -97,8 +107,8 @@ sleep 5
 
 # Proactively wait for the agent to discover calculator functions before sending the request.
 # This avoids a race where the model answers directly (no tool schemas available yet).
-echo "Ensuring agent has discovered calculator functions (waiting up to 15s)..."
-DISCOVERY_WAIT_SECS=15
+echo "Ensuring agent has discovered calculator functions (waiting up to 25s)..."
+DISCOVERY_WAIT_SECS=25
 DISCOVERY_START_TS=$(date +%s)
 while true; do
   # Check for either log format or print statement format (for robustness against logging config issues)
@@ -123,7 +133,7 @@ QUESTION_TO_ASK="What is 123 plus 456?"
 EXPECTED_SUM=579
 
 echo "Running SimpleGenesisInterfaceStatic with question: '$QUESTION_TO_ASK'..."
-if python "$SCRIPT_DIR/../helpers/simpleGenesisInterfaceStatic.py" --question "$QUESTION_TO_ASK" --verbose > "$STATIC_INTERFACE_LOG" 2>&1; then
+if python "$SCRIPT_DIR/../helpers/simpleGenesisInterfaceStatic.py" --question "$QUESTION_TO_ASK" --verbose $DOMAIN_ARG > "$STATIC_INTERFACE_LOG" 2>&1; then
     echo "SimpleGenesisInterfaceStatic completed successfully (exit code 0)."
 else
     echo "ERROR: SimpleGenesisInterfaceStatic failed (exit code $?)."
