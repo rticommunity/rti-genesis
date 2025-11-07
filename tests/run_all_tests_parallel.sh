@@ -44,6 +44,9 @@ DEBUG=${DEBUG:-false}
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT=$(dirname "$SCRIPT_DIR")
 
+# Note: UDP-only transport is configured in USER_QOS_PROFILES.xml files
+# in the working directories to avoid macOS shared memory exhaustion
+
 cd "$SCRIPT_DIR"
 
 # Resolve script path across new structure (active/) with backward compatibility
