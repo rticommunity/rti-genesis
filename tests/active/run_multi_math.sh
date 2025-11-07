@@ -15,6 +15,14 @@ LOG_DIR="$PROJECT_ROOT/logs"
 mkdir -p "$LOG_DIR"
 SPY_LOG="$LOG_DIR/spy_run_multi_math.log"
 
+# Domain support
+DOMAIN_ID="${GENESIS_DOMAIN_ID:-0}"
+DOMAIN_ARG=""
+if [ "$DOMAIN_ID" != "0" ]; then
+    DOMAIN_ARG="--domain $DOMAIN_ID"
+fi
+echo "Using DDS domain: $DOMAIN_ID"
+
 # Initialize array to store PIDs
 declare -a pids=()
 
@@ -34,7 +42,7 @@ trap cleanup SIGINT SIGTERM EXIT
 
 # Start rtiddsspy to monitor DDS traffic
 if [ -n "$NDDSHOME" ] && [ -f "$NDDSHOME/bin/rtiddsspy" ]; then
-    RTIDDSSPY_PROFILEFILE="$PROJECT_ROOT/spy_transient.xml" "$NDDSHOME/bin/rtiddsspy" > "$SPY_LOG" 2>&1 &
+    RTIDDSSPY_PROFILEFILE="$PROJECT_ROOT/spy_transient.xml" "$NDDSHOME/bin/rtiddsspy" -domainId $DOMAIN_ID > "$SPY_LOG" 2>&1 &
     SPY_PID=$!
     pids+=("$SPY_PID")
     echo "Started rtiddsspy monitoring (PID: $SPY_PID, Log: $SPY_LOG)"
@@ -43,7 +51,7 @@ fi
 # Start multiple calculator services in the background
 echo "Starting calculator services..."
 for i in {1..3}; do
-    python -m test_functions.services.calculator_service > /dev/null 2>&1 &
+    python -m test_functions.services.calculator_service $DOMAIN_ARG > /dev/null 2>&1 &
     CALC_PID=$!
     pids+=("$CALC_PID")
     echo "Started calculator service $i with PID $CALC_PID"

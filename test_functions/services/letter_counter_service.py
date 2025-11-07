@@ -37,12 +37,13 @@ logger = logging.getLogger("letter_counter_service")
 class LetterCounterService(MonitoredService):
     """Implementation of the letter counter service using Genesis RPC framework"""
     
-    def __init__(self):
+    def __init__(self, domain_id=0):
         """Initialize the letter counter service"""
         # Initialize the enhanced base class with service name and capabilities
         super().__init__(
             service_name="LetterCounterService",
-            capabilities=["letter_counter", "text_analysis"]
+            capabilities=["letter_counter", "text_analysis"],
+            domain_id=domain_id
         )
         
         # Get types from XML for monitoring
@@ -313,10 +314,21 @@ class LetterCounterService(MonitoredService):
 
 def main():
     """Main entry point"""
-    logger.info("SERVICE: Starting letter counter service")
+    import argparse
+    import os
+    
+    parser = argparse.ArgumentParser(description='Letter Counter Service')
+    parser.add_argument('--domain', type=int, default=None,
+                       help='DDS domain ID (default: 0 or GENESIS_DOMAIN_ID env var)')
+    args = parser.parse_args()
+    
+    # Priority: command line arg > env var > default (0)
+    domain_id = args.domain if args.domain is not None else int(os.environ.get('GENESIS_DOMAIN_ID', 0))
+    
+    logger.info(f"SERVICE: Starting letter counter service on domain {domain_id}")
     try:
         # Create and run the letter counter service
-        service = LetterCounterService()
+        service = LetterCounterService(domain_id=domain_id)
         asyncio.run(service.run())
     except KeyboardInterrupt:
         logger.info("SERVICE: Shutting down letter counter service")

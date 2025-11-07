@@ -219,10 +219,13 @@ class GenesisApp:
         
         # Initialize DDS participant
         if participant is None:
+            logger.info(f"🌐 Creating DDS DomainParticipant on domain {domain_id} for {preferred_name}")
             participant_qos = dds.QosProvider.default.participant_qos
             self.participant = dds.DomainParticipant(domain_id, qos=participant_qos)
+            logger.info(f"✅ DomainParticipant created on domain {domain_id} with GUID {self.participant.instance_handle}")
         else:
             self.participant = participant
+            logger.info(f"♻️  Using provided DomainParticipant with GUID {self.participant.instance_handle}")
             
         # Store DDS GUID - used for participant identification in logging and monitoring.
         # This GUID uniquely identifies this DDS participant instance in the network.

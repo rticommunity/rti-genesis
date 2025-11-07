@@ -135,6 +135,7 @@ Copyright (c) 2025, RTI & Jason Upchurch
 import asyncio
 import json
 import logging
+import os
 import time
 import uuid
 from typing import Any, Dict, Optional
@@ -193,9 +194,12 @@ class GenesisRequester:
         self._owns_participant = participant is None
         
         if participant is None:
+            # Use GENESIS_DOMAIN_ID environment variable if set, otherwise default to 0
+            domain_id = int(os.environ.get('GENESIS_DOMAIN_ID', 0))
             qos = dds.DomainParticipantQos()
             qos.transport_builtin.mask = dds.TransportBuiltinMask.UDPv4
-            participant = dds.DomainParticipant(domain_id=0, qos=qos)
+            participant = dds.DomainParticipant(domain_id=domain_id, qos=qos)
+            logger.debug(f"Created DomainParticipant on domain {domain_id}")
         self.participant = participant
         
         # Handle both legacy timeout (Duration) and new timeout_seconds

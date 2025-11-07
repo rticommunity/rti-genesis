@@ -9,6 +9,10 @@ TEST_FAILED=0
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 
+# Get domain ID from environment (default to 0)
+DOMAIN_ID="${GENESIS_DOMAIN_ID:-0}"
+echo "Using DDS domain: $DOMAIN_ID"
+
 # Set up log directory
 LOG_DIR="$PROJECT_ROOT/logs"
 mkdir -p "$LOG_DIR"
@@ -27,7 +31,7 @@ check_and_cleanup_dds() {
     
     # Start spy to check for DDS activity
     SPY_LOG="$LOG_DIR/dds_check.log"
-    "$NDDSHOME/bin/rtiddsspy" -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$SPY_LOG" 2>&1 &
+    "$NDDSHOME/bin/rtiddsspy" -domainId $DOMAIN_ID -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$SPY_LOG" 2>&1 &
     SPY_PID=$!
     
     # Wait a bit to see if any DDS activity is detected
@@ -36,26 +40,17 @@ check_and_cleanup_dds() {
     # Check if spy detected any activity - look for NEW writers/readers, NOT durable data
     # Durable data from previous tests is expected and OK - we're checking for LIVE processes
     if grep -E "New (writer|reader).*CalculatorService" "$SPY_LOG"; then
-        echo "⚠️ TRACE: Detected LIVE CalculatorService processes. Attempting to clean up..."
+        echo "⚠️ TRACE: Detected LIVE CalculatorService processes on domain $DOMAIN_ID."
+        echo "⚠️ TRACE: In parallel mode, this suggests a pre-existing issue on this domain."
+        echo "⚠️ TRACE: The test will continue - processes started by THIS test will be tracked by PID."
         
-        # Try to kill any DDS processes - be specific about calculator and other services
-        # The actual process name is "Python -m test_functions.services.calculator_service"
-        pkill -9 -f "Python -m test_functions.services.calculator_service" || true
-        pkill -9 -f "python.*calculator_service" || true
-        pkill -9 -f "calculator_service" || true
-        pkill -9 -f "rtiddsspy" || true
-        pkill -9 -f "python.*genesis_lib" || true
-        pkill -9 -f "python.*text_processor_service" || true
-        pkill -9 -f "python.*letter_counter_service" || true
-        pkill -9 -f "python.*simple_agent" || true
-        pkill -9 -f "python.*math_test_agent" || true
-        
-        # Wait longer for processes to fully terminate
-        sleep 8
+        # Only kill rtiddsspy on OUR domain
+        pkill -9 -f "rtiddsspy.*domainId $DOMAIN_ID" || true
+        sleep 2
         
         # Start a new spy to verify cleanup
         rm -f "$SPY_LOG"
-        "$NDDSHOME/bin/rtiddsspy" -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$SPY_LOG" 2>&1 &
+        "$NDDSHOME/bin/rtiddsspy" -domainId $DOMAIN_ID -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$SPY_LOG" 2>&1 &
         SPY_PID=$!
         sleep 5
         
@@ -81,7 +76,10 @@ kill_process() {
 
     if [ "$is_spy" = "true" ]; then
         echo "🔫 TRACE: Stopping $name process $pid..."
-        pkill -f "rtiddsspy.*spy_transient.xml.*SpyLib::TransientReliable" || true
+        # PARALLEL-SAFE: Kill by PID, not by pattern
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            kill -KILL "$pid" 2>/dev/null || true
+        fi
         sleep 1
     else
         if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
@@ -99,26 +97,12 @@ kill_process() {
 
 # Function to cleanup any existing processes
 cleanup_existing_processes() {
-    echo "🧹 TRACE: Cleaning up any existing processes..."
-    # Kill any existing calculator services (try multiple patterns)
-    # The actual process name is "Python -m test_functions.services.calculator_service"
-    pkill -9 -f "Python -m test_functions.services.calculator_service" || true
-    pkill -9 -f "python3.*calculator_service.py" || true
-    pkill -9 -f "python.*calculator_service.py" || true
-    pkill -9 -f "calculator_service" || true
-    # Kill any existing agents
-    pkill -9 -f "python3.*math_test_agent.py" || true
-    pkill -9 -f "python.*math_test_agent.py" || true
-    pkill -9 -f "python.*simple_agent" || true
-    # Kill any other test services
-    pkill -9 -f "Python -m test_functions.services.text_processor_service" || true
-    pkill -9 -f "Python -m test_functions.services.letter_counter_service" || true
-    pkill -9 -f "python.*text_processor_service" || true
-    pkill -9 -f "python.*letter_counter_service" || true
-    # Kill any existing DDS spies
-    pkill -9 -f "rtiddsspy.*spy_transient.xml.*SpyLib::TransientReliable" || true
-    pkill -9 -f "rtiddsspy" || true
-    sleep 3  # Give processes time to clean up
+    echo "🧹 TRACE: Pre-test domain check (parallel-safe - no broad pkill)..."
+    # In parallel test mode, we DON'T use broad pkill - that kills other parallel tests!
+    # We only kill rtiddsspy on our specific domain
+    pkill -9 -f "rtiddsspy.*domainId $DOMAIN_ID" || true
+    sleep 1
+    echo "✅ TRACE: Pre-test check complete"
 }
 
 # Function to check log contents
@@ -151,9 +135,16 @@ rm -f "$SERVICE_LOG" "$REGISTRATION_SPY_LOG" "$SERVICE_SPY_LOG" "$AGENT_LOG"
 echo "🔬 TRACE: Starting Test 1 - Service Registration Durability Test"
 echo "=============================================="
 
+# Get domain argument if set
+DOMAIN_ARG=""
+if [ -n "${GENESIS_DOMAIN_ID:-}" ]; then
+    DOMAIN_ARG="--domain ${GENESIS_DOMAIN_ID}"
+    echo "Using domain ${GENESIS_DOMAIN_ID}"
+fi
+
 # Start the calculator service first
 echo "🚀 TRACE: Starting calculator service..."
-PYTHONUNBUFFERED=1 python3 -u "$SERVICE_SCRIPT" > "$SERVICE_LOG" 2>&1 &
+PYTHONUNBUFFERED=1 python3 -u "$SERVICE_SCRIPT" $DOMAIN_ARG > "$SERVICE_LOG" 2>&1 &
 SERVICE_PID=$!
 echo "✅ TRACE: Calculator service started with PID: $SERVICE_PID"
 
@@ -163,7 +154,7 @@ sleep 5
 
 # Now start RTI DDS Spy AFTER the service
 echo "🚀 TRACE: Starting RTI DDS Spy to verify durability..."
-"$NDDSHOME/bin/rtiddsspy" -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$REGISTRATION_SPY_LOG" 2>&1 &
+"$NDDSHOME/bin/rtiddsspy" -domainId $DOMAIN_ID -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$REGISTRATION_SPY_LOG" 2>&1 &
 REGISTRATION_SPY_PID=$!
 echo "✅ TRACE: RTI DDS Spy started with PID: $REGISTRATION_SPY_PID (Log: $REGISTRATION_SPY_LOG)"
 
@@ -193,7 +184,7 @@ echo "=============================================="
 
 # Start the agent first
 echo "🚀 TRACE: Starting agent..."
-PYTHONUNBUFFERED=1 python3 -u "$AGENT_SCRIPT" > "$AGENT_LOG" 2>&1 &
+PYTHONUNBUFFERED=1 python3 -u "$AGENT_SCRIPT" $DOMAIN_ARG > "$AGENT_LOG" 2>&1 &
 AGENT_PID=$!
 echo "✅ TRACE: Agent started with PID: $AGENT_PID"
 
@@ -203,13 +194,13 @@ sleep 5
 
 # Start RTI DDS Spy for function test
 echo "🚀 TRACE: Starting RTI DDS Spy for function test..."
-"$NDDSHOME/bin/rtiddsspy" -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$SERVICE_SPY_LOG" 2>&1 &
+"$NDDSHOME/bin/rtiddsspy" -domainId $DOMAIN_ID -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$SERVICE_SPY_LOG" 2>&1 &
 SERVICE_SPY_PID=$!
 echo "✅ TRACE: RTI DDS Spy started with PID: $SERVICE_SPY_PID (Log: $SERVICE_SPY_LOG)"
 
 # Now start the calculator service AFTER the agent
 echo "🚀 TRACE: Starting calculator service..."
-PYTHONUNBUFFERED=1 python3 -u "$SERVICE_SCRIPT" > "$SERVICE_LOG" 2>&1 &
+PYTHONUNBUFFERED=1 python3 -u "$SERVICE_SCRIPT" $DOMAIN_ARG > "$SERVICE_LOG" 2>&1 &
 SERVICE_PID=$!
 echo "✅ TRACE: Calculator service started with PID: $SERVICE_PID"
 
@@ -221,7 +212,7 @@ sleep 10
 echo "🔍 TRACE: Running Test 2 checks..."
 
 # Check agent logs
-check_log "$AGENT_LOG" "✅ TRACE: Agent created, starting run..." "Agent initialization" true
+check_log "$AGENT_LOG" "Agent created.*starting run" "Agent initialization" true
 check_log "$AGENT_LOG" "MathTestAgent listening for requests" "Agent listening state" true
 
 # Check DDS Spy logs for function registration via GraphTopology (modern durable discovery)

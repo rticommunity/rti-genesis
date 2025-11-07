@@ -9,6 +9,10 @@ TEST_FAILED=0
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 
+# Get domain ID from environment (default to 0)
+DOMAIN_ID="${GENESIS_DOMAIN_ID:-0}"
+echo "Using DDS domain: $DOMAIN_ID"
+
 # Set up log directory
 LOG_DIR="$PROJECT_ROOT/logs"
 mkdir -p "$LOG_DIR"
@@ -93,6 +97,22 @@ check_log() {
 echo "🧹 TRACE: Clearing existing log files..."
 rm -f "$AGENT_LOG" "$INTERFACE_LOG" "$REGISTRATION_SPY_LOG" "$INTERFACE_SPY_LOG"
 
+# Pre-test domain sanity check
+echo "🔍 TRACE: Checking domain $DOMAIN_ID for existing DDS activity..."
+DOMAIN_CHECK_LOG="$LOG_DIR/domain_precheck.log"
+timeout 3 "$NDDSHOME/bin/rtiddsspy" -domainId $DOMAIN_ID -printSample > "$DOMAIN_CHECK_LOG" 2>&1 || true
+
+# Check if any participants/activity detected
+if grep -q "New participant\|New writer\|New reader" "$DOMAIN_CHECK_LOG"; then
+    echo "⚠️ TRACE: WARNING - Detected existing DDS activity on domain $DOMAIN_ID!"
+    echo "⚠️ TRACE: This may indicate lingering processes from previous tests"
+    grep "New participant\|New writer\|New reader" "$DOMAIN_CHECK_LOG" | head -10
+    echo "⚠️ TRACE: Continuing anyway, but results may be affected..."
+else
+    echo "✅ TRACE: Domain $DOMAIN_ID is clean - no existing DDS activity detected"
+fi
+rm -f "$DOMAIN_CHECK_LOG"
+
 echo "🔬 TRACE: Starting Test 1 - Registration Durability Test"
 echo "=============================================="
 
@@ -108,7 +128,7 @@ sleep 5
 
 # Now start RTI DDS Spy AFTER the agent
 echo "🚀 TRACE: Starting RTI DDS Spy to verify durability..."
-"$NDDSHOME/bin/rtiddsspy" -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$REGISTRATION_SPY_LOG" 2>&1 &
+"$NDDSHOME/bin/rtiddsspy" -domainId $DOMAIN_ID -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$REGISTRATION_SPY_LOG" 2>&1 &
 REGISTRATION_SPY_PID=$!
 echo "✅ TRACE: RTI DDS Spy started with PID: $REGISTRATION_SPY_PID (Log: $REGISTRATION_SPY_LOG)"
 
@@ -120,7 +140,7 @@ sleep 10
 echo "🔍 TRACE: Running Test 1 checks..."
 
 # Check agent initialization
-check_log "$AGENT_LOG" "✅ TRACE: Agent created, starting run..." "Agent initialization" true
+check_log "$AGENT_LOG" "Agent created.*starting run" "Agent initialization" true
 check_log "$AGENT_LOG" "MathTestAgent listening for requests" "Agent listening state" true
 
 # Check registration announcement (wait for durable discovery and sample)
@@ -147,7 +167,7 @@ sleep 5
 
 # Start RTI DDS Spy for interface test
 echo "🚀 TRACE: Starting RTI DDS Spy for interface test..."
-"$NDDSHOME/bin/rtiddsspy" -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$INTERFACE_SPY_LOG" 2>&1 &
+"$NDDSHOME/bin/rtiddsspy" -domainId $DOMAIN_ID -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$INTERFACE_SPY_LOG" 2>&1 &
 INTERFACE_SPY_PID=$!
 echo "✅ TRACE: RTI DDS Spy started with PID: $INTERFACE_SPY_PID (Log: $INTERFACE_SPY_LOG)"
 
@@ -165,7 +185,7 @@ wait $INTERFACE_PID || true
 echo "🔍 TRACE: Running Test 2 checks..."
 
 # Check agent logs
-check_log "$AGENT_LOG" "✅ TRACE: Agent created, starting run..." "Agent initialization" true
+check_log "$AGENT_LOG" "Agent created.*starting run" "Agent initialization" true
 check_log "$AGENT_LOG" "MathTestAgent listening for requests" "Agent listening state" true
 check_log "$AGENT_LOG" "Received request:" "Request received" true
 check_log "$AGENT_LOG" "Sent reply:" "Reply sent" true

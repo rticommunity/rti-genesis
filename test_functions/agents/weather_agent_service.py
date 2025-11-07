@@ -44,8 +44,8 @@ class WeatherAgent(OpenAIGenesisAgent):
     - Focus on domain logic instead of Genesis plumbing
     """
     
-    def __init__(self):
-        print("🚀 TRACE: WeatherAgent.__init__() starting...")
+    def __init__(self, domain_id=0):
+        print(f"🚀 TRACE: WeatherAgent.__init__() starting on domain {domain_id}...")
         
         # Get weather API key first
         self.weather_api_key = os.getenv('OPENWEATHERMAP_API_KEY')
@@ -58,11 +58,12 @@ class WeatherAgent(OpenAIGenesisAgent):
             base_service_name="WeatherAgent",
             description="Specialized weather agent with automatic tool discovery - provides real weather data and forecasts",
             enable_agent_communication=True,
-            enable_tracing=True  # Enable detailed tracing
+            enable_tracing=True,  # Enable detailed tracing
+            domain_id=domain_id
         )
         
-        print(f"✅ TRACE: WeatherAgent initialized with agent_id: {self.app.agent_id}")
-        logger.info(f"✅ WeatherAgent initialized")
+        print(f"✅ TRACE: WeatherAgent initialized with agent_id: {self.app.agent_id} on domain {domain_id}")
+        logger.info(f"✅ WeatherAgent initialized on domain {domain_id}")
         logger.info(f"🌤️ Weather API: {'✅ REAL' if self.weather_api_key else '❌ MOCK'}")
 
     # =============================================================================
@@ -337,7 +338,16 @@ class WeatherAgent(OpenAIGenesisAgent):
 
 async def main():
     """Main entry point for WeatherAgent"""
-    logger.info("🌤️ Starting WeatherAgent with automatic tool discovery...")
+    import argparse
+    parser = argparse.ArgumentParser(description='Weather Agent Service')
+    parser.add_argument('--domain', type=int, default=None,
+                       help='DDS domain ID (default: 0 or GENESIS_DOMAIN_ID env var)')
+    args = parser.parse_args()
+    
+    # Priority: command line arg > env var > default (0)
+    domain_id = args.domain if args.domain is not None else int(os.environ.get('GENESIS_DOMAIN_ID', 0))
+    
+    logger.info(f"🌤️ Starting WeatherAgent with automatic tool discovery on domain {domain_id}...")
     
     # Check for API key
     weather_api_key = os.getenv('OPENWEATHERMAP_API_KEY')
@@ -346,7 +356,7 @@ async def main():
         logger.info("💡 To get real weather data, get a free API key from: https://openweathermap.org/api")
     
     # Create and run weather agent
-    agent = WeatherAgent()
+    agent = WeatherAgent(domain_id=domain_id)
     
     try:
         logger.info("🚀 WeatherAgent starting...")

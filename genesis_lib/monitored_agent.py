@@ -330,6 +330,7 @@ class MonitoredAgent(GenesisAgent):
             agent_name=agent_name,
             base_service_name=base_service_name,
             agent_id=agent_id,
+            domain_id=domain_id,
             enable_agent_communication=enable_agent_communication,
             memory_adapter=memory_adapter,
             auto_run=auto_run,

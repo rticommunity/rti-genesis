@@ -84,14 +84,14 @@ class CalculatorService(MonitoredService):
     leverage built-in function registration, monitoring, and discovery.
     """
 
-    def __init__(self):
-        logger.info("===== DDS TRACE: CalculatorService initializing... =====")
-        super().__init__("CalculatorService", capabilities=["calculator", "math"])
+    def __init__(self, domain_id=0):
+        logger.info(f"===== DDS TRACE: CalculatorService initializing on domain {domain_id}... =====")
+        super().__init__("CalculatorService", capabilities=["calculator", "math"], domain_id=domain_id)
         logger.info("===== DDS TRACE: CalculatorService MonitoredService initialized. =====")
         logger.info("===== DDS TRACE: Calling _advertise_functions... =====")
         self._advertise_functions()
         logger.info("===== DDS TRACE: _advertise_functions called. =====")
-        logger.info("CalculatorService initialized with unified RPC v2")
+        logger.info(f"CalculatorService initialized with unified RPC v2 on domain {domain_id}")
 
     @genesis_function()
     async def add(self, x: float, y: float, request_info=None) -> Dict[str, Any]:
@@ -227,9 +227,18 @@ class CalculatorService(MonitoredService):
 # Main                                                                        #
 # --------------------------------------------------------------------------- #
 def main():
-    logger.info("SERVICE: Starting calculator service with unified RPC v2")
+    import argparse
+    parser = argparse.ArgumentParser(description='Calculator Service')
+    parser.add_argument('--domain', type=int, default=None,
+                       help='DDS domain ID (default: 0 or GENESIS_DOMAIN_ID env var)')
+    args = parser.parse_args()
+    
+    # Priority: command line arg > env var > default (0)
+    domain_id = args.domain if args.domain is not None else int(os.environ.get('GENESIS_DOMAIN_ID', 0))
+    
+    logger.info(f"SERVICE: Starting calculator service with unified RPC v2 on domain {domain_id}")
     try:
-        service = CalculatorService()
+        service = CalculatorService(domain_id=domain_id)
         asyncio.run(service.run())
     except KeyboardInterrupt:
         logger.info("SERVICE: Shutting down calculator service")

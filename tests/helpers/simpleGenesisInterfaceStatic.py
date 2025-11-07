@@ -11,7 +11,7 @@ INTERFACE_NAME = "SimpleStaticInterface-001"
 MATH_QUESTION = "What is 123 plus 456?" # Predefined question
 # EXPECTED_ANSWER_SUBSTRING = "579" # We'll check for this in the shell script via logs
 
-async def main(verbose: bool = False, question: str = MATH_QUESTION):
+async def main(verbose: bool = False, question: str = MATH_QUESTION, domain_id: int = 0):
     log_level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
         level=log_level,
@@ -22,10 +22,11 @@ async def main(verbose: bool = False, question: str = MATH_QUESTION):
     if verbose:
         set_genesis_library_log_level(logging.DEBUG)
 
-    logger.info(f"Initializing '{INTERFACE_NAME}' (Log Level: {logging.getLevelName(log_level)})...")
+    logger.info(f"Initializing '{INTERFACE_NAME}' on domain {domain_id} (Log Level: {logging.getLevelName(log_level)})...")
     interface = MonitoredInterface(
         interface_name=INTERFACE_NAME,
-        service_name="StaticInterfaceService"
+        service_name="StaticInterfaceService",
+        domain_id=domain_id
     )
 
     target_agent_id = None
@@ -121,6 +122,7 @@ async def main(verbose: bool = False, question: str = MATH_QUESTION):
         return exit_code
 
 if __name__ == "__main__":
+    import os
     parser = argparse.ArgumentParser(description="Run the Simple Genesis Static Interface.")
     parser.add_argument(
         "--question",
@@ -133,13 +135,22 @@ if __name__ == "__main__":
         action="store_true",
         help="Enable verbose logging (DEBUG level) for the script and Genesis libraries."
     )
+    parser.add_argument(
+        "--domain",
+        type=int,
+        default=None,
+        help="DDS domain ID (default: 0 or GENESIS_DOMAIN_ID env var)"
+    )
     args = parser.parse_args()
+    
+    # Priority: command line arg > env var > default (0)
+    domain_id = args.domain if args.domain is not None else int(os.environ.get('GENESIS_DOMAIN_ID', 0))
 
     # The script will now exit with 0 on success, 1 on failure, based on main's return
     # This is important for the calling shell script to determine test pass/fail.
     script_result_code = 1 # Default to failure
     try:
-        script_result_code = asyncio.run(main(verbose=args.verbose, question=args.question))
+        script_result_code = asyncio.run(main(verbose=args.verbose, question=args.question, domain_id=domain_id))
     except KeyboardInterrupt:
         logger.info("Script terminated by user.")
     except Exception as e:

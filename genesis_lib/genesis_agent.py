@@ -81,6 +81,7 @@ class GenesisAgent(ABC):
 
     def __init__(self, agent_name: str, base_service_name: str, 
                  agent_id: str = None,
+                 domain_id: int = 0,
                  enable_agent_communication: bool = False, memory_adapter=None,
                  auto_run: bool = True, service_instance_tag: str = "",
                  classifier_llm=None, classifier_provider: str = "openai", classifier_model: str = "gpt-5-mini"):
@@ -91,6 +92,7 @@ class GenesisAgent(ABC):
             agent_name: Name of the agent (for display, identification)
             base_service_name: The fundamental type of service offered (e.g., "Chat", "ImageGeneration")
             agent_id: Optional UUID for the agent (if None, will generate one)
+            domain_id: DDS domain ID (default 0)
             enable_agent_communication: Whether to enable agent-to-agent communication capabilities
             memory_adapter: Optional custom memory adapter for conversation history
             auto_run: Whether to automatically start the agent's run loop
@@ -145,9 +147,9 @@ class GenesisAgent(ABC):
         # DDS infrastructure concerns to GenesisApp rather than being both an infrastructure
         # provider AND a request processor simultaneously.
         logger.debug("===== DDS TRACE: Creating GenesisApp in GenesisAgent =====")
-        self.app = GenesisApp(preferred_name=self.agent_name, agent_id=agent_id)
-        logger.debug(f"===== DDS TRACE: GenesisApp created with agent_id {self.app.agent_id} =====")
-        logger.info(f"GenesisAgent {self.agent_name} initialized with app {self.app.agent_id}")
+        self.app = GenesisApp(preferred_name=self.agent_name, agent_id=agent_id, domain_id=domain_id)
+        logger.debug(f"===== DDS TRACE: GenesisApp created with agent_id {self.app.agent_id} on domain {domain_id} =====")
+        logger.info(f"GenesisAgent {self.agent_name} initialized with app {self.app.agent_id} on domain {domain_id}")
 
 
         # Get types from XML

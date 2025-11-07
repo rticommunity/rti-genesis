@@ -12,17 +12,21 @@ logging.getLogger("genesis_lib.function_classifier").setLevel(logging.WARNING)  
 logger = logging.getLogger("test_agent")
 
 class TestAgent(OpenAIGenesisAgent):
-    def __init__(self):
+    def __init__(self, domain_id=0):
         # Initialize the base class with our specific configuration
         super().__init__(
             model_name="gpt-4o",  # You can change this to your preferred model
             classifier_model_name="gpt-4o-mini",  # You can change this to your preferred model
             agent_name="TestAgent",  # Match the class name
             description="A test agent for monitoring and function tests",
-            enable_tracing=True  # Enable tracing for testing
+            enable_tracing=True,  # Enable tracing for testing
+            domain_id=domain_id
         )
 
 async def main():
+    # Get domain from environment (set by test runner)
+    domain_id = int(os.environ.get('GENESIS_DOMAIN_ID', 0))
+    
     # Configure basic logging for the script and to see genesis_lib DEBUG logs
     log_level = logging.DEBUG # Or logging.INFO for less verbosity
 
@@ -43,7 +47,8 @@ async def main():
     logging.getLogger("genesis_app").setLevel(logging.DEBUG) # For GenesisApp close logs
 
     # Create and run the agent
-    agent = TestAgent()
+    agent = TestAgent(domain_id=domain_id)
+    logger.info(f"TestAgent created on domain {domain_id}")
     
     try:
         # Give some time for initialization and announcement propagation

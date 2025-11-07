@@ -131,10 +131,10 @@ class RegistrationListener(dds.DynamicData.NoOpDataReaderListener):
 
 class GenesisInterface(ABC):
     """Base class for all Genesis interfaces"""
-    def __init__(self, interface_name: str, service_name: str):
+    def __init__(self, interface_name: str, service_name: str, domain_id: int = 0):
         self.interface_name = interface_name
         self.service_name = service_name # This is the *interface's* service name, may differ from agent's
-        self.app = GenesisApp(preferred_name=interface_name)
+        self.app = GenesisApp(preferred_name=interface_name, domain_id=domain_id)
         self.discovered_agent_service_name: Optional[str] = None # To store discovered agent service name
         self.requester: Optional[rpc.Requester] = None # Requester will be created after discovery
         

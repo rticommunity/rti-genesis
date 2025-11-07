@@ -60,23 +60,21 @@ class AgentToAgentTester:
         self.monitoring_events = []
         
     def cleanup_existing_processes(self):
-        """Kill any existing test processes"""
-        print("🧹 Cleaning up existing processes...")
+        """Kill any existing test processes - ONLY on domain 1 to avoid interfering with parallel tests"""
+        print("🧹 Cleaning up existing processes on domain 1...")
         
-        patterns = [
-            "personal_assistant_service.py",
-            "weather_agent_service.py", 
-            "calculator_service.py",
-            "rtiddsspy"
-        ]
+        # Only kill processes that are explicitly on our domain (domain 1)
+        # This prevents interfering with other parallel tests
+        domain_id = int(os.environ.get('GENESIS_DOMAIN_ID', 0))
         
-        for pattern in patterns:
-            try:
-                subprocess.run(['pkill', '-f', pattern], capture_output=True)
-            except:
-                pass
+        # Instead of broad pkill, we'll track our own PIDs and kill only those
+        # For now, just do a minimal cleanup of any stray rtiddsspy on our domain
+        try:
+            subprocess.run(['pkill', '-f', f'rtiddsspy.*domainId {domain_id}'], capture_output=True)
+        except:
+            pass
         
-        time.sleep(2)
+        time.sleep(1)
         print("✅ Cleanup completed")
     
     def start_dds_spy(self):
@@ -436,8 +434,12 @@ class AgentToAgentTester:
         print("🧪 Testing Agent-to-Agent Communication")
         print("=" * 50)
         
+        # Get domain from environment
+        import os
+        domain_id = int(os.environ.get('GENESIS_DOMAIN_ID', 0))
+        
         # Bind the interface to PersonalAssistant service (unique service name for deterministic routing)
-        interface = MonitoredInterface('AgentToAgentTest', 'PersonalAssistant')
+        interface = MonitoredInterface('AgentToAgentTest', 'PersonalAssistant', domain_id=domain_id)
         
         try:
             # Wait for agent discovery
