@@ -133,20 +133,32 @@ declare -a TEST_LOG_FILES=()
 launch_test() {
     local test_script="$1"
     local domain_id="$2"
-    local timeout="$3"
+    local timeout_val="$3"
     local test_basename=$(basename "$test_script")
     local log_file="$LOG_DIR/parallel_${test_basename%.*}_domain${domain_id}.log"
     
-    echo "  ▶️  Launching: $test_basename (domain $domain_id, timeout ${timeout}s)"
+    echo "  ▶️  Launching: $test_basename (domain $domain_id, timeout ${timeout_val}s)"
     
-    # Export domain for test to use
-    export GENESIS_DOMAIN_ID=$domain_id
-    
-    # Launch test in background
+    # Launch test in background with GENESIS_DOMAIN_ID set in subshell environment
+    # Use a wrapper to ensure exit code is captured even if timeout kills the process
     if [[ "$test_script" == *.py ]]; then
-        (PYTHONPATH=$PYTHONPATH:$PROJECT_ROOT timeout $timeout python "$test_script" > "$log_file" 2>&1; echo $? > "${log_file}.exit") &
+        (
+            export GENESIS_DOMAIN_ID=$domain_id
+            export PYTHONPATH=$PYTHONPATH:$PROJECT_ROOT
+            timeout $timeout_val python "$test_script" > "$log_file" 2>&1
+            exit_code=$?
+            echo $exit_code > "${log_file}.exit"
+            exit $exit_code
+        ) &
     else
-        (PYTHONPATH=$PYTHONPATH:$PROJECT_ROOT timeout $timeout bash "$test_script" > "$log_file" 2>&1; echo $? > "${log_file}.exit") &
+        (
+            export GENESIS_DOMAIN_ID=$domain_id
+            export PYTHONPATH=$PYTHONPATH:$PROJECT_ROOT
+            timeout $timeout_val bash "$test_script" > "$log_file" 2>&1
+            exit_code=$?
+            echo $exit_code > "${log_file}.exit"
+            exit $exit_code
+        ) &
     fi
     
     local pid=$!

@@ -166,8 +166,9 @@ echo "  ✅ Verified: Question sent."
 # The calculator_service.py uses GenesisReplier, but the *agent* uses GenesisRequester (via GenericFunctionClient)
 # We need to check the *agent's* log for the client-side confirmation of the call to the calculator.
 # The agent log ($AGENT_LOG) should show this via GenericFunctionClient -> GenesisRequester traces.
-EXPECTED_RPC_CLIENT_LOG_PATTERN="GenesisRequester - INFO - Function add returned:.*{'result': $EXPECTED_SUM}"
-if ! grep -qE "$EXPECTED_RPC_CLIENT_LOG_PATTERN" "$AGENT_LOG"; then
+# Note: Log may have "📚 PRINT:" prefix depending on logging configuration
+EXPECTED_RPC_CLIENT_LOG_PATTERN="GenesisRequester - INFO - Function add returned:.*\{'result': $EXPECTED_SUM\}"
+if ! grep -E "$EXPECTED_RPC_CLIENT_LOG_PATTERN" "$AGENT_LOG"; then
     echo "ERROR: Verification FAILED. Did not find requester confirmation of 'add' returning result $EXPECTED_SUM in $AGENT_LOG"
     echo "--- Agent Log ($AGENT_LOG) --- Tail:"
     tail -n 30 "$AGENT_LOG"
