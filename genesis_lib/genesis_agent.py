@@ -1689,15 +1689,15 @@ Be specific and accurate based on the actual tools and methods available."""
                 - schema: JSON schema for parameters
                 - provider_id: ID of the service providing this function
         """
-        # Lazy init GenericFunctionClient if needed
-        if not hasattr(self, '_generic_client'):
-            from genesis_lib.generic_function_client import GenericFunctionClient
+        # Lazy init FunctionRequester if needed
+        if not hasattr(self, '_function_requester'):
+            from genesis_lib.function_requester import FunctionRequester
             # Pass the DDSFunctionDiscovery from app
-            self._generic_client = GenericFunctionClient(
+            self._function_requester = FunctionRequester(
                 discovery=self.app.function_discovery
             )
         
-        functions = self._generic_client.list_available_functions()
+        functions = self._function_requester.list_available_functions()
         result = {}
         for func_data in functions:
             func_name = func_data["name"]
@@ -1874,9 +1874,9 @@ Be specific and accurate based on the actual tools and methods available."""
             raise ValueError(error_msg)
         
         try:
-            # Call the function through the generic client
+            # Call the function through the function requester
             start_time = time.time()
-            result = await self._generic_client.call_function(
+            result = await self._function_requester.call_function(
                 available_functions[function_name]["function_id"],
                 **kwargs
             )
@@ -2115,13 +2115,13 @@ Be specific and accurate based on the actual tools and methods available."""
         
         if not tools:
             # Simple conversation (no tools available)
-            memory_items = self.memory.retrieve(k=8)
+            memory_items = self.memory.retrieve(k=100)
             messages = self._format_messages(user_message, system_prompt, memory_items)
             response = await self._call_llm(messages)
             text = self._extract_text_response(response)
             
-            self.memory.write(user_message, metadata={"role": "user"})
-            self.memory.write(text, metadata={"role": "assistant"})
+            self.memory.store(user_message, metadata={"role": "user"})
+            self.memory.store(text, metadata={"role": "assistant"})
             return {"message": text, "status": 0}
         
         # Tool-based conversation (orchestrated by this class)
@@ -2385,7 +2385,7 @@ Be specific and accurate based on the actual tools and methods available."""
             Dict with 'message' and 'status' keys
         """
         # 1. Format messages (provider-specific)
-        memory_items = self.memory.retrieve(k=8)
+        memory_items = self.memory.retrieve(k=100)
         messages = self._format_messages(user_message, system_prompt, memory_items)
         
         # Trace LLM call if tracing enabled
@@ -2406,8 +2406,8 @@ Be specific and accurate based on the actual tools and methods available."""
         # 4. If no tool calls, return text response
         if not tool_calls:
             text_response = self._extract_text_response(response)
-            self.memory.write(user_message, metadata={"role": "user"})
-            self.memory.write(text_response, metadata={"role": "assistant"})
+            self.memory.store(user_message, metadata={"role": "user"})
+            self.memory.store(text_response, metadata={"role": "assistant"})
             return {"message": text_response, "status": 0}
         
         # 5. Execute tool calls
@@ -2480,10 +2480,10 @@ Be specific and accurate based on the actual tools and methods available."""
         if turn_count >= max_turns:
             final_message = "Response processing exceeded maximum turns"
         
-        # Write to memory
-        self.memory.write(user_message, metadata={"role": "user"})
+        # Store to memory
+        self.memory.store(user_message, metadata={"role": "user"})
         if final_message:
-            self.memory.write(final_message, metadata={"role": "assistant"})
+            self.memory.store(final_message, metadata={"role": "assistant"})
         
         return {"message": final_message, "status": 0}
 

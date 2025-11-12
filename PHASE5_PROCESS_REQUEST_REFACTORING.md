@@ -77,13 +77,13 @@ async def process_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
     
     if not tools:
         # Simple conversation (no tools available)
-        memory_items = self.memory.retrieve(k=8)
+        memory_items = self.memory.retrieve(k=100)
         messages = self._format_messages(user_message, system_prompt, memory_items)
         response = await self._call_llm(messages)
         text = self._extract_text_response(response)
         
-        self.memory.write(user_message, metadata={"role": "user"})
-        self.memory.write(text, metadata={"role": "assistant"})
+        self.memory.store(user_message, metadata={"role": "user"})
+        self.memory.store(text, metadata={"role": "assistant"})
         return {"message": text, "status": 0}
     
     # Tool-based conversation (orchestrated by this class)

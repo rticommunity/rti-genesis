@@ -16,7 +16,7 @@ Successfully renamed Genesis RPC classes to align with DDS/RTI Connext conventio
 
 #### 3. Core Files Updated
 - `genesis_lib/enhanced_service_base.py`: Now imports and inherits from `GenesisReplier`
-- `genesis_lib/generic_function_client.py`: Now imports and uses `GenesisRequester`
+- `genesis_lib/function_requester.py`: Now imports and uses `GenesisRequester`
 - `genesis_lib/genesis_agent.py`: Comment updated to reference `GenesisReplier`
 
 #### 4. Test Files Updated

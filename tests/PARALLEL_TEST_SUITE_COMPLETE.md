@@ -54,7 +54,7 @@ All components now accept and utilize `domain_id` parameter:
   - `GenesisInterface` - Interface base class
   - `MonitoredInterface` - Enhanced interface with monitoring
   - `GenesisRequester` - RPC client (reads `GENESIS_DOMAIN_ID` env var)
-  - `GenericFunctionClient` - Function discovery client
+  - `FunctionRequester` - Function discovery requester
   - `GraphService` - Monitoring graph service
   - `GraphSubscriber` - Monitoring graph subscriber
 
@@ -141,7 +141,7 @@ When Test A on domain 5 cleaned up, it would kill Test B's processes on domain 7
 4. `genesis_lib/interface.py` - Added domain_id parameter
 5. `genesis_lib/monitored_interface.py` - Pass domain_id to parent
 6. `genesis_lib/requester.py` - Read GENESIS_DOMAIN_ID from environment
-7. `genesis_lib/generic_function_client.py` - Already supported domain_id
+7. `genesis_lib/function_requester.py` - Already supported domain_id
 8. `genesis_lib/graph_state.py` - Already supported domain_id
 9. `genesis_lib/openai_genesis_agent.py` - Inherits domain support
 

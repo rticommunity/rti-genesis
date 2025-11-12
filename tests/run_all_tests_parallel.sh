@@ -140,24 +140,17 @@ launch_test() {
     echo "  ▶️  Launching: $test_basename (domain $domain_id, timeout ${timeout_val}s)"
     
     # Launch test in background with GENESIS_DOMAIN_ID set in subshell environment
-    # Use a wrapper to ensure exit code is captured even if timeout kills the process
     if [[ "$test_script" == *.py ]]; then
         (
             export GENESIS_DOMAIN_ID=$domain_id
             export PYTHONPATH=$PYTHONPATH:$PROJECT_ROOT
             timeout $timeout_val python "$test_script" > "$log_file" 2>&1
-            exit_code=$?
-            echo $exit_code > "${log_file}.exit"
-            exit $exit_code
         ) &
     else
         (
             export GENESIS_DOMAIN_ID=$domain_id
             export PYTHONPATH=$PYTHONPATH:$PROJECT_ROOT
             timeout $timeout_val bash "$test_script" > "$log_file" 2>&1
-            exit_code=$?
-            echo $exit_code > "${log_file}.exit"
-            exit $exit_code
         ) &
     fi
     
@@ -205,9 +198,11 @@ echo ""
 echo "⏳ Waiting for all tests to complete..."
 echo "   (${#TEST_PIDS[@]} tests running in parallel)"
 
-# Wait for all background jobs
+# Wait for all background jobs and capture their exit codes
+declare -a TEST_EXIT_CODES=()
 for pid in "${TEST_PIDS[@]}"; do
-    wait "$pid" || true
+    wait "$pid"
+    TEST_EXIT_CODES+=($?)
 done
 
 END_TIME=$(date +%s)
@@ -234,14 +229,9 @@ for i in "${!TEST_NAMES[@]}"; do
     test_name="${TEST_NAMES[$i]}"
     domain="${TEST_DOMAINS[$i]}"
     log_file="${TEST_LOG_FILES[$i]}"
-    exit_file="${log_file}.exit"
     
-    if [ -f "$exit_file" ]; then
-        exit_code=$(cat "$exit_file")
-        rm -f "$exit_file"
-    else
-        exit_code=999  # Unknown/killed
-    fi
+    # Get exit code from the wait capture
+    exit_code=${TEST_EXIT_CODES[$i]:-999}
     
     if [ "$exit_code" -eq 0 ]; then
         echo "  ✅ PASS: $test_name (domain $domain)"

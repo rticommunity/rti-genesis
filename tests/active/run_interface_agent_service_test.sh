@@ -163,9 +163,9 @@ fi
 echo "  ✅ Verified: Question sent."
 
 # Check 3: GenesisRequester log in CalculatorService log indicating correct function call and result
-# The calculator_service.py uses GenesisReplier, but the *agent* uses GenesisRequester (via GenericFunctionClient)
-# We need to check the *agent's* log for the client-side confirmation of the call to the calculator.
-# The agent log ($AGENT_LOG) should show this via GenericFunctionClient -> GenesisRequester traces.
+# The calculator_service.py uses GenesisReplier, but the *agent* uses GenesisRequester (via FunctionRequester)
+# We need to check the *agent's* log for the requester-side confirmation of the call to the calculator.
+# The agent log ($AGENT_LOG) should show this via FunctionRequester -> GenesisRequester traces.
 # Note: Log may have "📚 PRINT:" prefix depending on logging configuration
 EXPECTED_RPC_CLIENT_LOG_PATTERN="GenesisRequester - INFO - Function add returned:.*\{'result': $EXPECTED_SUM\}"
 if ! grep -E "$EXPECTED_RPC_CLIENT_LOG_PATTERN" "$AGENT_LOG"; then

@@ -12,7 +12,7 @@ GENESIS_LIB_LOGGERS = [
     "genesis_lib.openai_genesis_agent",
     "genesis_lib.function_classifier",
     "genesis_lib.function_discovery",
-    "genesis_lib.generic_function_client",
+    "genesis_lib.function_requester",
     "genesis_lib.requester",
     "genesis_lib.replier",
     "genesis_lib.genesis_app",

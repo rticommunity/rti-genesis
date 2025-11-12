@@ -26,7 +26,7 @@ from .function_classifier import FunctionClassifier
 from .llm import AnthropicChatAgent
 from .llm_factory import LLMFactory
 from .openai_genesis_agent import OpenAIGenesisAgent
-from .generic_function_client import GenericFunctionClient
+from .function_requester import FunctionRequester
 from .genesis_service import GenesisService
 from .monitored_service import MonitoredService
 from .utils.openai_utils import convert_functions_to_openai_schema, generate_response_with_functions
@@ -44,7 +44,7 @@ __all__ = [
     'AnthropicChatAgent',
     'LLMFactory',
     'OpenAIGenesisAgent',
-    'GenericFunctionClient',
+    'FunctionRequester',
     'GenesisService',
     'MonitoredService',
     'convert_functions_to_openai_schema',

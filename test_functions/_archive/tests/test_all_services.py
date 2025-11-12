@@ -10,7 +10,7 @@ import random
 from typing import Dict, Any, List
 
 # Import the generic function client from genesis_lib
-from genesis_lib.generic_function_client import GenericFunctionClient
+from genesis_lib.function_requester import FunctionRequester
 
 # Configure logging
 logging.basicConfig(
@@ -26,14 +26,14 @@ class AllServicesTest:
     def __init__(self):
         """Initialize the test class"""
         logger.info("Initializing test for all services")
-        self.client = GenericFunctionClient()
+        self.requester = FunctionRequester()
         self.test_results = []
     
     async def discover_functions(self):
         """Discover all available functions"""
         logger.info("Discovering functions...")
-        await self.client.discover_functions(timeout_seconds=15)
-        functions = self.client.list_available_functions()
+        await self.requester.discover_functions(timeout_seconds=15)
+        functions = self.requester.list_available_functions()
         
         # Group functions by service
         services = {}
@@ -59,7 +59,7 @@ class AllServicesTest:
         # Test add function
         try:
             logger.info("Testing add function...")
-            result = await self.client.call_function_by_name("add", x=10, y=5)
+            result = await self.requester.call_function_by_name("add", x=10, y=5)
             logger.info(f"Result: {result}")
             self.test_results.append({
                 "service": "CalculatorService",
@@ -81,7 +81,7 @@ class AllServicesTest:
         # Test subtract function
         try:
             logger.info("Testing subtract function...")
-            result = await self.client.call_function_by_name("subtract", x=10, y=5)
+            result = await self.requester.call_function_by_name("subtract", x=10, y=5)
             logger.info(f"Result: {result}")
             self.test_results.append({
                 "service": "CalculatorService",
@@ -103,7 +103,7 @@ class AllServicesTest:
         # Test multiply function
         try:
             logger.info("Testing multiply function...")
-            result = await self.client.call_function_by_name("multiply", x=10, y=5)
+            result = await self.requester.call_function_by_name("multiply", x=10, y=5)
             logger.info(f"Result: {result}")
             self.test_results.append({
                 "service": "CalculatorService",
@@ -125,7 +125,7 @@ class AllServicesTest:
         # Test divide function
         try:
             logger.info("Testing divide function...")
-            result = await self.client.call_function_by_name("divide", x=10, y=5)
+            result = await self.requester.call_function_by_name("divide", x=10, y=5)
             logger.info(f"Result: {result}")
             self.test_results.append({
                 "service": "CalculatorService",
@@ -175,7 +175,7 @@ class AllServicesTest:
             
             try:
                 start_time = time.time()
-                result_dict = await self.client.call_function_by_name(operation, x=x, y=y)
+                result_dict = await self.requester.call_function_by_name(operation, x=x, y=y)
                 end_time = time.time()
                 
                 # Calculate request time
@@ -248,7 +248,7 @@ class AllServicesTest:
         # Test count_letter function
         try:
             logger.info("Testing count_letter function...")
-            result = await self.client.call_function_by_name("count_letter", text="lollapalooza", letter="l")
+            result = await self.requester.call_function_by_name("count_letter", text="lollapalooza", letter="l")
             logger.info(f"Result: {result}")
             self.test_results.append({
                 "service": "LetterCounterService",
@@ -270,7 +270,7 @@ class AllServicesTest:
         # Test count_multiple_letters function
         try:
             logger.info("Testing count_multiple_letters function...")
-            result = await self.client.call_function_by_name("count_multiple_letters", text="mississippi", letters=["m", "i", "s", "p"])
+            result = await self.requester.call_function_by_name("count_multiple_letters", text="mississippi", letters=["m", "i", "s", "p"])
             logger.info(f"Result: {result}")
             self.test_results.append({
                 "service": "LetterCounterService",
@@ -292,7 +292,7 @@ class AllServicesTest:
         # Test get_letter_frequency function
         try:
             logger.info("Testing get_letter_frequency function...")
-            result = await self.client.call_function_by_name("get_letter_frequency", text="mississippi")
+            result = await self.requester.call_function_by_name("get_letter_frequency", text="mississippi")
             logger.info(f"Result: {result}")
             self.test_results.append({
                 "service": "LetterCounterService",
@@ -318,7 +318,7 @@ class AllServicesTest:
         # Test transform_case function
         try:
             logger.info("Testing transform_case function...")
-            result = await self.client.call_function_by_name("transform_case", text="Hello World", case="upper")
+            result = await self.requester.call_function_by_name("transform_case", text="Hello World", case="upper")
             logger.info(f"Result: {result}")
             self.test_results.append({
                 "service": "TextProcessorService",
@@ -340,7 +340,7 @@ class AllServicesTest:
         # Test analyze_text function
         try:
             logger.info("Testing analyze_text function...")
-            result = await self.client.call_function_by_name("analyze_text", text="The quick brown fox jumps over the lazy dog.")
+            result = await self.requester.call_function_by_name("analyze_text", text="The quick brown fox jumps over the lazy dog.")
             logger.info(f"Result: {result}")
             self.test_results.append({
                 "service": "TextProcessorService",
@@ -362,7 +362,7 @@ class AllServicesTest:
         # Test generate_text function
         try:
             logger.info("Testing generate_text function...")
-            result = await self.client.call_function_by_name("generate_text", text="Hello", operation="repeat", count=3)
+            result = await self.requester.call_function_by_name("generate_text", text="Hello", operation="repeat", count=3)
             logger.info(f"Result: {result}")
             self.test_results.append({
                 "service": "TextProcessorService",
@@ -434,7 +434,7 @@ class AllServicesTest:
         await self.discover_functions()
         
         # Add call_function_by_name method to the client
-        self.client.call_function_by_name = self._call_function_by_name
+        self.requester.call_function_by_name = self._call_function_by_name
         
         # Run tests for each service
         await self.test_calculator_service()
@@ -458,7 +458,7 @@ class AllServicesTest:
         """
         # Find the function ID by name
         function_id = None
-        for func in self.client.list_available_functions():
+        for func in self.requester.list_available_functions():
             if func["name"] == function_name:
                 function_id = func["function_id"]
                 break
@@ -467,12 +467,12 @@ class AllServicesTest:
             raise ValueError(f"Function not found: {function_name}")
         
         # Call the function
-        return await self.client.call_function(function_id, **kwargs)
+        return await self.requester.call_function(function_id, **kwargs)
     
     def close(self):
         """Clean up resources"""
         logger.info("Cleaning up resources...")
-        self.client.close()
+        self.requester.close()
 
 async def main():
     """Main entry point"""

@@ -102,12 +102,12 @@ import asyncio
 import time
 import json
 import os
-from genesis_lib.generic_function_client import GenericFunctionClient
+from genesis_lib.function_requester import FunctionRequester
 
 async def verify_functions():
     # Get domain from environment
     domain_id = int(os.environ.get('GENESIS_DOMAIN_ID', 0))
-    client = GenericFunctionClient(domain_id=domain_id)
+    requester = FunctionRequester(domain_id=domain_id)
     
     timeout_seconds = 45
     start_time = time.time()
@@ -120,17 +120,13 @@ async def verify_functions():
         'TextProcessorService': ['transform_case', 'analyze_text', 'generate_text']
     }
     
-    print(f\"Verifying function registration by polling client.function_registry for up to {timeout_seconds}s...\")
+    print(f\"Verifying function registration by polling function discovery for up to {timeout_seconds}s...\")
 
     while time.time() - start_time < timeout_seconds:
-        # Get all discovered functions from the client's FunctionRegistry instance
-        discovered_functions_dict = client.function_registry.get_all_discovered_functions()
-        
-        # Convert to a list of function details for easier processing
-        # Each value in discovered_functions_dict is a dictionary of function details
-        functions_list = list(discovered_functions_dict.values()) 
+        # Get all discovered functions directly from the discovery API
+        functions_list = requester.function_discovery.list_functions()
 
-        print(f\"Polling: Found {len(functions_list)} functions in client's registry at {time.time() - start_time:.2f}s\")
+        print(f\"Polling: Found {len(functions_list)} functions at {time.time() - start_time:.2f}s\")
         # To debug, uncomment the following lines to print details of found functions:
         # for func_id_key, func_detail_val in discovered_functions_dict.items():
         #    print(f\"  - Found ID: {func_id_key}, Name: {func_detail_val.get('name')}, Service: {func_detail_val.get('service_name')}\")
@@ -174,8 +170,7 @@ async def verify_functions():
     if not all_functions_verified:
         # If loop finished due to timeout and not all functions were verified
         # Perform a final check and report detailed errors
-        final_discovered_dict = client.function_registry.get_all_discovered_functions()
-        final_functions_list_details = list(final_discovered_dict.values())
+        final_functions_list_details = requester.function_discovery.list_functions()
         
         final_services_on_network_map = {}
         for func_detail_item in final_functions_list_details:
@@ -202,17 +197,17 @@ async def verify_functions():
         if final_missing_functions:
             print(f'ERROR: Final list of missing functions: {final_missing_functions}')
         
-        print(\"Current functions found in client's registry at timeout:\")
-        if final_discovered_dict:
-            for func_id, func_detail in final_discovered_dict.items():
-                 print(f\"  - ID: {func_id}, Name: {func_detail.get('name')}, Service: {func_detail.get('service_name')}, Provider: {func_detail.get('provider_id')}\")
+        print(\"Current functions found at timeout:\")
+        if final_functions_list_details:
+            for func_detail in final_functions_list_details:
+                 print(f\"  - ID: {func_detail.get('function_id')}, Name: {func_detail.get('name')}, Service: {func_detail.get('service_name')}, Provider: {func_detail.get('provider_id')}\")
         else:
-            print(\"  - No functions found in registry at timeout.\")
+            print(\"  - No functions found at timeout.\")
         
-        client.close() # Ensure client is closed on failure path
+        requester.close() # Ensure requester is closed on failure path
         exit(1) # Exit with error code
         
-    client.close() # Ensure client is closed on success path
+    requester.close() # Ensure requester is closed on success path
 
 asyncio.run(verify_functions())
 " || exit 1

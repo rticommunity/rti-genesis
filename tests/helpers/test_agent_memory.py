@@ -67,9 +67,9 @@ class MemoryTestAgent(OpenAIGenesisAgent):
             agent_response = response.choices[0].message.content
             print(f"\n[DEBUG] OpenAI response: {agent_response}")
             
-            # Write user and agent messages to memory
-            self.memory.write(user_message, metadata={"role": "user"})
-            self.memory.write(agent_response, metadata={"role": "assistant"})
+            # Store user and agent messages to memory
+            self.memory.store(user_message, metadata={"role": "user"})
+            self.memory.store(agent_response, metadata={"role": "assistant"})
             
             return {"message": agent_response, "status": 0}
             

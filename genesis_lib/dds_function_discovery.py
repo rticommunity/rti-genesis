@@ -37,10 +37,10 @@ for func in functions:
 discovery.close()
 ```
 
-Integration with GenericFunctionClient:
+Integration with FunctionRequester:
 ```python
-client = GenericFunctionClient(discovery=DDSFunctionDiscovery(participant))
-result = await client.call_function(function_id, **args)
+requester = FunctionRequester(discovery=DDSFunctionDiscovery(participant))
+result = await requester.call_function(function_id, **args)
 ```
 
 =================================================================================================

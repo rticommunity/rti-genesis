@@ -74,7 +74,7 @@ Phase 3 — Function advertisement: dual-publish, add reader, then cut legacy
   - Update discovery to rely solely on `GenesisAdvertisement`.
   - Remove legacy `FunctionCapability` reader/writer and associated code paths.
 - Tests for each step:
-  - Verify functions are discovered and callable via `GenericFunctionClient`.
+  - Verify functions are discovered and callable via `FunctionRequester`.
   - Confirm graph discovery callbacks still fire (edges to provider/service), as they use registry updates.
   - run tests/run_all_tests.sh to ensure nothing has broken (be aware that some tests "grep" for topics in logs that could break)
 

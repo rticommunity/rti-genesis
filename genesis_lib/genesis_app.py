@@ -63,7 +63,7 @@ GenesisApp provides DDSFunctionDiscovery for discovering functions from other ap
 
 This enables:
 - **Agent Discovery**: Agents use self.app.function_discovery to find available functions
-- **Client Integration**: GenericFunctionClient uses DDSFunctionDiscovery for function lookup
+- **Requester Integration**: FunctionRequester uses DDSFunctionDiscovery for function lookup
 - **Dynamic Tool Sets**: LLMs get current function list each time they need it
 
 Note: For INTERNAL function registration (within a service), use InternalFunctionRegistry instead.
