@@ -70,7 +70,7 @@ This README documents what the top-level test runner executes today, the order a
     - Spins up services and does a short lifecycle sanity; CLI is presently commented.
 
 12) Framework sanity: `test_genesis_framework.sh` (120s)
-    - DDS/RPC basic checks; services registration poll via `GenericFunctionClient`.
+    - DDS/RPC basic checks; services registration poll via `FunctionRequester`.
 
 13) Monitoring test: `test_monitoring.sh` (60s)
     - Starts multiple calculator services, a monitoring script, and runs a test agent to generate events.

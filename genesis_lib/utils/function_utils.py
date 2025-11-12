@@ -25,7 +25,7 @@ def call_function_thread_safe(
     to avoid DDS exclusive area problems.
     
     Args:
-        function_client: The client to use for calling functions
+        function_client: The requester to use for calling functions (typically FunctionRequester)
         function_name: Name of the function to call (for logging)
         function_id: ID of the function to call
         service_name: Name of the service providing the function (for logging)
@@ -52,7 +52,7 @@ def call_function_thread_safe(
             asyncio.set_event_loop(loop)
             
             try:
-                # Call the function using the client
+                # Call the function using the requester
                 start_time = time.time()
                 result = loop.run_until_complete(function_client.call_function(function_id, **kwargs))
                 end_time = time.time()

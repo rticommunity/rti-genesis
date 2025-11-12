@@ -13,7 +13,7 @@ ARCHITECTURE OVERVIEW - Components
 
 1) MemoryAdapter (Interface)
    - Contract for memory backends.
-   - Required: write(item, metadata), retrieve(query, k, policy)
+   - Required: store(item, metadata), retrieve(query, k, policy)
    - Optional (future): summarize(window), promote(item_id), prune(criteria)
 
 2) SimpleMemoryAdapter (ACTIVE DEFAULT)
@@ -33,9 +33,9 @@ CURRENT RUNTIME USAGE - Where Memory Is Used Today
 - GenesisAgent constructs `self.memory` as a SimpleMemoryAdapter when no custom
   adapter is provided, and uses it to:
   • retrieve the last k items to build LLM prompts
-  • write each user/assistant turn after responses
+  • store each user/assistant turn after responses
 
-- MonitoredAgent wraps memory operations (write/retrieve) to emit monitoring events.
+- MonitoredAgent wraps memory operations (store/retrieve) to emit monitoring events.
 
 Call Chain (simplified):
 ```
@@ -43,7 +43,7 @@ User Request
   → GenesisAgent.process_request()
       → self.memory.retrieve(k=...)   # conversation context
       → LLM call / tool orchestration
-      → self.memory.write(user/assistant)
+      → self.memory.store(user/assistant)
 ```
 
 =================================================================================================
@@ -64,7 +64,7 @@ EXTENSION POINTS - How To Plug In a New Adapter
 =================================================================================================
 
 1) Implement MemoryAdapter:
-   - write(item, metadata), retrieve(query, k, policy) are required.
+   - store(item, metadata), retrieve(query, k, policy) are required.
    - Optionally implement summarize/promote/prune.
 
 2) Register with MemoryRouter (future):
@@ -86,17 +86,17 @@ application (e.g., routing by query shape, cost, or retention).
 class MemoryAdapter:
     """Interface for pluggable memory backends.
 
-    Implementations must provide `write` and `retrieve`.
+    Implementations must provide `store` and `retrieve`.
 
     Note: Higher-level operations (`summarize`, `promote`, `prune`) are
     intentionally left as stubs for future adapters (e.g., vector or graph
     stores) and are not used by the current runtime path.
     """
 
-    def write(self, item, metadata=None):
+    def store(self, item, metadata=None):
         raise NotImplementedError
 
-    def retrieve(self, query=None, k=5, policy=None):
+    def retrieve(self, query=None, k=100, policy=None):
         raise NotImplementedError
 
     def summarize(self, window=None):
@@ -128,10 +128,10 @@ class SimpleMemoryAdapter(MemoryAdapter):
     def __init__(self):
         self._store = []
 
-    def write(self, item, metadata=None):
+    def store(self, item, metadata=None):
         self._store.append({'item': item, 'metadata': metadata})
 
-    def retrieve(self, query=None, k=5, policy=None):
+    def retrieve(self, query=None, k=100, policy=None):
         # For now, just return the last k items
         return self._store[-k:] if k else self._store[:]
 
@@ -225,9 +225,9 @@ class MemoryRouter:
         
         return self.default_adapter
     
-    def write(self, item, metadata=None, adapter_hint=None):
+    def store(self, item, metadata=None, adapter_hint=None):
         """
-        Write to memory through the router.
+        Store to memory through the router.
         
         Args:
             item: The item to store
@@ -235,9 +235,9 @@ class MemoryRouter:
             adapter_hint: Hint about which adapter to use
         """
         adapter = self.route_query(adapter_hint=adapter_hint)
-        return adapter.write(item, metadata)
+        return adapter.store(item, metadata)
     
-    def retrieve(self, query=None, k=5, policy=None, adapter_hint=None):
+    def retrieve(self, query=None, k=100, policy=None, adapter_hint=None):
         """
         Retrieve from memory through the router.
         

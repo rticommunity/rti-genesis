@@ -4,7 +4,7 @@ import logging
 import asyncio
 import json
 from typing import Dict, Any, List
-from test_functions.generic_function_client import GenericFunctionClient
+from genesis_lib.function_requester import FunctionRequester
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, 
@@ -170,15 +170,15 @@ async def verify_function_schemas():
     """
     Verify that the discovered function schemas match our expectations.
     """
-    client = GenericFunctionClient()
+    requester = FunctionRequester()
     
     try:
         # Discover available functions with a longer timeout
         print("Waiting for function discovery (10 seconds)...")
-        await client.discover_functions(timeout_seconds=10)
+        await requester.discover_functions(timeout_seconds=10)
         
         # List available functions
-        functions = client.list_available_functions()
+        functions = requester.list_available_functions()
         print("\nDiscovered Functions:")
         for func in functions:
             print(f"  - {func['function_id']}: {func['name']} - {func['description']}")
@@ -261,7 +261,7 @@ async def verify_function_schemas():
     except Exception as e:
         logger.error(f"Error during schema verification: {str(e)}", exc_info=True)
     finally:
-        client.close()
+        requester.close()
 
 def compare_schemas(schema1: Dict[str, Any], schema2: Dict[str, Any]) -> bool:
     """

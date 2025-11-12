@@ -4,7 +4,7 @@ import logging
 import asyncio
 import json
 from typing import Dict, Any
-from genesis_lib.generic_function_client import GenericFunctionClient
+from genesis_lib.function_requester import FunctionRequester
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, 
@@ -22,8 +22,8 @@ class CalculatorClient:
         """Initialize the calculator client"""
         logger.info("Initializing CalculatorClient")
         
-        # Use the generic client under the hood
-        self.generic_client = GenericFunctionClient()
+        # Use the function requester under the hood
+        self.function_requester = FunctionRequester()
         
         # Cache for discovered function IDs
         self.function_ids = {}
@@ -31,10 +31,10 @@ class CalculatorClient:
     async def _ensure_initialized(self):
         """Ensure the client is initialized and functions are discovered"""
         if not self.function_ids:
-            await self.generic_client.discover_functions()
+            await self.function_requester.discover_functions()
             
             # Cache function IDs for calculator operations
-            functions = self.generic_client.list_available_functions()
+            functions = self.function_requester.list_available_functions()
             for func in functions:
                 name = func["name"]
                 self.function_ids[name] = func["function_id"]
@@ -58,7 +58,7 @@ class CalculatorClient:
             raise RuntimeError("Add function not available")
         
         logger.debug(f"CLIENT: Calling add with x={x}, y={y}")
-        return await self.generic_client.call_function(self.function_ids["add"], x=x, y=y)
+        return await self.function_requester.call_function(self.function_ids["add"], x=x, y=y)
     
     async def subtract(self, x: float, y: float) -> Dict[str, Any]:
         """
@@ -77,7 +77,7 @@ class CalculatorClient:
             raise RuntimeError("Subtract function not available")
         
         logger.debug(f"CLIENT: Calling subtract with x={x}, y={y}")
-        return await self.generic_client.call_function(self.function_ids["subtract"], x=x, y=y)
+        return await self.function_requester.call_function(self.function_ids["subtract"], x=x, y=y)
     
     async def multiply(self, x: float, y: float) -> Dict[str, Any]:
         """
@@ -96,7 +96,7 @@ class CalculatorClient:
             raise RuntimeError("Multiply function not available")
         
         logger.debug(f"CLIENT: Calling multiply with x={x}, y={y}")
-        return await self.generic_client.call_function(self.function_ids["multiply"], x=x, y=y)
+        return await self.function_requester.call_function(self.function_ids["multiply"], x=x, y=y)
     
     async def divide(self, x: float, y: float) -> Dict[str, Any]:
         """
@@ -118,12 +118,12 @@ class CalculatorClient:
             raise ValueError("Cannot divide by zero")
         
         logger.debug(f"CLIENT: Calling divide with x={x}, y={y}")
-        return await self.generic_client.call_function(self.function_ids["divide"], x=x, y=y)
+        return await self.function_requester.call_function(self.function_ids["divide"], x=x, y=y)
     
     def close(self):
         """Close the client and release resources"""
         logger.info("Closing calculator client")
-        self.generic_client.close()
+        self.function_requester.close()
 
 async def run_calculator_test():
     """Run a test of the calculator functions"""
@@ -190,7 +190,7 @@ async def run_calculator_test():
             # We need to bypass the client's validation to test the service's validation
             function_id = client.function_ids.get("add")
             if function_id:
-                await client.generic_client.call_function(function_id, x="abc", y=5)
+                await client.function_requester.call_function(function_id, x="abc", y=5)
                 print("❌ String parameter should have raised an error")
                 logger.error("String parameter did not raise an error")
             else:

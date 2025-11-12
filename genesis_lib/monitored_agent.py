@@ -222,7 +222,7 @@ import traceback
 import rti.connextdds as dds
 
 from .genesis_agent import GenesisAgent
-from genesis_lib.generic_function_client import GenericFunctionClient
+from genesis_lib.function_requester import FunctionRequester
 from genesis_lib.graph_monitoring import (
     GraphMonitor,
     COMPONENT_TYPE,
@@ -263,7 +263,7 @@ class MonitoredAgent(GenesisAgent):
     Extends GenesisAgent to add standardized monitoring.
     """
 
-    _function_client_initialized = False
+    _function_requester_initialized = False
 
     def __init__(self, agent_name: str, base_service_name: str,
                  agent_type: str = "AGENT",
@@ -348,7 +348,7 @@ class MonitoredAgent(GenesisAgent):
         self.monitor = None  # Legacy monitoring (unused)
         self.subscription = None  # Legacy monitoring (unused)
 
-        self._initialize_function_client()  # Sets up GenericFunctionClient (no active discovery yet)
+        self._initialize_function_requester()  # Sets up FunctionRequester (no active discovery yet)
         self.function_cache: Dict[str, Dict[str, Any]] = {}  # Cache for discovered functions
         
         # Register callback for agent discovery (if agent communication enabled)
@@ -428,9 +428,9 @@ class MonitoredAgent(GenesisAgent):
 
         logger.info(f"✅ TRACE: Monitored agent {agent_name} initialized with type {agent_type}, agent_id={self.app.agent_id}, dds_guid={getattr(self.app, 'dds_guid', None)}")
 
-    def _initialize_function_client(self) -> None:
+    def _initialize_function_requester(self) -> None:
         """
-        Initialize function client and register discovery callback.
+        Initialize function requester and register discovery callback.
         
         Note: self.app and self.app.participant are guaranteed to exist here because
         super().__init__() would have raised an exception if they failed to create.
@@ -935,8 +935,8 @@ class MonitoredAgent(GenesisAgent):
             return
             
         function_requester_guid = None
-        if hasattr(self, 'function_client'):
-            function_requester_guid = self._get_requester_guid(self.function_client)
+        if hasattr(self, 'function_requester'):
+            function_requester_guid = self._get_requester_guid(self.function_requester)
             if function_requester_guid:
                 self.function_requester_guid = function_requester_guid
 
@@ -1388,7 +1388,7 @@ class MonitoredAgent(GenesisAgent):
         
         **What the Parent Does** (Business Logic - GenesisAgent._call_function):
         - Validates function exists in registry
-        - Makes actual RPC call via GenericFunctionClient
+        - Makes actual RPC call via FunctionRequester
         - Returns function result
         
         **Chain Event Flow**:
@@ -1645,15 +1645,15 @@ class MonitoredAgent(GenesisAgent):
             self._publish_llm_call_complete(chain_id, call_id, f"{self.__class__.__name__}.orchestration.error")
             raise
 
-    def _get_requester_guid(self, function_client) -> str:
+    def _get_requester_guid(self, function_requester) -> str:
         requester_guid = None
         try:
-            if hasattr(function_client, 'requester') and hasattr(function_client.requester, 'request_datawriter'):
-                requester_guid = str(function_client.requester.request_datawriter.instance_handle)
-            elif hasattr(function_client, 'requester') and hasattr(function_client.requester, 'participant'):
-                requester_guid = str(function_client.requester.participant.instance_handle)
-            elif hasattr(function_client, 'participant'):
-                requester_guid = str(function_client.participant.instance_handle)
+            if hasattr(function_requester, 'requester') and hasattr(function_requester.requester, 'request_datawriter'):
+                requester_guid = str(function_requester.requester.request_datawriter.instance_handle)
+            elif hasattr(function_requester, 'requester') and hasattr(function_requester.requester, 'participant'):
+                requester_guid = str(function_requester.requester.participant.instance_handle)
+            elif hasattr(function_requester, 'participant'):
+                requester_guid = str(function_requester.participant.instance_handle)
         except Exception as e:
             logger.error(f"Error getting requester GUID: {e}")
             logger.error(traceback.format_exc())
@@ -1805,12 +1805,12 @@ class MonitoredAgent(GenesisAgent):
         
         logger.debug(f"🔍 TRACE: === End Discovery Status ===")
 
-    def memory_write(self, item, metadata=None):
-        self.memory.write(item, metadata)
+    def memory_store(self, item, metadata=None):
+        self.memory.store(item, metadata)
         if hasattr(self, 'publish_monitoring_event'):
-            self.publish_monitoring_event(event_type="memory_write", metadata={"item": item, "metadata": metadata})
+            self.publish_monitoring_event(event_type="memory_store", metadata={"item": item, "metadata": metadata})
 
-    def memory_retrieve(self, query=None, k=5, policy=None):
+    def memory_retrieve(self, query=None, k=100, policy=None):
         result = self.memory.retrieve(query, k, policy)
         if hasattr(self, 'publish_monitoring_event'):
             self.publish_monitoring_event(event_type="memory_retrieve", metadata={"query": query, "k": k, "policy": policy, "result_count": len(result) if result else 0})

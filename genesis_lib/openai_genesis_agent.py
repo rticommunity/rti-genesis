@@ -164,7 +164,7 @@ import collections
 
 from genesis_lib.monitored_agent import MonitoredAgent
 from genesis_lib.function_classifier import FunctionClassifier
-from genesis_lib.generic_function_client import GenericFunctionClient
+from genesis_lib.function_requester import FunctionRequester
 from genesis_lib.schema_generators import get_schema_generator
 
 logger = logging.getLogger("openai_genesis_agent")
@@ -260,11 +260,11 @@ class OpenAIGenesisAgent(MonitoredAgent):
         # - "none": LLM cannot use tools - TESTING edge cases
         self.openai_tool_choice = os.getenv("GENESIS_TOOL_CHOICE", "auto")
         
-        # Initialize generic function client for RPC calls
+        # Initialize function requester for RPC calls
         # Uses the agent's DDSFunctionDiscovery (shared with GenesisApp) for function discovery
         # This is provider-agnostic - same for all LLM providers
-        logger.debug(f"===== TRACING: Initializing GenericFunctionClient using agent app's DDSFunctionDiscovery: {id(self.app.function_discovery)} =====")
-        self.generic_client = GenericFunctionClient(discovery=self.app.function_discovery)
+        logger.debug(f"===== TRACING: Initializing FunctionRequester using agent app's DDSFunctionDiscovery: {id(self.app.function_discovery)} =====")
+        self.function_requester = FunctionRequester(discovery=self.app.function_discovery)
         
         # Initialize function classifier (OpenAI-specific)
         # Used to intelligently select relevant functions from large function sets
@@ -666,11 +666,11 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         """
         try:
             # Close OpenAI-specific resources
-            if hasattr(self, 'generic_client') and self.generic_client is not None:
-                if asyncio.iscoroutinefunction(self.generic_client.close):
-                    await self.generic_client.close()
+            if hasattr(self, 'function_requester') and self.function_requester is not None:
+                if asyncio.iscoroutinefunction(self.function_requester.close):
+                    await self.function_requester.close()
                 else:
-                    self.generic_client.close()
+                    self.function_requester.close()
             
             # Close base class resources (DDS, RPC, monitoring)
             await super().close()

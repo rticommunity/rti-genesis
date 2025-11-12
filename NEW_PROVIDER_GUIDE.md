@@ -196,7 +196,7 @@ def __init__(self, model_name="[default-model]", ...):
     self.provider_tool_choice = os.getenv("GENESIS_TOOL_CHOICE", "auto")
     
     # Initialize helpers (optional)
-    self.generic_client = GenericFunctionClient(
+    self.function_requester = FunctionRequester(
         function_registry=self.app.function_registry
     )
     

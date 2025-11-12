@@ -133,20 +133,25 @@ declare -a TEST_LOG_FILES=()
 launch_test() {
     local test_script="$1"
     local domain_id="$2"
-    local timeout="$3"
+    local timeout_val="$3"
     local test_basename=$(basename "$test_script")
     local log_file="$LOG_DIR/parallel_${test_basename%.*}_domain${domain_id}.log"
     
-    echo "  ▶️  Launching: $test_basename (domain $domain_id, timeout ${timeout}s)"
+    echo "  ▶️  Launching: $test_basename (domain $domain_id, timeout ${timeout_val}s)"
     
-    # Export domain for test to use
-    export GENESIS_DOMAIN_ID=$domain_id
-    
-    # Launch test in background
+    # Launch test in background with GENESIS_DOMAIN_ID set in subshell environment
     if [[ "$test_script" == *.py ]]; then
-        (PYTHONPATH=$PYTHONPATH:$PROJECT_ROOT timeout $timeout python "$test_script" > "$log_file" 2>&1; echo $? > "${log_file}.exit") &
+        (
+            export GENESIS_DOMAIN_ID=$domain_id
+            export PYTHONPATH=$PYTHONPATH:$PROJECT_ROOT
+            timeout $timeout_val python "$test_script" > "$log_file" 2>&1
+        ) &
     else
-        (PYTHONPATH=$PYTHONPATH:$PROJECT_ROOT timeout $timeout bash "$test_script" > "$log_file" 2>&1; echo $? > "${log_file}.exit") &
+        (
+            export GENESIS_DOMAIN_ID=$domain_id
+            export PYTHONPATH=$PYTHONPATH:$PROJECT_ROOT
+            timeout $timeout_val bash "$test_script" > "$log_file" 2>&1
+        ) &
     fi
     
     local pid=$!
@@ -193,9 +198,11 @@ echo ""
 echo "⏳ Waiting for all tests to complete..."
 echo "   (${#TEST_PIDS[@]} tests running in parallel)"
 
-# Wait for all background jobs
+# Wait for all background jobs and capture their exit codes
+declare -a TEST_EXIT_CODES=()
 for pid in "${TEST_PIDS[@]}"; do
-    wait "$pid" || true
+    wait "$pid"
+    TEST_EXIT_CODES+=($?)
 done
 
 END_TIME=$(date +%s)
@@ -222,14 +229,9 @@ for i in "${!TEST_NAMES[@]}"; do
     test_name="${TEST_NAMES[$i]}"
     domain="${TEST_DOMAINS[$i]}"
     log_file="${TEST_LOG_FILES[$i]}"
-    exit_file="${log_file}.exit"
     
-    if [ -f "$exit_file" ]; then
-        exit_code=$(cat "$exit_file")
-        rm -f "$exit_file"
-    else
-        exit_code=999  # Unknown/killed
-    fi
+    # Get exit code from the wait capture
+    exit_code=${TEST_EXIT_CODES[$i]:-999}
     
     if [ "$exit_code" -eq 0 ]; then
         echo "  ✅ PASS: $test_name (domain $domain)"
