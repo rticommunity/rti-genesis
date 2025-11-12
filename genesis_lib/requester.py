@@ -5,6 +5,28 @@ This module provides the client-side implementation for Genesis request/reply co
 featuring unified topics with broadcast and first-reply-wins semantics. It enables
 intelligent request routing, automatic service discovery, and robust error handling.
 
+ARCHITECTURAL DECISION: Why not use this wrapper for every RPC path?
+===================================================================
+Genesis uses one unified DDS data model (GenesisRPCRequest/Reply) for all RPC, but not
+every RPC path goes through this wrapper. Two related, but distinct, use-cases exist:
+
+1) Service-oriented function calls (this module)
+   - Semantics: function name + parameters → result
+   - Needs: consistent JSON packing, input/result handling, structured logs, retries
+   - Solution: GenesisRequester/GenesisReplier add a small, opinionated layer that
+     standardizes function-call behavior and test-visible logging.
+
+2) Interface ↔ Agent control/messaging
+   - Semantics: arbitrary chat/control messages and selection metadata, not always
+     function calls
+   - Needs: ultra-thin path, exact log formats and timings used by tests/monitoring
+   - Solution: keep a direct path using rti.rpc with DynamicData (no function envelope),
+     minimizing overhead and preserving compatibility.
+
+Both paths share the same DynamicData types from datamodel.xml. The differentiation is
+about ergonomics and stability: services benefit from a higher-level wrapper; the
+interface/agent path remains intentionally thin and predictable.
+
 =================================================================================================
 ARCHITECTURE OVERVIEW - Understanding Requester Design
 =================================================================================================
@@ -143,7 +165,7 @@ from typing import Any, Dict, Optional
 import rti.connextdds as dds
 from rti.rpc import Requester
 
-from genesis_lib.datamodel import RPCRequestV2, RPCReplyV2
+from genesis_lib.utils import get_datamodel_path
 from genesis_lib.utils.guid_utils import format_guid
 
 
@@ -208,7 +230,16 @@ class GenesisRequester:
         else:
             self.timeout = dds.Duration.from_seconds(timeout_seconds)
 
-        # Configure QoS for Request/Reply pattern (must be RELIABLE + KEEP_ALL)
+        # Create Requester with service_name only - it will create the topics
+        service_name_full = f"rti/connext/genesis/rpc/{service_type}"
+        logger.info(f"Requester initializing for service_name={service_name_full}")
+        
+        # Load unified RPC types from datamodel.xml
+        provider = dds.QosProvider(get_datamodel_path())
+        self.request_type = provider.type("genesis_lib", "GenesisRPCRequest")
+        self.reply_type = provider.type("genesis_lib", "GenesisRPCReply")
+        
+        # Ensure RELIABLE + KEEP_ALL for request/reply endpoints (matches legacy behavior)
         writer_qos = dds.DataWriterQos()
         writer_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
         writer_qos.history.kind = dds.HistoryKind.KEEP_ALL
@@ -216,14 +247,10 @@ class GenesisRequester:
         reader_qos = dds.DataReaderQos()
         reader_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
         reader_qos.history.kind = dds.HistoryKind.KEEP_ALL
-
-        # Create Requester with service_name only - it will create the topics
-        service_name_full = f"rti/connext/genesis/rpc/{service_type}"
-        logger.info(f"Requester initializing for service_name={service_name_full}")
         
         self.requester = Requester(
-            request_type=RPCRequestV2,
-            reply_type=RPCReplyV2,
+            request_type=self.request_type,
+            reply_type=self.reply_type,
             participant=self.participant,
             service_name=service_name_full,
             datawriter_qos=writer_qos,
@@ -316,15 +343,13 @@ class GenesisRequester:
         logger.info("Requester matched_replier_count=%s", self.requester.matched_replier_count)
 
         request_id = str(uuid.uuid4())
-        req = RPCRequestV2(
-            request_id=request_id,
-            service_type=self.service_type,
-            function_name=function_name,
-            parameters_json=json.dumps(params) if params else "",
-            target_service_guid=target_service_guid,
-            deadline_ms=deadline_ms,
-            requester_guid=self._requester_guid,
-        )
+        # Build unified RPC request using DynamicData
+        req = dds.DynamicData(self.request_type)
+        req["request_id"] = request_id
+        req["message"] = json.dumps({"function": function_name, "params": params or {}})
+        req["conversation_id"] = request_id
+        req["target_service_guid"] = target_service_guid or ""
+        req["service_instance_tag"] = ""
 
         send_id = self.requester.send_request(req)
         logger.info("Requester sent request: id=%s, func=%s", request_id, function_name)
@@ -338,14 +363,26 @@ class GenesisRequester:
 
             replies = self.requester.take_replies(related_request_id=send_id)
             for reply, info in replies:
-                if reply.ok:
-                    result = json.loads(reply.result_json) if reply.result_json else {}
+                # Unified reply fields: status (0=ok), message (JSON payload or error text)
+                status = 0
+                payload = ""
+                try:
+                    status = int(reply["status"])
+                except Exception:
+                    # If field missing, assume success with empty payload
+                    status = 0
+                try:
+                    payload = reply["message"] or ""
+                except Exception:
+                    payload = ""
+                if status == 0:
+                    result = json.loads(payload) if payload else {}
                     # Log in format compatible with test expectations
                     logger.info(f"Function {function_name} returned: {result}")
                     print(f"📚 PRINT: GenesisRequester - INFO - Function {function_name} returned: {result}", flush=True)
                     return result
                 else:
-                    raise RuntimeError(reply.error_message or reply.error_code or "Request/reply call failed")
+                    raise RuntimeError(payload or "Request/reply call failed")
         raise TimeoutError("Request/reply call timed out")
 
     # =============================================================================

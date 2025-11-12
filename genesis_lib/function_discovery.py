@@ -306,13 +306,17 @@ class InternalFunctionRegistry:
             self.subscriber = dds.Subscriber(self.participant)
 
             # Get types for execution (only if discovery is enabled)
-            self.execution_request_type = self.type_provider.type("genesis_lib", "FunctionExecutionRequest")
-            self.execution_reply_type = self.type_provider.type("genesis_lib", "FunctionExecutionReply")
+            self.execution_request_type = self.type_provider.type("genesis_lib", "GenesisRPCRequest")
+            self.execution_reply_type = self.type_provider.type("genesis_lib", "GenesisRPCReply")
 
             # Create DataReader(s) for discovery
             # QoS sourced from XML profiles (no inline overrides)
 
             # Phase 3b: prefer unified advertisement; do not create legacy FunctionCapability reader
+            # DESIGN NOTE:
+            # Function execution uses the unified DynamicData types and is typically invoked via
+            # GenesisRequester/GenesisReplier wrappers by services, while the interface/agent control
+            # path stays thin on top of rti.rpc for predictable logs and flexible payloads.
             self.capability_listener = None
             self.capability_reader = None
 

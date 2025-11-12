@@ -156,9 +156,9 @@ class GenesisAgent(ABC):
         config_path = get_datamodel_path()
         self.type_provider = dds.QosProvider(config_path)
         # Initialize RPC types
-        self.request_type = self.type_provider.type("genesis_lib", "InterfaceAgentRequest")
-        self.reply_type = self.type_provider.type("genesis_lib", "InterfaceAgentReply")
-        logger.info(f"GenesisAgent {self.agent_name} initialized with hardcoded InterfaceAgent RPC types")
+        self.request_type = self.type_provider.type("genesis_lib", "GenesisRPCRequest")
+        self.reply_type = self.type_provider.type("genesis_lib", "GenesisRPCReply")
+        logger.info(f"GenesisAgent {self.agent_name} initialized with unified GenesisRPC types")
         # Create event loop for async operations
         self.loop = asyncio.get_event_loop()
         logger.info(f"GenesisAgent {self.agent_name} initialized with loop {self.loop}")
@@ -377,6 +377,11 @@ class GenesisAgent(ABC):
                 reply["service_instance_tag"] = ""
                 return reply
         
+        # DESIGN NOTE:
+        # The agent uses a thin direct rti.rpc + DynamicData replier here (rather than the
+        # GenesisReplier wrapper) to keep Interface↔Agent control messaging minimal and to
+        # preserve exact log formats and timings required by tests/monitoring. Service
+        # function execution uses the higher-level GenesisReplier for consistency.
         # Create replier with listener using unified RPC v2 naming
         self.replier = rpc.Replier(
             request_type=self.request_type,

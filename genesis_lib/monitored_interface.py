@@ -1,10 +1,151 @@
 #!/usr/bin/env python3
 """
-Genesis Monitored Interface (Unified Graph Monitoring)
+MonitoredInterface - Monitoring Decorator Layer for Genesis Interfaces
 
-This module provides the `MonitoredInterface` class that extends `GenesisInterface`
-to add comprehensive monitoring capabilities. It now uses the unified GraphMonitor
-for all node/edge monitoring events, supporting robust graph-based monitoring and DDS compatibility.
+This module provides the MonitoredInterface class, which adds automatic monitoring, observability,
+and graph topology tracking to all Genesis interfaces. It sits on top of GenesisInterface as a
+transparent decorator layer for comprehensive system-wide visibility.
+
+=================================================================================================
+ARCHITECTURE OVERVIEW - Understanding the Inheritance Hierarchy
+=================================================================================================
+
+GenesisInterface (genesis_lib/interface.py)
+├─ Interface-Agnostic Business Logic:
+│  ├─ connect_to_agent() - Agent discovery and connection establishment
+│  ├─ send_request() - Main request sending flow
+│  ├─ Agent discovery callbacks registration
+│  ├─ DDS RPC requester setup and management
+│  └─ Interface lifecycle management (init, close)
+│
+    ↓ inherits
+│
+MonitoredInterface (THIS FILE - genesis_lib/monitored_interface.py)
+└─ Monitoring Decorator Layer (AUTOMATIC - Transparent to Users):
+   ├─ __init__() - Wraps initialization with monitoring setup
+   ├─ send_request() - Wraps with ChainEvent tracking (START/COMPLETE)
+   ├─ close() - Wraps with OFFLINE state publishing
+   ├─ connect_to_agent() - Wraps to track connected agent ID
+   └─ _handle_agent_discovered() - Publishes interface-to-agent edges
+
+=================================================================================================
+WHAT YOU GET FOR FREE - Automatic Monitoring Without Writing Code
+=================================================================================================
+
+When you create an interface that inherits from MonitoredInterface, you automatically get
+ALL of this monitoring without writing any monitoring code:
+
+1. **State Machine Tracking** (via __init__() wrapper):
+   - DISCOVERING → Interface initializing and discovering agents
+   - READY → Interface idle and ready to send requests
+   - BUSY → Interface actively sending/waiting for request
+   - OFFLINE → Interface shutting down
+
+2. **Graph Topology Publishing** (via __init__() and discovery callbacks):
+   - Interface nodes: Lifecycle events, state transitions
+   - Agent nodes: Discovered agents from DDS advertisements
+   - Edges: Interface→Agent connections
+   - Consumed by: Network visualization UI, topology analyzers
+
+3. **Chain Event Tracking** (via send_request() wrapper):
+   - INTERFACE_REQUEST_START event when request is sent
+   - INTERFACE_REQUEST_COMPLETE event when reply is received
+   - Tracks: chain_id, call_id, interface_id, target_agent_id
+   - Consumed by: Distributed tracing, performance monitoring, debugging
+
+4. **Agent Discovery Integration** (via discovery callbacks):
+   - Automatic edge creation when agents are discovered
+   - Real-time network graph updates as agents join/leave
+   - Interface-to-agent relationship tracking
+
+=================================================================================================
+THE DECORATOR PATTERN - How MonitoredInterface Wraps GenesisInterface
+=================================================================================================
+
+MonitoredInterface uses the DECORATOR PATTERN to add monitoring to existing functionality.
+It overrides parent methods to wrap them with monitoring, then calls super() to execute
+the original business logic.
+
+Pattern Example (simplified):
+
+    class GenesisInterface:
+        async def send_request(self, request_data):
+            # Business logic: Send request via DDS RPC
+            return result
+    
+    class MonitoredInterface(GenesisInterface):
+        async def send_request(self, request_data):
+            # BEFORE: Publish BUSY state + ChainEvent START
+            self.graph.publish_node(state=BUSY)
+            self._publish_chain_event(type="START")
+            
+            try:
+                # EXECUTE: Call parent's business logic
+                result = await super().send_request(request_data)
+                
+                # AFTER (success): Publish READY state + ChainEvent COMPLETE
+                self.graph.publish_node(state=READY)
+                self._publish_chain_event(type="COMPLETE")
+                return result
+
+Decorated Methods (What Gets Monitoring Automatically):
+
+    1. __init__() - Initialization wrapper
+       - Calls super().__init__() to create GenesisInterface
+       - Sets up GraphMonitor for topology publishing
+       - Publishes DISCOVERING state (discovery starting)
+       - Sets up monitoring infrastructure (Event topic writer)
+       - Publishes READY state (interface ready for requests)
+       - Registers discovery callbacks for agent tracking
+       
+    2. send_request() - Request sending wrapper
+       - Publishes BUSY state before sending
+       - Publishes ChainEvent START to Event topic
+       - Calls super().send_request() for actual RPC work
+       - Publishes ChainEvent COMPLETE after reply received
+       - Publishes READY state on success
+       
+    3. close() - Shutdown wrapper
+       - Publishes OFFLINE state before cleanup
+       - Calls super().close() for actual cleanup
+       
+    4. connect_to_agent() - Connection tracking wrapper
+       - Calls super().connect_to_agent() for actual connection
+       - Tracks connected agent ID for ChainEvent correlation
+
+Helper Methods (Not Decorators - Monitoring-Specific Functionality):
+
+    - _handle_agent_discovered() - Publishes interface→agent edges when agents join
+    - _handle_agent_departed() - Tracks agent departures and updates state
+    - wait_last_complete() - Utility for waiting on ChainEvent COMPLETE signal
+    - _await_reply_quiet_event() - Event-driven reply completion detection
+
+=================================================================================================
+TOPIC REGISTRY IMPLEMENTATION DETAIL - Why We Need It
+=================================================================================================
+
+Similar to MonitoredAgent, MonitoredInterface uses _TOPIC_REGISTRY to handle DDS topic sharing
+when multiple Genesis components (Interface + Agent + Services) run in the same process.
+
+TL;DR: Multiple Genesis components can share a DDS Participant for efficiency. DDS requires
+topic names to be unique per participant. The registry prevents "topic already exists" errors
+and ensures proper cleanup (delegated to participant.close()).
+
+See detailed architectural note in MonitoredAgent._setup_monitoring() for full explanation.
+
+=================================================================================================
+STATE MACHINE - Interface Lifecycle States
+=================================================================================================
+
+DISCOVERING → READY → BUSY → READY (normal request flow)
+                    ↓
+                 OFFLINE (shutdown)
+
+States:
+- DISCOVERING: Interface initializing, discovering agents
+- READY: Idle, ready to send requests
+- BUSY: Sending request and waiting for reply
+- OFFLINE: Shutting down
 
 Copyright (c) 2025, RTI & Jason Upchurch
 """
@@ -72,49 +213,151 @@ class MonitoredInterface(GenesisInterface):
     """
 
     def __init__(self, interface_name: str, service_name: str, domain_id: int = 0):
+        """
+        Initialize a MonitoredInterface with full observability and graph monitoring.
+        
+        **DECORATOR PATTERN - Monitoring Wrapper**:
+        This method wraps GenesisInterface.__init__() to add monitoring infrastructure.
+        All DDS communication setup is done by the parent; this just adds monitoring.
+        
+        **Initialization Sequence**:
+        1. Call super().__init__() → creates GenesisInterface with DDS participant
+        2. Create GraphMonitor for publishing topology events
+        3. Setup monitoring infrastructure (DDS Event topic writer + reply reader)
+        4. Publish DISCOVERING state (interface is discovering agents)
+        5. Publish READY state (interface is ready to send requests)
+        6. Register discovery callbacks for agent tracking
+        
+        **State Semantics**:
+        - DISCOVERING: Interface has active DDS listeners discovering agents
+        - READY: Interface can send requests and is waiting for user input
+        
+        **Topic Registry Pattern**:
+        Uses _TOPIC_REGISTRY to share DDS topics across multiple Genesis components
+        (Interface + Agent + Services) in the same process. See MonitoredAgent for
+        detailed explanation of why this pattern is necessary.
+        
+        Args:
+            interface_name: Human-readable name for the interface (e.g., "ChatInterface")
+            service_name: DDS service name for agent RPC topics (e.g., "OpenAIChatService")
+            domain_id: DDS domain ID (default 0)
+        
+        Raises:
+            Exception: Re-raises any exception from parent initialization
+        """
+        # ===== Step 1: Initialize base GenesisInterface =====
         super().__init__(interface_name=interface_name, service_name=service_name, domain_id=domain_id)
+        
+        # ===== Step 2: Create unified graph monitor =====
         self.graph = GraphMonitor(self.app.participant)
-        self.available_agents: Dict[str, Dict[str, Any]] = {}
-        self._agent_found_event = asyncio.Event()
-        self._connected_agent_id: Optional[str] = None
-        self._last_complete_event: Optional[asyncio.Event] = None
-        # Unified monitoring event writer for ChainEvents
+        
+        # ===== Step 3: Initialize monitoring-specific state =====
+        # Note: available_agents and _agent_found_event are inherited from GenesisInterface
+        self._connected_agent_id: Optional[str] = None  # For ChainEvent target_id correlation
+        self._last_complete_event: Optional[asyncio.Event] = None  # For strict sequencing
+        
+        # ===== Step 4: Setup monitoring infrastructure =====
+        self._setup_monitoring()
+        
+        # ===== Step 5: Publish DISCOVERING state =====
+        interface_id = str(self.app.participant.instance_handle)
+        logger.debug(f"MonitoredInterface __init__: publishing DISCOVERING for {interface_name} ({interface_id})")
+        self.graph.publish_node(
+            component_id=interface_id,
+            component_type=COMPONENT_TYPE["INTERFACE"],
+            state=STATE["DISCOVERING"],
+            attrs={
+                "interface_type": "INTERFACE",
+                "service": self.service_name,
+                "interface_id": interface_id,
+                "reason": f"Interface {interface_name} is discovering agents"
+            }
+        )
+        
+        # ===== Step 6: Publish READY state =====
+        self.graph.publish_node(
+            component_id=interface_id,
+            component_type=COMPONENT_TYPE["INTERFACE"],
+            state=STATE["READY"],
+            attrs={
+                "interface_type": "INTERFACE",
+                "service": self.service_name,
+                "interface_id": interface_id,
+                "reason": f"Interface {interface_name} ready for requests"
+            }
+        )
+
+        # ===== Step 7: Register discovery callbacks =====
+        self.register_discovery_callback(self._handle_agent_discovered)
+        self.register_departure_callback(self._handle_agent_departed)
+
+        logger.info(f"Monitored interface {interface_name} initialized successfully")
+
+    def _setup_monitoring(self) -> None:
+        """
+        Set up monitoring resources for publishing interface lifecycle events.
+        
+        Creates DDS readers/writers for the Event topic (unified monitoring).
+        All QoS settings are loaded from XML profiles - no hardcoded QoS values.
+        
+        **Topic Sharing Pattern**:
+        Genesis allows multiple components (e.g., Interface + Agent + Services) to run
+        in the same process and share a single DDS Participant. Each component needs to
+        publish to the same monitoring topics.
+        
+        DDS Constraint: Within a single DDS Participant, each topic name must be unique.
+        You cannot create the same topic twice, even if it has the same configuration.
+        
+        Solution: Use a process-wide topic registry keyed by (participant_id, topic_name):
+        - First component creates the topic and caches it
+        - Subsequent components reuse from registry
+        - Simple and efficient for same-process sharing
+        
+        **QoS Management**:
+        All QoS settings are loaded from XML profiles defined in:
+        - genesis_lib/config/USER_QOS_PROFILES.xml
+        
+        Profiles used:
+        - VolatileEventsProfile: For Event topic writers (volatile, no historical data)
+        - cft_Profile: For reply readers (transient local, keeps recent history)
+        
+        **Failure Handling**:
+        Gracefully handles DDS setup failures by setting monitoring attributes to None,
+        allowing the interface to function without monitoring if DDS infrastructure is unavailable.
+        
+        Raises:
+            No exceptions - failures are logged but don't propagate
+        """
         self._unified_event_writer = None
+        self._reply_reader = None
+        
         try:
             import rti.connextdds as dds  # type: ignore
             from genesis_lib.utils import get_datamodel_path  # type: ignore
-            provider = dds.QosProvider(get_datamodel_path())
-            
-            # Create unified monitoring event writer (Event)
-            # Use process-wide registry to share topics
             from genesis_lib.graph_monitoring import _TOPIC_REGISTRY
+            import os
             
-            # Load volatile events QoS from XML profile (no historical data for real-time events)
-            # Profile defined in genesis_lib/config/USER_QOS_PROFILES.xml
-            # Try default provider first (may already have profiles loaded), then explicit file, then fallback
+            # Load datamodel for types
+            datamodel_provider = dds.QosProvider(get_datamodel_path())
+            
+            # Load QoS profiles from USER_QOS_PROFILES.xml
+            config_dir = os.path.dirname(get_datamodel_path())
+            user_qos_path = os.path.join(config_dir, "USER_QOS_PROFILES.xml")
+            qos_provider = dds.QosProvider(user_qos_path)
+            
+            # ===== Create Event Topic Writer (ChainEvent monitoring) =====
+            # Load QoS from XML profile - no hardcoded values
             try:
-                writer_qos = dds.QosProvider.default.datawriter_qos_from_profile(
+                writer_qos = qos_provider.datawriter_qos_from_profile(
                     "cft_Library::VolatileEventsProfile"
                 )
-            except Exception:
-                try:
-                    import os
-                    config_dir = os.path.dirname(get_datamodel_path())
-                    user_qos_path = os.path.join(config_dir, "USER_QOS_PROFILES.xml")
-                    qos_provider = dds.QosProvider(user_qos_path)
-                    writer_qos = qos_provider.datawriter_qos_from_profile(
-                        "cft_Library::VolatileEventsProfile"
-                    )
-                except Exception:
-                    # Last-resort sane defaults for Event writer
-                    writer_qos = dds.QosProvider.default.datawriter_qos
-                    try:
-                        writer_qos.durability.kind = dds.DurabilityKind.VOLATILE
-                        writer_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
-                    except Exception:
-                        pass
+                logger.debug("Loaded writer QoS from VolatileEventsProfile")
+            except Exception as e:
+                logger.error(f"Failed to load VolatileEventsProfile from XML: {e}")
+                raise
             
-            unified_type = provider.type("genesis_lib", "MonitoringEventUnified")
+            # Get Event type and create/reuse topic via registry
+            unified_type = datamodel_provider.type("genesis_lib", "MonitoringEventUnified")
             participant_id = id(self.app.participant)
             event_key = (participant_id, "rti/connext/genesis/monitoring/Event")
             
@@ -130,31 +373,44 @@ class MonitoredInterface(GenesisInterface):
             
             self._unified_event_type = unified_type
             self._unified_event_writer = dds.DynamicData.DataWriter(
-                pub=dds.Publisher(self.app.participant), topic=unified_topic, qos=writer_qos
+                pub=dds.Publisher(self.app.participant), 
+                topic=unified_topic, 
+                qos=writer_qos
             )
-            # Prepare a reader for InterfaceAgentReply so we can align COMPLETE with the final reply
-            self._reply_type = provider.type("genesis_lib", "InterfaceAgentReply")
-            self._reply_topic = dds.DynamicData.Topic(self.app.participant, "OpenAIAgentReply", self._reply_type)
-            reader_qos = dds.QosProvider.default.datareader_qos
-            reader_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
-            reader_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
-            reader_qos.history.kind = dds.HistoryKind.KEEP_LAST
-            reader_qos.history.depth = 256
-            # Async event-driven reply listener (no polling)
+            
+            # ===== Create Reply Reader (for COMPLETE event correlation) =====
+            # Load QoS from XML profile - no hardcoded values
+            try:
+                reader_qos = qos_provider.datareader_qos_from_profile("cft_Library::cft_Profile")
+                logger.debug("Loaded reader QoS from cft_Profile")
+            except Exception as e:
+                logger.error(f"Failed to load cft_Profile from XML: {e}")
+                raise
+            
+            # Setup reply topic and async event-driven listener
+            self._reply_type = datamodel_provider.type("genesis_lib", "InterfaceAgentReply")
+            self._reply_topic = dds.DynamicData.Topic(
+                self.app.participant, 
+                "OpenAIAgentReply", 
+                self._reply_type
+            )
             self._reply_event = asyncio.Event()
             self._last_reply_time = 0.0
 
             class _ReplyListener(dds.DynamicData.NoOpDataReaderListener):
+                """Async event-driven listener for reply detection."""
                 def __init__(self, outer, loop: asyncio.AbstractEventLoop):
                     super().__init__()
                     self._outer = outer
                     self._loop = loop
+                    
                 def on_data_available(self, reader):
+                    """Called by DDS when new reply data arrives."""
                     try:
                         samples = reader.read()
                         if samples:
                             self._outer._last_reply_time = time.time()
-                            # signal on the main loop
+                            # Signal on the main event loop (thread-safe)
                             self._loop.call_soon_threadsafe(self._outer._reply_event.set)
                     except Exception:
                         pass
@@ -166,53 +422,58 @@ class MonitoredInterface(GenesisInterface):
                 listener=_ReplyListener(self, asyncio.get_running_loop()),
                 mask=dds.StatusMask.DATA_AVAILABLE
             )
-            logger.info("MonitoredInterface: Event ChainEvent monitoring setup successful")
+            
+            logger.info("MonitoredInterface: Event monitoring setup successful (all QoS from XML)")
+            
         except Exception as e:
-            # Chain overlay is optional; continue without it if DDS setup fails
+            # Monitoring is optional; continue without it if DDS setup fails
             logger.warning(f"MonitoredInterface: Event setup FAILED: {e}")
             import traceback
             traceback.print_exc()
             self._unified_event_writer = None
             self._reply_reader = None
 
-        # Announce interface node (discovery and ready)
-        interface_id = str(self.app.participant.instance_handle)
-        print(f"MonitoredInterface __init__: publishing DISCOVERING and READY for {self.interface_name} ({interface_id})")
-        self.graph.publish_node(
-            component_id=interface_id,
-            component_type=COMPONENT_TYPE["INTERFACE"],
-            state=STATE["DISCOVERING"],
-            attrs={
-                "interface_type": "INTERFACE",
-                "service": self.service_name,
-                "interface_id": interface_id,
-                "reason": f"Component {interface_id} joined domain"
-            }
-        )
-        self.graph.publish_node(
-            component_id=interface_id,
-            component_type=COMPONENT_TYPE["INTERFACE"],
-            state=STATE["READY"],
-            attrs={
-                "interface_type": "INTERFACE",
-                "service": self.service_name,
-                "interface_id": interface_id,
-                "reason": f"{interface_id} DISCOVERING -> READY"
-            }
-        )
 
-        # Register internal handlers for discovery/departure
-        self.register_discovery_callback(self._handle_agent_discovered)
-        self.register_departure_callback(self._handle_agent_departed)
-
-        logger.debug(f"Monitored interface {interface_name} initialized")
 
     async def _handle_agent_discovered(self, agent_info: dict):
+        """
+        Monitoring decorator for agent discovery.
+        
+        **DECORATOR PATTERN - Monitoring Wrapper**:
+        Calls parent implementation (business logic) then adds monitoring.
+        
+        **Parent (GenesisInterface) Does** (Business Logic):
+        - Caches agent in available_agents dictionary
+        - Signals _agent_found_event for connection establishment
+        
+        **This Method Does** (Monitoring Layer):
+        - Publishes interface→agent edge to graph topology
+        - Logs discovery for monitoring dashboards
+        
+        **Discovery Integration**:
+        This callback bridges DDS discovery (source of truth) with graph monitoring
+        (visualization layer). When an agent publishes its advertisement to DDS,
+        this callback is triggered automatically.
+        
+        **Graph Events Published**:
+        - Edge from interface to agent (INTERFACE_TO_AGENT type)
+        - Includes: interface_name, agent_name, service_name, connection metadata
+        - Consumed by: Network topology viewers, monitoring dashboards
+        
+        Args:
+            agent_info: Dict with keys: instance_id, prefered_name, service_name,
+                       message, default_capable, timestamp
+        """
+        # ===== BUSINESS LOGIC: Let parent handle state management =====
+        await super()._handle_agent_discovered(agent_info)
+        
+        # ===== MONITORING: Add observability on top =====
         instance_id = agent_info['instance_id']
         prefered_name = agent_info['prefered_name']
         service_name = agent_info['service_name']
+        
+        # Backward-compatible log message for tests
         logger.debug(f"<MonitoredInterface Handler> Agent Discovered: {prefered_name} ({service_name}) - ID: {instance_id}")
-        self.available_agents[instance_id] = agent_info
 
         interface_id = str(self.app.participant.instance_handle)
         # Publish edge discovery event for interface-to-agent connection
@@ -232,11 +493,38 @@ class MonitoredInterface(GenesisInterface):
         )
         logger.debug(f"Published EDGE_DISCOVERY event: Interface {interface_id} -> Agent {instance_id}")
 
-        if not self._agent_found_event.is_set():
-            logger.debug("<MonitoredInterface Handler> Signaling internal agent found event.")
-            self._agent_found_event.set()
+
+
     async def connect_to_agent(self, service_name: str, timeout_seconds: Optional[float] = None) -> bool:
-        """Override to remember the connected agent GUID for ChainEvent target_id."""
+        """
+        Override to track connected agent ID for ChainEvent correlation.
+        
+        **DECORATOR PATTERN - Monitoring Wrapper**:
+        This method wraps GenesisInterface.connect_to_agent() to remember which
+        agent we're connected to. This is critical for ChainEvent target_id tracking.
+        
+        **What This Method Does** (Monitoring Layer):
+        1. Call parent implementation (actual connection logic)
+        2. If successful, lookup agent's instance_id by service_name
+        3. Store connected agent ID for future ChainEvent emissions
+        
+        **What the Parent Does** (Business Logic):
+        - Waits for agent discovery via DDS advertisements
+        - Validates agent exists and is reachable
+        - Establishes connection readiness
+        
+        **Why This Matters**:
+        ChainEvent tracking requires knowing the target_id (agent GUID) for proper
+        distributed tracing. Without this, we couldn't correlate interface requests
+        with agent responses in the monitoring UI.
+        
+        Args:
+            service_name: Name of the agent service to connect to
+            timeout_seconds: Optional timeout for connection (None = wait forever)
+        
+        Returns:
+            True if connection successful, False otherwise
+        """
         ok = await super().connect_to_agent(service_name, timeout_seconds=timeout_seconds)
         if ok:
             # Try to resolve the chosen agent's instance_id by service_name or name
@@ -244,32 +532,122 @@ class MonitoredInterface(GenesisInterface):
                 for aid, info in self.available_agents.items():
                     if info.get('service_name') == service_name or info.get('prefered_name') == service_name:
                         self._connected_agent_id = aid
+                        logger.debug(f"Connected to agent {service_name} (ID: {aid})")
                         break
             except Exception:
                 pass
         return ok
 
 
+
     async def _handle_agent_departed(self, instance_id: str):
-        if instance_id in self.available_agents:
-            departed_agent = self.available_agents.pop(instance_id)
-            prefered_name = departed_agent.get('prefered_name', 'N/A')
-            logger.debug(f"<MonitoredInterface Handler> Agent Departed: {prefered_name} - ID: {instance_id}")
-            if instance_id == self._connected_agent_id:
-                logger.warning(f"<MonitoredInterface Handler> Connected agent {prefered_name} departed! Need to handle reconnection or failure.")
-                self._connected_agent_id = None
-        else:
-            logger.warning(f"<MonitoredInterface Handler> Received departure for unknown agent ID: {instance_id}")
+        """
+        Monitoring decorator for agent departure.
+        
+        **DECORATOR PATTERN - Monitoring Wrapper**:
+        Calls parent implementation (business logic) then adds monitoring.
+        
+        **Parent (GenesisInterface) Does** (Business Logic):
+        - Removes agent from available_agents cache
+        - Logs departure for debugging
+        
+        **This Method Does** (Monitoring Layer):
+        - Checks if departed agent was our connected agent
+        - Clears _connected_agent_id if needed (ChainEvent tracking)
+        - Logs departure for monitoring dashboards
+        
+        **Departure Handling**:
+        This callback is triggered when DDS detects an agent has gone offline
+        (either gracefully or via liveliness timeout).
+        
+        **Why This Matters**:
+        Detecting agent departure allows interfaces to:
+        - Update their connection state immediately
+        - Display accurate network topology in monitoring UI
+        - Trigger reconnection or failover logic
+        - Avoid sending requests to dead agents
+        
+        Args:
+            instance_id: GUID of the departed agent
+        """
+        # ===== BUSINESS LOGIC: Let parent handle state removal =====
+        await super()._handle_agent_departed(instance_id)
+        
+        # ===== MONITORING: Check if this affects our ChainEvent tracking =====
+        if instance_id == self._connected_agent_id:
+            logger.warning(f"<MonitoredInterface> Connected agent departed: {instance_id}. Connection lost.")
+            self._connected_agent_id = None  # Clear ChainEvent target_id
+
+
+
 
     @monitor_method("INTERFACE_REQUEST")
     async def send_request(self, request_data: Dict[str, Any], timeout_seconds: float = 10.0) -> Optional[Dict[str, Any]]:
-        # Emit ChainEvent start to Event (optional)
+        """
+        Send request to connected agent with automatic ChainEvent monitoring.
+        
+        **DECORATOR PATTERN - Monitoring Wrapper**:
+        This method is decorated by @monitor_method AND wraps the parent's send_request()
+        to add comprehensive distributed tracing via ChainEvent emissions.
+        
+        **What This Method Does** (Monitoring Layer):
+        1. @monitor_method publishes BUSY state before execution
+        2. Create completion event for strict sequencing
+        3. Publish INTERFACE_REQUEST_START ChainEvent to Event topic
+        4. Call parent implementation (actual DDS RPC request)
+        5. Publish INTERFACE_REQUEST_COMPLETE ChainEvent to Event topic
+        6. @monitor_method publishes READY state after execution
+        7. Signal completion event for external coordination
+        
+        **What the Parent Does** (Business Logic - GenesisInterface.send_request):
+        - Validates request data structure
+        - Makes actual DDS RPC call to agent
+        - Waits for agent reply with timeout
+        - Returns agent response
+        
+        **ChainEvent Flow**:
+        ```
+        Interface sends request
+          ↓
+        INTERFACE_REQUEST_START event (this method)
+          ↓
+        Agent processes request (tracked by MonitoredAgent)
+          ↓
+        INTERFACE_REQUEST_COMPLETE event (this method)
+          ↓
+        Interface receives reply
+        ```
+        
+        **Why ChainEvent Matters**:
+        ChainEvent tracking enables:
+        - Distributed tracing across interface→agent→service→function calls
+        - Performance monitoring (latency, bottlenecks)
+        - Debugging request flow issues
+        - Correlation of logs across multiple components
+        
+        **Correlation IDs**:
+        - chain_id: Unique ID for entire request chain (persists across START/COMPLETE)
+        - call_id: Unique ID for this specific request
+        - interface_id: GUID of this interface
+        - target_id: GUID of connected agent (if known)
+        
+        Args:
+            request_data: Request dictionary with 'message' key and optional metadata
+            timeout_seconds: Maximum time to wait for reply (default: 10 seconds)
+        
+        Returns:
+            Response dictionary from agent, or None if timeout/error
+        
+        Raises:
+            Exception: Re-raises any exception from parent after logging
+        """
         # Prepare completion event for strict sequencing
         try:
             self._last_complete_event = asyncio.Event()
         except Exception:
             self._last_complete_event = None
         
+        # ===== Publish INTERFACE_REQUEST_START ChainEvent =====
         if self._unified_event_writer is not None:
             try:
                 import rti.connextdds as dds  # type: ignore
@@ -309,10 +687,10 @@ class MonitoredInterface(GenesisInterface):
             except Exception:
                 pass
 
-        # Wait for the final reply (GenesisInterface drains any extra replies briefly)
+        # ===== Call parent implementation (actual RPC request) =====
         result = await super().send_request(request_data, timeout_seconds)
 
-        # Emit ChainEvent complete to Event (optional) at the precise return point
+        # ===== Publish INTERFACE_REQUEST_COMPLETE ChainEvent =====
         if self._unified_event_writer is not None:
             try:
                 import rti.connextdds as dds  # type: ignore
@@ -356,10 +734,6 @@ class MonitoredInterface(GenesisInterface):
             except Exception:
                 pass
 
-        # NOTE: Removed quiet-window wait to avoid masking timing issues; COMPLETE now reflects
-        # the actual emission point tied to reply return. Further alignment will be done by
-        # correlating with final reply events instead of timers.
-
         # Signal completion event for strict sequencing even if ChainEvent emission failed
         try:
             if self._last_complete_event is not None:
@@ -369,8 +743,33 @@ class MonitoredInterface(GenesisInterface):
 
         return result
 
+
+
     async def _await_reply_quiet_event(self, total_window_seconds: float = 10.0, quiet_seconds: float = 2.0) -> None:
-        """Wait until no OpenAIAgentReply arrives for 'quiet_seconds', bounded by 'total_window_seconds'."""
+        """
+        Wait until no OpenAIAgentReply arrives for 'quiet_seconds', bounded by 'total_window_seconds'.
+        
+        **Event-Driven Reply Detection**:
+        Uses async event listener to detect reply arrivals instead of polling.
+        This method waits for a "quiet period" where no new replies arrive,
+        indicating the agent has finished streaming/multi-turn responses.
+        
+        **Use Case**:
+        For streaming responses or multi-turn conversations, the agent may send
+        multiple reply messages. This method waits until the stream quiets down
+        before proceeding, ensuring we've received the complete response.
+        
+        **Algorithm**:
+        1. Clear any prior events
+        2. Wait for new reply or quiet_seconds timeout
+        3. If new reply arrives, reset quiet timer and continue
+        4. If quiet_seconds passes with no replies, return (stream complete)
+        5. If total_window_seconds expires, return regardless (safety timeout)
+        
+        Args:
+            total_window_seconds: Maximum total time to wait (default: 10 seconds)
+            quiet_seconds: Quiet period indicating stream completion (default: 2 seconds)
+        """
         if not getattr(self, "_reply_reader", None) or not getattr(self, "_reply_event", None):
             return
         deadline = time.time() + total_window_seconds
@@ -390,15 +789,32 @@ class MonitoredInterface(GenesisInterface):
                 last_seen = time.time()
                 continue
             except asyncio.TimeoutError:
-                # Quiet period elapsed
+                # Quiet period elapsed - stream complete
                 break
             except Exception:
                 break
 
     async def wait_last_complete(self, timeout_seconds: float = 5.0) -> bool:
-        """Wait for the most recent request's completion signal (from ChainEvent COMPLETE).
-
-        Returns True if observed before timeout, else False.
+        """
+        Wait for the most recent request's completion signal (from ChainEvent COMPLETE).
+        
+        **Synchronization Utility**:
+        Provides external code a way to wait for ChainEvent COMPLETE emission
+        before proceeding. Useful for testing or strict sequencing requirements.
+        
+        **Use Case**:
+        Tests or monitoring tools can call this after send_request() to ensure
+        the COMPLETE event has been published to DDS before validating event logs.
+        
+        **Implementation**:
+        Uses an asyncio.Event set by send_request() after publishing COMPLETE.
+        This is more reliable than time.sleep() for synchronization.
+        
+        Args:
+            timeout_seconds: Maximum time to wait (default: 5 seconds)
+        
+        Returns:
+            True if completion event observed before timeout, False otherwise
         """
         ev = getattr(self, "_last_complete_event", None)
         if ev is None:
@@ -410,9 +826,36 @@ class MonitoredInterface(GenesisInterface):
             return False
 
     async def close(self):
+        """
+        Gracefully shut down the interface with automatic state notification.
+        
+        **DECORATOR PATTERN - Monitoring Wrapper**:
+        This method wraps GenesisInterface.close() to publish OFFLINE state
+        before cleanup, notifying the network that the interface is shutting down.
+        
+        **Shutdown Sequence**:
+        1. Publish OFFLINE state to graph topology
+        2. Call parent's close() ← ACTUAL CLEANUP HAPPENS HERE
+           - GenesisApp.close() shuts down DDS participant, RPC service, etc.
+        
+        **Why OFFLINE State Matters**:
+        - Notifies network topology that interface is no longer available
+        - Allows monitoring systems to update status in real-time
+        - Enables clean removal from network graphs/dashboards
+        - Prevents routing requests to dead interfaces
+        
+        **What Gets Cleaned Up** (in parent GenesisApp.close()):
+        - DDS Participant (closes all topics, readers, writers)
+        - RPC Requester (stops accepting requests)
+        - Discovery listeners (cleanup agent monitoring)
+        - Monitoring infrastructure (Event writers, reply readers)
+        
+        Raises:
+            Exception: Re-raises any exception from cleanup after logging
+        """
         try:
             interface_id = str(self.app.participant.instance_handle)
-            print(f"MonitoredInterface.close: publishing OFFLINE for {self.interface_name} ({interface_id})")
+            logger.debug(f"MonitoredInterface.close: publishing OFFLINE for {self.interface_name} ({interface_id})")
             self.graph.publish_node(
                 component_id=interface_id,
                 component_type=COMPONENT_TYPE["INTERFACE"],
@@ -427,3 +870,4 @@ class MonitoredInterface(GenesisInterface):
             await super().close()
         except Exception as e:
             logger.error(f"Error closing monitored interface: {str(e)}")
+
