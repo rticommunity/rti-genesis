@@ -1,20 +1,310 @@
 """
-Genesis Interface Base Class
+GenesisInterface - Base Class for All Genesis Interfaces
 
-This module provides the abstract base class `GenesisInterface` for all interfaces
-within the Genesis framework. It establishes the core interface functionality,
-communication patterns, and integration with the underlying DDS infrastructure
-managed by `GenesisApp`.
+This module provides the GenesisInterface base class, which establishes the core interface
+functionality for communicating with Genesis agents via DDS RPC. It handles agent discovery,
+connection establishment, and request/reply communication patterns.
 
-Key responsibilities include:
-- Initializing the interface's identity and DDS presence via `GenesisApp`.
-- Setting up an RPC requester to send requests to agents.
-- Handling agent discovery and registration monitoring.
-- Providing utilities for interface lifecycle management (`connect_to_agent`, `send_request`, `close`).
-- Managing callback registration for agent discovery and departure events.
+=================================================================================================
+ARCHITECTURE OVERVIEW - Understanding the Interface Layer
+=================================================================================================
 
-This class serves as the foundation upon which specialized interfaces, like
-`MonitoredInterface`, are built.
+The Genesis architecture has three primary layers:
+
+1. **Interface Layer** (THIS FILE - GenesisInterface):
+   - User-facing entry point to the Genesis system
+   - Discovers available agents via DDS advertisements
+   - Establishes RPC connections to agents
+   - Sends requests and receives replies
+   - Manages connection lifecycle
+
+2. **Agent Layer** (GenesisAgent → MonitoredAgent → Provider implementations):
+   - Processes incoming requests from interfaces
+   - Orchestrates LLM calls and tool execution
+   - Returns responses to interfaces
+
+3. **Service Layer** (GenesisService):
+   - Provides external functions callable by agents
+   - Advertises capabilities via DDS
+   - Executes function calls via RPC
+
+GenesisInterface sits at the top of this hierarchy, providing the entry point for external
+applications to interact with the Genesis agent ecosystem.
+
+DESIGN NOTE: Why the interface uses a thin direct RPC path
+==========================================================
+Genesis uses one unified DDS data model (GenesisRPCRequest/Reply) everywhere. The interface
+path uses a thin, direct rti.rpc + DynamicData setup rather than the higher-level
+GenesisRequester/GenesisReplier wrappers to:
+- Preserve exact log formats and timings expected by tests/monitoring
+- Avoid forcing a function-call envelope on arbitrary chat/control messages
+Service function execution benefits from the wrappers; interface/agent messaging stays
+intentionally minimal and flexible.
+
+=================================================================================================
+INHERITANCE HIERARCHY - How Interface Classes Relate
+=================================================================================================
+
+GenesisInterface (THIS FILE - genesis_lib/interface.py)
+├─ Core Business Logic:
+│  ├─ __init__() - Initialize DDS participant, setup agent discovery
+│  ├─ _setup_advertisement_monitoring() - Configure DDS readers for agent advertisements
+│  ├─ connect_to_agent() - Establish RPC connection to specific agent
+│  ├─ send_request() - Send request to agent, wait for reply with RPC v2 targeting
+│  ├─ close() - Clean up DDS resources
+│  ├─ _handle_agent_discovered() - Update state when agents join
+│  ├─ _handle_agent_departed() - Update state when agents leave
+│  └─ register_discovery_callback() - Register callbacks for agent lifecycle events
+│
+    ↓ inherits
+│
+MonitoredInterface (genesis_lib/monitored_interface.py)
+└─ Monitoring Decorator Layer (AUTOMATIC - Transparent to Users):
+   ├─ Wraps methods with state transitions (READY→BUSY→READY)
+   ├─ Publishes graph topology events (nodes, edges)
+   ├─ Tracks ChainEvents for distributed tracing
+   └─ No business logic - pure observability layer
+
+=================================================================================================
+KEY RESPONSIBILITIES - What GenesisInterface Does
+=================================================================================================
+
+1. **Agent Discovery** (via DDS Advertisements):
+   - Listens for agent advertisements on the unified Advertisement topic
+   - Maintains cache of available agents (available_agents dict)
+   - Triggers callbacks when agents join/leave
+   - Supports content filtering (only AGENT advertisements, not SERVICE/FUNCTION)
+
+2. **RPC Connection Management**:
+   - Creates DDS RPC Requester after agent discovery
+   - Waits for DDS endpoint matching before declaring connection ready
+   - Supports connection timeout and retry logic
+
+3. **Request/Reply Communication** (RPC v2 Protocol):
+   - **First Request**: Broadcasts to all agents with matching service_name (empty target_service_guid)
+   - **First Reply**: Captures replier_service_guid from response
+   - **Subsequent Requests**: Targeted to specific agent via content filtering (locked GUID)
+   - **Failover Support**: reset_target=True forces broadcast again
+   - Handles timeout, drains multiple replies, returns final reply
+
+4. **State Management**:
+   - Tracks available agents in available_agents dictionary
+   - Signals agent_found_event when first agent discovered
+   - Manages target_agent_guid for RPC v2 targeting
+   - Supports service_instance_tag for blue/green deployments
+
+=================================================================================================
+RPC V2 PROTOCOL - How Interface→Agent Communication Works
+=================================================================================================
+
+The interface uses an optimized broadcast→target pattern for efficient agent communication:
+
+**Initial Request (Broadcast)**:
+```
+Interface: "I need service 'MathService', broadcast to all"
+           target_service_guid = "" (empty = broadcast)
+           ↓
+Agent 1:   [Receives request, processes, replies with GUID]
+Agent 2:   [Receives request, ignores - already handled]
+Agent 3:   [Receives request, ignores - already handled]
+           ↓
+Agent 1:   "Here's your response"
+           replier_service_guid = "agent-1-guid-12345"
+           ↓
+Interface: "Got response from agent-1-guid-12345, locking to this agent"
+           self.target_agent_guid = "agent-1-guid-12345"
+```
+
+**Subsequent Requests (Targeted)**:
+```
+Interface: "Send to agent-1-guid-12345 specifically"
+           target_service_guid = "agent-1-guid-12345"
+           ↓
+Agent 1:   [Receives via content filter, processes, replies]
+Agent 2:   [Filtered out by DDS - never sees request]
+Agent 3:   [Filtered out by DDS - never sees request]
+           ↓
+Agent 1:   "Here's your response"
+           ↓
+Interface: [Continues using same agent]
+```
+
+**Why This Matters**:
+- **Efficiency**: After first request, only target agent processes messages
+- **Consistency**: Same agent handles all requests in a conversation
+- **Failover**: Can reset target and broadcast again if agent fails
+
+=================================================================================================
+AGENT DISCOVERY - How Interfaces Find Agents
+=================================================================================================
+
+Discovery uses the unified Advertisement topic pattern:
+
+**Publication (by Agents)**:
+```python
+# In MonitoredAgent.__init__():
+AdvertisementBus.get(participant).publish(
+    kind=AGENT,  # Distinguishes from SERVICE/FUNCTION ads
+    name="MathAgent",
+    service_name="MathService",
+    advertisement_id="agent-guid-12345",
+    ...
+)
+```
+
+**Subscription (by Interfaces)**:
+```python
+# In GenesisInterface._setup_advertisement_monitoring():
+filtered_topic = ContentFilteredTopic(
+    advertisement_topic,
+    filter="kind = 1"  # AGENT kind only
+)
+reader = DataReader(filtered_topic, ...)
+```
+
+**Content Filtering Benefits**:
+- Interface only receives AGENT advertisements (not SERVICE/FUNCTION)
+- Reduces network traffic and CPU usage
+- Filtering happens at DDS layer (very efficient)
+
+=================================================================================================
+STATE MANAGEMENT - Interface Lifecycle
+=================================================================================================
+
+Interface lifecycle is simple compared to agents:
+
+1. **INITIALIZATION**:
+   - Create DDS participant
+   - Setup advertisement reader (agent discovery)
+   - Initialize state: available_agents = {}, requester = None
+
+2. **DISCOVERY PHASE** (continuous):
+   - Listen for agent advertisements
+   - Update available_agents cache
+   - Trigger discovery callbacks
+
+3. **CONNECTION**:
+   - User calls connect_to_agent(service_name)
+   - Create RPC Requester
+   - Wait for DDS endpoint match
+   - Ready to send requests
+
+4. **REQUEST/REPLY** (repeated):
+   - send_request() broadcasts or targets agent
+   - Wait for reply with timeout
+   - Return response to caller
+
+5. **CLEANUP**:
+   - close() shuts down requester and participant
+   - All DDS resources released
+
+=================================================================================================
+CALLBACK SYSTEM - Extensibility for Monitoring and Custom Logic
+=================================================================================================
+
+GenesisInterface provides callback registration for external observers:
+
+**Discovery Callbacks**:
+```python
+async def on_agent_discovered(agent_info):
+    print(f"Found agent: {agent_info['prefered_name']}")
+    
+interface.register_discovery_callback(on_agent_discovered)
+```
+
+**Departure Callbacks**:
+```python
+async def on_agent_departed(instance_id):
+    print(f"Agent {instance_id} left")
+    
+interface.register_departure_callback(on_agent_departed)
+```
+
+**Why Callbacks Matter**:
+- **MonitoredInterface** uses callbacks to publish graph topology events
+- **User Applications** can use callbacks for custom logging/monitoring
+- **Separation of Concerns**: Core logic doesn't know about monitoring
+
+=================================================================================================
+QOS CONFIGURATION - All Settings from XML
+=================================================================================================
+
+Following Genesis project standards, ALL QoS settings are loaded from XML:
+
+**Advertisement Reader QoS** (from USER_QOS_PROFILES.xml):
+- Profile: `cft_Library::cft_Profile`
+- Durability: TRANSIENT_LOCAL (get history of existing agents)
+- Reliability: RELIABLE (don't miss agent announcements)
+- History: KEEP_LAST with depth 500 (plenty of room for many agents)
+
+**Why XML QoS**:
+- **Maintainability**: Change QoS without code changes
+- **Consistency**: Same QoS across all components
+- **Best Practices**: Industry standard for DDS configuration
+
+=================================================================================================
+TYPICAL USAGE PATTERN
+=================================================================================================
+
+```python
+import asyncio
+from genesis_lib.monitored_interface import MonitoredInterface
+
+async def main():
+    # Create interface
+    interface = MonitoredInterface(
+        interface_name="ChatInterface",
+        service_name="OpenAIChatService",
+        domain_id=0
+    )
+    
+    # Wait for agent discovery (automatic via advertisements)
+    await asyncio.sleep(2)
+    
+    # Connect to agent
+    connected = await interface.connect_to_agent("OpenAIChatService", timeout_seconds=10.0)
+    if not connected:
+        print("Failed to connect to agent")
+        return
+    
+    # Send requests (first = broadcast, subsequent = targeted)
+    response = await interface.send_request(
+        {"message": "What is 2+2?", "conversation_id": "conv-123"},
+        timeout_seconds=30.0
+    )
+    print(f"Agent response: {response['message']}")
+    
+    # Send follow-up (automatically targeted to same agent)
+    response2 = await interface.send_request(
+        {"message": "What about 3+3?", "conversation_id": "conv-123"},
+        timeout_seconds=30.0
+    )
+    print(f"Agent response: {response2['message']}")
+    
+    # Cleanup
+    await interface.close()
+
+asyncio.run(main())
+```
+
+=================================================================================================
+COMPARISON: GenesisInterface vs MonitoredInterface
+=================================================================================================
+
+**Use GenesisInterface when**:
+- Building lightweight applications without monitoring
+- Benchmarking performance (monitoring has overhead)
+- Embedded systems with resource constraints
+
+**Use MonitoredInterface when**:
+- Production deployments (recommended)
+- Need distributed tracing and observability
+- Want network topology visualization
+- Debugging complex multi-agent interactions
+
+**Key Difference**:
+- GenesisInterface: Business logic only
+- MonitoredInterface: Business logic + automatic monitoring (via decorator pattern)
 
 Copyright (c) 2025, RTI & Jason Upchurch
 """
@@ -130,8 +420,43 @@ class RegistrationListener(dds.DynamicData.NoOpDataReaderListener):
     # --- End helper methods --- 
 
 class GenesisInterface(ABC):
-    """Base class for all Genesis interfaces"""
+    """
+    Base class for all Genesis interfaces.
+    
+    Provides core functionality for discovering agents, establishing RPC connections,
+    and sending requests to Genesis agents via DDS. This class can be used directly
+    for lightweight applications or extended by MonitoredInterface for production
+    deployments with comprehensive observability.
+    """
     def __init__(self, interface_name: str, service_name: str, domain_id: int = 0):
+        """
+        Initialize a GenesisInterface for communication with Genesis agents.
+        
+        **Initialization Sequence**:
+        1. Create GenesisApp (DDS participant + basic infrastructure)
+        2. Initialize state: available_agents dict, agent_found_event
+        3. Load DDS types from XML (GenesisRPCRequest/Reply - unified model)
+        4. Setup advertisement monitoring (agent discovery via DDS)
+        
+        **State After Initialization**:
+        - DDS participant is active
+        - Advertisement reader is listening for agents
+        - No RPC requester yet (created later by connect_to_agent)
+        - available_agents is empty (populated as agents join)
+        
+        **Agent Discovery**:
+        Discovery happens automatically after initialization. Agents that publish
+        advertisements will trigger callbacks registered via register_discovery_callback().
+        MonitoredInterface uses these callbacks to publish graph topology events.
+        
+        Args:
+            interface_name: Human-readable name for this interface (e.g., "ChatInterface")
+            service_name: Service name to use for RPC topics (e.g., "OpenAIChatService")
+            domain_id: DDS domain ID (default: 0)
+        
+        Raises:
+            Exception: If DDS initialization or advertisement setup fails
+        """
         self.interface_name = interface_name
         self.service_name = service_name # This is the *interface's* service name, may differ from agent's
         self.app = GenesisApp(preferred_name=interface_name, domain_id=domain_id)
@@ -142,12 +467,16 @@ class GenesisInterface(ABC):
         self.target_agent_guid: Optional[str] = None
         self.target_service_instance_tag: Optional[str] = None
         
+        # Core interface state: discovered agents cache
+        self.available_agents: Dict[str, Dict[str, Any]] = {}
+        self._agent_found_event = asyncio.Event()
+        
         # Get types from XML
         config_path = get_datamodel_path()
         self.type_provider = dds.QosProvider(config_path)
-        # Hardcode InterfaceAgent request/reply types
-        self.request_type = self.type_provider.type("genesis_lib", "InterfaceAgentRequest")
-        self.reply_type = self.type_provider.type("genesis_lib", "InterfaceAgentReply")
+        # Use unified RPC types for all Genesis communication
+        self.request_type = self.type_provider.type("genesis_lib", "GenesisRPCRequest")
+        self.reply_type = self.type_provider.type("genesis_lib", "GenesisRPCReply")
         
         # Store member names for later use
         self.reply_members = [member.name for member in self.reply_type.members()]
@@ -162,20 +491,59 @@ class GenesisInterface(ABC):
         self._setup_advertisement_monitoring()
 
     def _setup_advertisement_monitoring(self):
-        """Set up unified advertisement monitoring with listener (AGENT ads)"""
+        """
+        Set up advertisement monitoring for agent discovery.
+        
+        **What This Method Does**:
+        Creates a DDS DataReader for the unified Advertisement topic with content filtering
+        to receive only AGENT advertisements (not SERVICE or FUNCTION advertisements).
+        
+        **QoS Configuration**:
+        All QoS settings are loaded from XML (USER_QOS_PROFILES.xml):
+        - Profile: cft_Library::cft_Profile
+        - Durability: TRANSIENT_LOCAL (late-joiners get history)
+        - Reliability: RELIABLE (don't miss advertisements)
+        - History: KEEP_LAST with depth 500
+        
+        **Content Filtering**:
+        Uses DDS ContentFilteredTopic to filter at the DDS layer:
+        - Filter: "kind = 1" (AGENT kind only)
+        - Benefits: Reduced network traffic, CPU efficiency
+        
+        **Advertisement Listener**:
+        The AdvertisementListener class handles incoming agent advertisements:
+        - on_data_available: Called when new agent joins
+        - Triggers registered discovery callbacks
+        - Updates available_agents cache
+        - Handles agent departures (NOT_ALIVE states)
+        
+        **Why This Matters**:
+        Agent discovery is the foundation of Genesis. Without this, interfaces
+        cannot find agents to communicate with. The content filtering ensures
+        interfaces only see relevant advertisements (agents, not services/functions).
+        
+        Raises:
+            Exception: If DDS reader creation or QoS loading fails
+        """
         try:
             logger.debug("🔧 TRACE: Setting up advertisement monitoring...")
             
-            # Configure reader QoS - MUST MATCH AdvertisementBus writer QoS
-            reader_qos = dds.QosProvider.default.datareader_qos
-            reader_qos.durability.kind = dds.DurabilityKind.TRANSIENT_LOCAL
-            reader_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
-            reader_qos.history.kind = dds.HistoryKind.KEEP_LAST
-            reader_qos.history.depth = 500  # Match agent's writer depth
-            # Do NOT set liveliness - must match AdvertisementBus writer (default AUTOMATIC/INFINITE)
-            reader_qos.ownership.kind = dds.OwnershipKind.SHARED
+            # Load reader QoS from XML profile - reuse existing type_provider to avoid duplicate load
+            # Configuration in genesis_lib/config/USER_QOS_PROFILES.xml
+            try:
+                reader_qos = self.type_provider.datareader_qos_from_profile("cft_Library::cft_Profile")
+                logger.debug("📋 TRACE: Loaded reader QoS from cft_Profile (transient local, reliable, depth 500)")
+            except Exception as e:
+                # Fallback: try loading USER_QOS_PROFILES separately if not already in type_provider
+                logger.warning(f"Failed to load cft_Profile from type_provider, trying separate load: {e}")
+                import os
+                config_path = get_datamodel_path()
+                config_dir = os.path.dirname(config_path)
+                user_qos_path = os.path.join(config_dir, "USER_QOS_PROFILES.xml")
+                qos_provider = dds.QosProvider(user_qos_path)
+                reader_qos = qos_provider.datareader_qos_from_profile("cft_Library::cft_Profile")
+                logger.debug("📋 TRACE: Loaded reader QoS from cft_Profile via fallback")
             
-            logger.debug("📋 TRACE: Configured reader QoS settings")
             # Resolve advertisement type/topic
             bus = AdvertisementBus.get(self.app.participant)
             ad_type = bus.ad_type
@@ -263,8 +631,60 @@ class GenesisInterface(ABC):
 
     async def connect_to_agent(self, service_name: str, timeout_seconds: Optional[float] = None) -> bool:
         """
-        Create the RPC Requester to connect to a specific agent service.
-        Waits briefly for the underlying DDS replier endpoint to be matched.
+        Create RPC Requester and establish connection to a specific agent service.
+        
+        **What This Method Does**:
+        1. Creates DDS RPC Requester for the specified service
+        2. Waits for DDS endpoint matching (agent's Replier must be discovered)
+        3. Returns success/failure status
+        
+        **Connection Process**:
+        ```
+        Interface: connect_to_agent("MathService")
+                   ↓
+                   Create Requester on topic "rti/connext/genesis/rpc/MathService"
+                   ↓
+                   Wait for DDS discovery (Requester finds Replier)
+                   ↓
+                   matched_replier_count > 0
+                   ↓
+                   Return True (ready to send requests)
+        ```
+        
+        **RPC Topic Naming**:
+        DDS RPC uses a standardized topic naming convention:
+        - Request topic: `rti/connext/genesis/rpc/{service_name}_Request`
+        - Reply topic: `rti/connext/genesis/rpc/{service_name}_Reply`
+        
+        **Endpoint Matching**:
+        DDS must discover the agent's Replier before the Requester is usable.
+        This method polls `matched_replier_count` until > 0 or timeout expires.
+        
+        **When to Call This**:
+        - After agent discovery (wait a bit for advertisements)
+        - Before sending any requests
+        - Can be called multiple times (closes previous requester)
+        
+        **Failover Support**:
+        If an agent crashes, you can call connect_to_agent() again to find
+        a new agent with the same service_name.
+        
+        Args:
+            service_name: Agent service name to connect to (e.g., "OpenAIChatService")
+            timeout_seconds: Max time to wait for endpoint match (None = wait forever)
+        
+        Returns:
+            True if connection established, False if timeout or error
+        
+        Example:
+            ```python
+            interface = GenesisInterface("MyInterface", "ChatService")
+            await asyncio.sleep(2)  # Wait for agent advertisements
+            if await interface.connect_to_agent("ChatService", timeout_seconds=10.0):
+                print("Connected!")
+            else:
+                print("Connection failed")
+            ```
         """
         if self.requester:
              logger.warning(f"⚠️ TRACE: Requester already exists for service '{self.discovered_agent_service_name}'. Overwriting.")
@@ -328,9 +748,9 @@ class GenesisInterface(ABC):
                           service_instance_tag: Optional[str] = None,
                           reset_target: bool = False) -> Optional[Dict[str, Any]]:
         """
-        Send request to agent and wait for reply with RPC v2 broadcast + GUID targeting.
+        Send request to agent and wait for reply with broadcast + GUID targeting.
         
-        RPC v2 Behavior:
+        RPC Protocol Behavior:
         - First request: Broadcasts to all agents with the service_name (empty target_service_guid)
         - First reply: Captures replier_service_guid and uses it for subsequent targeted requests
         - Subsequent requests: Targeted to specific agent GUID via content filtering
@@ -363,12 +783,12 @@ class GenesisInterface(ABC):
             
             is_broadcast = not effective_target_guid
             
-            # Create request with RPC v2 fields
+            # Create request with unified RPC fields
             request = dds.DynamicData(self.request_type)
             for key, value in request_data.items():
                 request[key] = value
             
-            # Set RPC v2 fields
+            # Set RPC protocol fields
             request["target_service_guid"] = effective_target_guid
             request["service_instance_tag"] = effective_service_tag
                 
@@ -481,7 +901,51 @@ class GenesisInterface(ABC):
         if hasattr(self, 'app'):
             await self.app.close()
 
-    # --- New Callback Registration Methods ---
+    # --- Agent Discovery State Management (Core Functionality) ---
+    
+    async def _handle_agent_discovered(self, agent_info: dict):
+        """
+        Core handler for agent discovery - manages interface state.
+        
+        This is the base implementation that manages discovered agent state.
+        Subclasses (like MonitoredInterface) can override to add monitoring
+        but should call super() to preserve this core functionality.
+        
+        Args:
+            agent_info: Dict with keys: instance_id, prefered_name, service_name,
+                       message, default_capable, timestamp
+        """
+        instance_id = agent_info['instance_id']
+        prefered_name = agent_info.get('prefered_name', 'Unknown')
+        service_name = agent_info.get('service_name', 'Unknown')
+        
+        logger.debug(f"GenesisInterface: Agent discovered: {prefered_name} ({service_name}) - ID: {instance_id}")
+        
+        # Cache discovered agent
+        self.available_agents[instance_id] = agent_info
+        
+        # Signal that an agent is available (for connect_to_agent waiting)
+        if not self._agent_found_event.is_set():
+            self._agent_found_event.set()
+    
+    async def _handle_agent_departed(self, instance_id: str):
+        """
+        Core handler for agent departure - manages interface state.
+        
+        This is the base implementation that manages agent state when agents depart.
+        Subclasses can override to add monitoring but should call super().
+        
+        Args:
+            instance_id: GUID of the departed agent
+        """
+        if instance_id in self.available_agents:
+            departed_agent = self.available_agents.pop(instance_id)
+            prefered_name = departed_agent.get('prefered_name', 'Unknown')
+            logger.debug(f"GenesisInterface: Agent departed: {prefered_name} - ID: {instance_id}")
+        else:
+            logger.warning(f"GenesisInterface: Received departure for unknown agent: {instance_id}")
+
+    # --- Callback Registration Methods ---
     def register_discovery_callback(self, callback: Callable[[Dict[str, Any]], Coroutine[Any, Any, None]]):
         """Register a callback to be invoked when an agent is discovered."""
         logger.debug(f"🔧 TRACE: Registering discovery callback: {callback.__name__ if callback else 'None'}")

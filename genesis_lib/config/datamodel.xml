@@ -1,10 +1,106 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ==================================================================================
+  Genesis Data Model - Core Type Definitions
+  ==================================================================================
+  
+  This file defines all DDS data types used throughout the Genesis framework.
+  It serves as the single source of truth for all DDS communication types,
+  ensuring type consistency across agents, interfaces, services, and monitoring.
+  
+  ARCHITECTURE OVERVIEW:
+  =====================
+  
+  The Genesis data model is organized into five major categories:
+  
+  1. AGENT DISCOVERY & REGISTRATION
+     - Types for agent discovery and capability advertisement
+     - Used by: MonitoredAgent, GenesisInterface, AdvertisementBus
+  
+  2. CORE RPC COMMUNICATION
+     - Request/reply types for interface↔agent and agent↔agent communication
+     - Used by: GenesisInterface, GenesisAgent, AgentCommunication
+  
+  3. FUNCTION EXECUTION
+     - Types for external function discovery and execution
+     - Used by: GenesisService, FunctionRequester, FunctionRegistry
+  
+  4. MONITORING & OBSERVABILITY
+     - Graph topology, chain events, lifecycle events
+     - Used by: GraphMonitor, MonitoredAgent, MonitoredInterface, MonitoredService
+  
+  5. LEGACY & TEST TYPES
+     - Backward compatibility and testing infrastructure
+     - Used by: Test suites, migration tools
+  
+  TYPE USAGE CROSS-REFERENCE:
+  ===========================
+  
+  Each type definition includes detailed comments explaining:
+  - Purpose and use case
+  - Which Genesis components create/publish it
+  - Which Genesis components consume/subscribe to it
+  - Related types and data flows
+  - QoS recommendations (see USER_QOS_PROFILES.xml)
+  
+  KEY DESIGN PRINCIPLES:
+  =====================
+  
+  1. GUID-Based Targeting: Request types use target_service_guid for efficient
+     content filtering. Empty GUID = broadcast, populated GUID = targeted request.
+  
+  2. Unified Advertisement Model: Single Advertisement type with 'kind' enum
+     (FUNCTION, AGENT, REGISTRATION) replaces legacy per-type advertisements.
+  
+  3. Monitoring Consolidation: Unified Event and GraphTopology types with 'kind'
+     enums consolidate multiple legacy monitoring topics for efficiency.
+  
+  4. JSON Payloads: Many types use JSON string payloads for extensibility without
+     breaking wire compatibility when adding new fields.
+  
+  5. Keyed Types: Most types use key="true" on ID fields for DDS instance lifecycle
+     management (dispose notifications, late-joiner data, etc.).
+  
+  RELATED FILES:
+  =============
+  
+  - USER_QOS_PROFILES.xml: QoS policies for readers/writers of these types
+  - genesis_agent.py: Primary consumer of RPC request types
+  - genesis_interface.py: Primary publisher of RPC request types
+  - graph_monitoring.py: Primary consumer/publisher of monitoring types
+  - advertisement_bus.py: Unified advertisement publisher/subscriber
+  
+  For detailed usage examples and architectural documentation, see:
+  - AGENT_ARCHITECTURE_QUICK_REFERENCE.md
+  - CAPABILITY_SYSTEM_ARCHITECTURE.md
+  - DDS_CONFIGURATION.md
+  
+  Copyright (c) 2025, RTI & Jason Upchurch
+  ==================================================================================
+-->
 <dds xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
      xsi:noNamespaceSchemaLocation="http://community.rti.com/schema/7.3.0/rti_dds_qos_profiles.xsd"
      version="7.3.0">
   <type_library name="genesis_lib">
 
-    <!-- agent registration  -->
+    <!-- 
+      ==================================================================================
+      SECTION 1: AGENT DISCOVERY & REGISTRATION
+      ==================================================================================
+      
+      Legacy agent registration type. Superseded by GenesisAdvertisement (see below)
+      but maintained for backward compatibility with existing deployments.
+      
+      USAGE:
+      - Published by: Legacy agents during initialization
+      - Consumed by: Legacy interfaces via RegistrationListener
+      - Topic: "rti/connext/genesis/AgentRegistration"
+      - QoS: Transient local, reliable (see USER_QOS_PROFILES.xml)
+      
+      MIGRATION NOTE:
+      New deployments should use GenesisAdvertisement with kind=AGENT instead.
+      This type will be deprecated in a future release.
+    -->
     <struct name= "genesis_agent_registration_announce">
       <member name="message" type="string" stringMaxLength="2048" />
       <member name="prefered_name" type="string" stringMaxLength="256" />
@@ -13,48 +109,243 @@
       <member name="service_name" type="string" stringMaxLength="256"/>
     </struct>
 
-    <!-- Below are the two NLP communication types, interface to agent and agent to agent.  Right now they're at 8K, But it should probably be either Unbounded or... Better yet, Add Streaming like we had in version 0.1.-->
-    <!-- interface to agent communication (RPC v2: unified topics with GUID-based content filtering) -->
-    <struct name="InterfaceAgentRequest">
+    <!--
+      ==================================================================================
+      SECTION 2: UNIFIED RPC COMMUNICATION (All Request/Reply Patterns)
+      ==================================================================================
+      
+      Single unified request/reply types used for ALL Genesis RPC communication:
+      - Interface → Agent (human to AI conversations)
+      - Agent → Agent (delegation, collaboration, orchestration)
+      - Agent → Function (external function execution)
+      - Function → Agent (function results)
+      
+      DESIGN RATIONALE:
+      =================
+      
+      Prior architecture had THREE separate RPC type pairs:
+      1. InterfaceAgentRequest/Reply (interface→agent)
+      2. AgentAgentRequest/Reply (agent→agent)
+      3. FunctionExecutionRequest/Reply (agent→function)
+      
+      All three were structurally similar with only semantic differences.
+      This unified model provides:
+      - Single source of truth for RPC wire format
+      - Consistent protocol across all communication paths
+      - Easier maintenance and evolution
+      - Reduced datamodel complexity
+      
+      USAGE BY COMMUNICATION PATH:
+      ============================
+      
+      Interface → Agent:
+      - request_id: Correlation ID
+      - message: User query or instruction
+      - conversation_id: Multi-turn conversation tracking
+      - target_service_guid: Empty for discovery, populated for continuation
+      - service_instance_tag: Blue/green deployment routing
+      - metadata: JSON with {"source": "interface", "user_id": "...", ...}
+      
+      Agent → Agent:
+      - request_id: Correlation ID
+      - message: Delegation instruction or query
+      - conversation_id: Task tracking across agents
+      - target_service_guid: Empty for broadcast, populated for specific agent
+      - service_instance_tag: Optional agent population targeting
+      - metadata: JSON with {"source": "agent", "agent_id": "...", "delegation_chain": [...], ...}
+      
+      Agent → Function:
+      - request_id: Correlation ID
+      - message: JSON-encoded function parameters (e.g., '{"x": 5, "y": 3}')
+      - conversation_id: Chain ID for distributed tracing
+      - target_service_guid: Service providing the function
+      - service_instance_tag: Optional service instance routing
+      - metadata: JSON with {"function_name": "calculate_sum", "function_id": "...", "chain_id": "...", ...}
+      
+      PROTOCOL PATTERN (All Paths):
+      =============================
+      
+      1. First Request: target_service_guid = "" (broadcast to all matching services)
+      2. First Reply: replier_service_guid = "actual-guid" (service identifies itself)
+      3. Subsequent Requests: target_service_guid = "actual-guid" (locked to specific service)
+      4. Content Filtering: DDS filters at middleware layer for efficiency
+      
+      BENEFITS:
+      =========
+      - Unified: Single wire format, consistent semantics
+      - Flexible: metadata field allows path-specific extensions via JSON
+      - Efficient: Same type = same serialization/deserialization code paths
+      - Maintainable: One place to add fields, one place to document
+      - Testable: Single test suite covers all communication paths
+      
+      USED BY:
+      ========
+      - genesis_interface.py: GenesisInterface.send_request() (interface→agent)
+      - agent_communication.py: AgentCommunication.send_message() (agent→agent)
+      - genesis_agent.py: GenesisAgent RPC replier (processes all request types)
+      - requester.py: GenesisRequester.call() (generic RPC client)
+      - replier.py: GenesisReplier (generic RPC server)
+      - function_requester.py: Function execution client
+      
+      TOPIC NAMING:
+      =============
+      - Interface→Agent: "rti/connext/genesis/rpc/{service_name}_Request/Reply"
+      - Agent→Agent: "rti/connext/genesis/agent_comm/{service_name}_Request/Reply"
+      - Agent→Function: "rti/connext/genesis/function/{service_name}_Request/Reply"
+      
+      QOS:
+      ====
+      - Reliability: RELIABLE (no message loss)
+      - Durability: VOLATILE (ephemeral request/reply, no history)
+      - See USER_QOS_PROFILES.xml for detailed profiles
+    -->
+    <struct name="GenesisRPCRequest">
+      <!--
+        DESIGN NOTE: Unified types with differentiated usage
+        Both Interface↔Agent and Service/Function RPC use these same DynamicData types.
+        The Interface↔Agent path favors a thin direct rti.rpc usage (flexible control payloads,
+        precise logs) while Service/Function RPC often uses GenesisRequester/GenesisReplier
+        wrappers (function-name/params envelope, standardized result handling).
+      -->
+      <!-- Unique request ID for correlation and debugging -->
+      <member name="request_id" type="string" stringMaxLength="128"/>
+      
+      <!-- 
+        Main message content (use case dependent):
+        - Interface→Agent: User query ("What is the weather?")
+        - Agent→Agent: Delegation instruction ("Summarize this document")
+        - Agent→Function: JSON parameters ('{"x": 5, "y": 3}')
+      -->
       <member name="message" type="string" stringMaxLength="8192"/>
+      
+      <!-- Conversation/chain ID for multi-turn interactions and distributed tracing -->
       <member name="conversation_id" type="string" stringMaxLength="128"/>
-      <!-- RPC v2: Empty for broadcast, set to specific GUID for targeted request -->
+      
+      <!-- 
+        GUID-Based Targeting for Content Filtering:
+        - Empty string: Broadcast to all services with matching service_name
+        - Populated: Target specific service instance (DDS content filter)
+        
+        Example:
+        - First request: target_service_guid = "" (discover any service)
+        - Subsequent: target_service_guid = "service-guid-12345" (locked)
+      -->
       <member name="target_service_guid" type="string" stringMaxLength="128"/>
-      <!-- Optional service instance tag for migration scenarios (content filtering, not topic names) -->
+      
+      <!-- 
+        Service Instance Tag for Blue/Green Deployments:
+        - Optional tag for routing to specific service populations
+        - Example: "production", "staging", "canary", "v2.1"
+        - Uses content filtering (not topic names) for flexibility
+      -->
       <member name="service_instance_tag" type="string" stringMaxLength="64"/>
+      
+      <!--
+        JSON metadata for path-specific extensions and context:
+        
+        Interface→Agent example:
+        {
+          "source": "interface",
+          "interface_id": "interface-guid-12345",
+          "user_id": "user@example.com",
+          "session_id": "session-abc"
+        }
+        
+        Agent→Agent example:
+        {
+          "source": "agent",
+          "source_agent_id": "agent-guid-67890",
+          "delegation_chain": ["agent1", "agent2"],
+          "task_id": "task-xyz"
+        }
+        
+        Agent→Function example:
+        {
+          "source": "agent",
+          "function_name": "calculate_sum",
+          "function_id": "func-guid-abc",
+          "chain_id": "chain-123",
+          "timestamp": 1234567890
+        }
+      -->
+      <member name="metadata" type="string" stringMaxLength="2048"/>
     </struct>
 
-    <struct name="InterfaceAgentReply">
+    <struct name="GenesisRPCReply">
+      <!-- Echo back request_id for correlation -->
+      <member name="request_id" type="string" stringMaxLength="128"/>
+      
+      <!-- 
+        Response message (use case dependent):
+        - Agent→Interface: Natural language response ("The weather is sunny")
+        - Agent→Agent: Task result or delegation response
+        - Function→Agent: JSON result ('{"result": 8}')
+      -->
       <member name="message" type="string" stringMaxLength="8192"/>
+      
+      <!-- Status code: 0 = success, non-zero = error/warning -->
       <member name="status" type="int32"/>
+      
+      <!-- Echo back conversation_id from request -->
       <member name="conversation_id" type="string" stringMaxLength="128"/>
-      <!-- RPC v2: Replier's GUID for subsequent targeted requests -->
+      
+      <!-- 
+        Replier's Service GUID for Subsequent Targeting:
+        - Replier populates this with its DDS participant GUID
+        - Requester captures this for target_service_guid in future requests
+        - Implements broadcast→target pattern
+      -->
       <member name="replier_service_guid" type="string" stringMaxLength="128"/>
-      <!-- Echo back the service instance tag if present -->
+      
+      <!-- Echo back service_instance_tag from request -->
       <member name="service_instance_tag" type="string" stringMaxLength="64"/>
+      
+      <!--
+        JSON metadata for path-specific extensions and context:
+        
+        Agent→Interface example:
+        {
+          "model": "gpt-4",
+          "tokens_used": 150,
+          "processing_time_ms": 523,
+          "agent_id": "agent-guid-67890"
+        }
+        
+        Agent→Agent example:
+        {
+          "replier_agent_id": "agent-guid-12345",
+          "task_status": "completed",
+          "subtasks_spawned": 0
+        }
+        
+        Function→Agent example:
+        {
+          "function_name": "calculate_sum",
+          "execution_time_ms": 5,
+          "error_code": "",
+          "error_message": ""
+        }
+      -->
+      <member name="metadata" type="string" stringMaxLength="2048"/>
     </struct>
 
-        <!-- Agent to agent communication (RPC v2: unified topics with GUID-based content filtering) -->
-    <struct name="AgentAgentRequest">
-      <member name="message" type="string" stringMaxLength="8192"/>
-      <member name="conversation_id" type="string" stringMaxLength="128"/>
-      <!-- RPC v2: Empty for broadcast, set to specific GUID for targeted request -->
-      <member name="target_service_guid" type="string" stringMaxLength="128"/>
-      <!-- Optional service instance tag for migration scenarios (content filtering, not topic names) -->
-      <member name="service_instance_tag" type="string" stringMaxLength="64"/>
-    </struct>
-
-    <struct name="AgentAgentReply">
-      <member name="message" type="string" stringMaxLength="8192"/>
-      <member name="status" type="int32"/>
-      <member name="conversation_id" type="string" stringMaxLength="128"/>
-      <!-- RPC v2: Replier's GUID for subsequent targeted requests -->
-      <member name="replier_service_guid" type="string" stringMaxLength="128"/>
-      <!-- Echo back the service instance tag if present -->
-      <member name="service_instance_tag" type="string" stringMaxLength="64"/>
-    </struct>
-
-    <!-- Monitoring and Logging interface -->
+    <!--
+      ==================================================================================
+      SECTION 3: LOGGING & DIAGNOSTICS
+      ==================================================================================
+      
+      Centralized logging type for structured log aggregation across Genesis components.
+      
+      USAGE:
+      - Published by: All Genesis components via logging_config.py DDS handler
+      - Consumed by: Log aggregation services, debugging tools
+      - Topic: "rti/connext/genesis/Logs"
+      - QoS: Best effort, volatile (high volume, loss acceptable)
+      
+      NOTE:
+      Most deployments use file logging. This type is for specialized scenarios
+      requiring centralized log aggregation (e.g., distributed debugging, analytics).
+    -->
     <struct name="LogMessage">
       <member name="log_id" type="string" stringMaxLength="128"/>
       <member name="timestamp" type="int64"/>
@@ -71,44 +362,122 @@
       <member name="function_name" type="string" stringMaxLength="256"/>
     </struct>
 
-    <!-- Unified Advertisement Model (durable discovery channel) - replaces legacy FunctionCapability and AgentCapability -->
+    <!--
+      ==================================================================================
+      SECTION 5: UNIFIED ADVERTISEMENT MODEL
+      ==================================================================================
+      
+      Single advertisement type that consolidates function, agent, and service discovery.
+      Uses 'kind' enum to distinguish advertisement types, reducing topic proliferation.
+      
+      ARCHITECTURE:
+      - Replaces legacy: FunctionCapability, AgentCapability, ServiceCapability
+      - Single topic: "rti/connext/genesis/Advertisement"
+      - Content filtering by kind: Subscribers filter at DDS layer for efficiency
+      
+      USAGE BY KIND:
+      
+      KIND=FUNCTION:
+      - Published by: GenesisService during initialization
+      - Consumed by: FunctionRegistry (in GenesisAgent)
+      - Payload: JSON with function schema, parameters, description
+      - Use case: External function discovery for agent tool execution
+      
+      KIND=AGENT:
+      - Published by: MonitoredAgent during initialization
+      - Consumed by: GenesisInterface (agent discovery), AgentCommunication (agent↔agent)
+      - Payload: JSON with agent capabilities, supported tasks
+      - Use case: Agent discovery for interface connection and delegation
+      
+      KIND=REGISTRATION:
+      - Legacy kind for backward compatibility
+      - Use KIND=AGENT for new deployments
+      
+      USED BY:
+      - advertisement_bus.py: AdvertisementBus singleton manages pub/sub
+      - genesis_service.py: Publishes KIND=FUNCTION
+      - monitored_agent.py: Publishes KIND=AGENT
+      - genesis_interface.py: Subscribes with filter "kind = 1" (AGENT only)
+      - function_discovery.py: Subscribes with filter "kind = 0" (FUNCTION only)
+      
+      QOS:
+      - Durability: TRANSIENT_LOCAL (late-joiners get history)
+      - Reliability: RELIABLE (don't miss advertisements)
+      - History: KEEP_LAST with depth 500
+      - Profile: cft_Profile (see USER_QOS_PROFILES.xml)
+      
+      BENEFITS:
+      - Topic consolidation: 3 legacy topics → 1 unified topic
+      - Efficient filtering: DDS content filtering at middleware layer
+      - Extensibility: New kinds can be added without code changes
+      - Uniform lifecycle: All discoveries use same QoS and patterns
+    -->
     <enum name="AdvertisementKind">
-      <enumerator name="FUNCTION"/>
-      <enumerator name="AGENT"/>
-      <enumerator name="REGISTRATION"/>
+      <enumerator name="FUNCTION"/>  <!-- External function advertisements -->
+      <enumerator name="AGENT"/>     <!-- Agent capability advertisements -->
+      <enumerator name="REGISTRATION"/> <!-- Legacy: use AGENT instead -->
     </enum>
 
     <struct name="GenesisAdvertisement">
+      <!-- Unique ID: function_id for FUNCTION, agent_id for AGENT -->
       <member name="advertisement_id" type="string" key="true" stringMaxLength="128"/>
+      
+      <!-- Advertisement type (FUNCTION, AGENT, REGISTRATION) -->
       <member name="kind" type="nonBasic" nonBasicTypeName="AdvertisementKind"/>
+      
+      <!-- Human-readable name: function name or agent name -->
       <member name="name" type="string" stringMaxLength="256"/>
+      
+      <!-- Description of capabilities/purpose -->
       <member name="description" type="string" stringMaxLength="2048"/>
+      
+      <!-- Service or agent name (e.g., "MathService", "OpenAIChatService") -->
       <member name="service_name" type="string" stringMaxLength="256"/>
+      
+      <!-- DDS GUID of the publisher (service or agent participant) -->
       <member name="provider_id" type="string" stringMaxLength="128"/>
+      
+      <!-- Timestamp of last advertisement update (milliseconds since epoch) -->
       <member name="last_seen" type="int64"/>
+      
+      <!-- 
+        JSON payload with kind-specific data:
+        
+        FUNCTION kind:
+        {
+          "schema": {...},           // JSON schema for function parameters
+          "capabilities": [...],     // List of capability tags
+          "return_type": "...",      // Expected return type
+          "examples": [...]          // Usage examples
+        }
+        
+        AGENT kind:
+        {
+          "agent_type": "AGENT|SPECIALIZED_AGENT",
+          "supported_tasks": [...],  // List of task types
+          "model": "gpt-4",          // LLM model if applicable
+          "capabilities": {...}      // Agent-specific capabilities
+        }
+      -->
       <member name="payload" type="string" stringMaxLength="8192"/>
     </struct>
 
-    <!-- Function Execution Request/Reply -->
-    <struct name="FunctionExecutionRequest">
-      <member name="request_id" type="string" stringMaxLength="128"/>
-      <member name="function_id" type="string" stringMaxLength="128"/>
-      <member name="parameters" type="string" stringMaxLength="8192"/>
-      <member name="timestamp" type="int64"/>
-      <member name="metadata" type="string" stringMaxLength="2048"/>
-    </struct>
-
-    <struct name="FunctionExecutionReply">
-      <member name="request_id" type="string" stringMaxLength="128"/>
-      <member name="function_id" type="string" stringMaxLength="128"/>
-      <member name="result" type="string" stringMaxLength="8192"/>
-      <member name="status" type="int32"/>
-      <member name="error_message" type="string" stringMaxLength="2048"/>
-      <member name="timestamp" type="int64"/>
-      <member name="metadata" type="string" stringMaxLength="2048"/>
-    </struct>
-
-    <!-- Test service interface -->
+    <!--
+      ==================================================================================
+      SECTION 4: TEST INFRASTRUCTURE
+      ==================================================================================
+      
+      Simple request/reply types for testing Genesis RPC infrastructure.
+      
+      USAGE:
+      - Test scripts: tests/active/*.sh
+      - Example services: examples/*/test_*.py
+      - Used for: Connectivity testing, latency benchmarks, integration tests
+      
+      TOPIC NAMES:
+      - Request: "rti/connext/genesis/rpc/TestService_Request"
+      - Reply: "rti/connext/genesis/rpc/TestService_Reply"
+    -->
     <struct name="TestRequest">
       <member name="message" type="string" stringMaxLength="8192"/>
     </struct>
@@ -118,7 +487,21 @@
       <member name="status" type="int32"/>
     </struct>
 
-    <!-- LLM Function Schema -->
+    <!--
+      ==================================================================================
+      SECTION 8: LEGACY FUNCTION SCHEMA (Deprecated)
+      ==================================================================================
+      
+      Legacy type for function schema advertisement. Superseded by GenesisAdvertisement
+      with KIND=FUNCTION and JSON payload containing schema.
+      
+      MIGRATION PATH:
+      - Old: Publish LLMFunctionSchema to dedicated topic
+      - New: Publish GenesisAdvertisement with kind=FUNCTION, payload contains schema
+      
+      This type is maintained for backward compatibility only and will be removed
+      in a future release.
+    -->
     <struct name="LLMFunctionSchema">
       <member name="function_id" type="string" key="true" stringMaxLength="128"/>
       <member name="name" type="string" stringMaxLength="256"/>
@@ -130,7 +513,28 @@
       <member name="tags" type="string" stringMaxLength="1024"/>
     </struct>
 
-    <!-- Function Monitoring Events -->
+    <!--
+      ==================================================================================
+      SECTION 9: LEGACY MONITORING TYPES (Deprecated)
+      ==================================================================================
+      
+      These types are superseded by the unified monitoring model (Section 10).
+      They are maintained for backward compatibility during migration but should
+      not be used in new code.
+      
+      LEGACY TYPES:
+      - MonitoringEvent: Replaced by MonitoringEventUnified with kind=GENERAL
+      - ComponentLifecycleEvent: Replaced by MonitoringEventUnified with kind=LIFECYCLE
+      - ChainEvent: Replaced by MonitoringEventUnified with kind=CHAIN
+      - GenesisGraphNode: Replaced by GraphTopology with kind=NODE
+      - GenesisGraphEdge: Replaced by GraphTopology with kind=EDGE
+      
+      MIGRATION NOTE:
+      All new monitoring code uses the unified types. These legacy types will be
+      removed in a future release once all deployments have migrated.
+    -->
+    
+    <!-- Legacy event type enum -->
     <enum name="EventType">
       <enumerator name="FUNCTION_DISCOVERY"/>
       <enumerator name="FUNCTION_CALL"/>
@@ -143,6 +547,7 @@
       <enumerator name="AGENT_CONNECTION_LOST"/>
     </enum>
 
+    <!-- Legacy entity type enum -->
     <enum name="EntityType">
       <enumerator name="FUNCTION"/>
       <enumerator name="AGENT"/>
@@ -150,6 +555,7 @@
       <enumerator name="INTERFACE"/>
     </enum>
 
+    <!-- Legacy general monitoring event -->
     <struct name="MonitoringEvent">
       <member name="event_id" type="string" key="true" stringMaxLength="128"/>
       <member name="timestamp" type="int64"/>
@@ -162,24 +568,29 @@
       <member name="status_data" type="string" stringMaxLength="2048"/>
     </struct>
 
-    <!-- New Enhanced Monitoring Types -->
+    <!--
+      Component type enum for monitoring (used across all monitoring types)
+      Maps to Genesis architectural components
+    -->
     <enum name="ComponentType">
-      <enumerator name="INTERFACE"/>
-      <enumerator name="PRIMARY_AGENT"/>
-      <enumerator name="SPECIALIZED_AGENT"/>
-      <enumerator name="FUNCTION"/>
-      <enumerator name="SERVICE"/>
+      <enumerator name="INTERFACE"/>           <!-- GenesisInterface instances -->
+      <enumerator name="PRIMARY_AGENT"/>       <!-- Main agents (e.g., OpenAIGenesisAgent) -->
+      <enumerator name="SPECIALIZED_AGENT"/>   <!-- Specialized task agents -->
+      <enumerator name="FUNCTION"/>            <!-- External functions provided by services -->
+      <enumerator name="SERVICE"/>             <!-- GenesisService instances -->
     </enum>
 
+    <!-- Component state enum for lifecycle tracking -->
     <enum name="ComponentState">
-      <enumerator name="JOINING"/>
-      <enumerator name="DISCOVERING"/>
-      <enumerator name="READY"/>
-      <enumerator name="BUSY"/>
-      <enumerator name="DEGRADED"/>
-      <enumerator name="OFFLINE"/>
+      <enumerator name="JOINING"/>      <!-- Initial connection phase -->
+      <enumerator name="DISCOVERING"/>  <!-- Active discovery (agents, functions, etc.) -->
+      <enumerator name="READY"/>        <!-- Idle, ready to process requests -->
+      <enumerator name="BUSY"/>         <!-- Actively processing -->
+      <enumerator name="DEGRADED"/>     <!-- Error state, attempting recovery -->
+      <enumerator name="OFFLINE"/>      <!-- Shutting down or disconnected -->
     </enum>
 
+    <!-- Event category enum for lifecycle events -->
     <enum name="EventCategory">
       <enumerator name="NODE_DISCOVERY"/>      <!-- Node/Agent/Component discovery -->
       <enumerator name="EDGE_DISCOVERY"/>      <!-- Connection/Relationship discovery -->
@@ -190,6 +601,7 @@
       <enumerator name="DDS_ENDPOINT"/>        <!-- DDS endpoint discovery -->
     </enum>
 
+    <!-- Legacy: Component lifecycle event (replaced by MonitoringEventUnified) -->
     <struct name="ComponentLifecycleEvent">
       <member name="component_id" type="string" key="true" stringMaxLength="128"/>
       <member name="component_type" type="nonBasic" nonBasicTypeName="ComponentType"/>
@@ -206,6 +618,7 @@
       <member name="connection_type" type="string" stringMaxLength="128"/>
     </struct>
 
+    <!-- Legacy: Chain event for distributed tracing (replaced by MonitoringEventUnified) -->
     <struct name="ChainEvent">
       <member name="chain_id" type="string" key="true" stringMaxLength="128"/>
       <member name="call_id" type="string" stringMaxLength="128"/>
@@ -221,7 +634,7 @@
       <member name="status" type="int32"/>
     </struct>
 
-    <!-- Durable graph topology types (nodes and edges) -->
+    <!-- Legacy: Graph node (replaced by GraphTopology with kind=NODE) -->
     <struct name="GenesisGraphNode">
       <member name="node_id" type="string" key="true" stringMaxLength="128"/>
       <member name="node_type" type="string" stringMaxLength="32"/>
@@ -231,6 +644,7 @@
       <member name="timestamp" type="int64"/>
     </struct>
 
+    <!-- Legacy: Graph edge (replaced by GraphTopology with kind=EDGE) -->
     <struct name="GenesisGraphEdge">
       <member name="source_id" type="string" key="true" stringMaxLength="128"/>
       <member name="target_id" type="string" key="true" stringMaxLength="128"/>
@@ -239,6 +653,7 @@
       <member name="timestamp" type="int64"/>
     </struct>
 
+    <!-- Legacy: Liveliness update (not widely used, candidate for removal) -->
     <struct name="LivelinessUpdate">
       <member name="component_id" type="string" key="true" stringMaxLength="128"/>
       <member name="component_type" type="nonBasic" nonBasicTypeName="ComponentType"/>
@@ -247,48 +662,173 @@
       <member name="health_metrics" type="string" stringMaxLength="1024"/>
     </struct>
 
-    <!-- ========================================= -->
-    <!-- UNIFIED MONITORING TYPES (Phase 1)        -->
-    <!-- Consolidates 5 topics → 2 topics          -->
-    <!-- ========================================= -->
-
-    <!-- Graph Topology (Durable) - Consolidates GenesisGraphNode + GenesisGraphEdge -->
+    <!--
+      ==================================================================================
+      SECTION 10: UNIFIED MONITORING MODEL (Production)
+      ==================================================================================
+      
+      These are the current production monitoring types used by all Genesis components.
+      They consolidate 5 legacy topics into 2 unified topics for better performance
+      and simpler deployment.
+      
+      CONSOLIDATION ARCHITECTURE:
+      ══════════════════════════
+      
+      Legacy (5 topics):
+      1. ChainEvent topic
+      2. ComponentLifecycleEvent topic
+      3. MonitoringEvent topic
+      4. GenesisGraphNode topic
+      5. GenesisGraphEdge topic
+      
+      Unified (2 topics):
+      1. rti/connext/genesis/monitoring/Event (volatile, all events)
+         - MonitoringEventUnified with kind=CHAIN (distributed tracing)
+         - MonitoringEventUnified with kind=LIFECYCLE (state transitions)
+         - MonitoringEventUnified with kind=GENERAL (misc events)
+      
+      2. rti/connext/genesis/monitoring/GraphTopology (durable, topology)
+         - GraphTopology with kind=NODE (agents, interfaces, services, functions)
+         - GraphTopology with kind=EDGE (connections, relationships)
+      
+      BENEFITS:
+      - Topic consolidation: 5 topics → 2 topics (simpler deployment)
+      - Efficient filtering: kind enum enables DDS content filtering
+      - Reduced overhead: Fewer writers, fewer readers, less DDS discovery
+      - Unified QoS: Single QoS profile per category (durable vs. volatile)
+      
+      USED BY:
+      - graph_monitoring.py: GraphMonitor publishes both Event and GraphTopology
+      - monitored_agent.py: Publishes Event (kind=CHAIN) and GraphTopology
+      - monitored_interface.py: Publishes Event (kind=CHAIN) and GraphTopology
+      - monitored_service.py: Publishes GraphTopology (kind=NODE, kind=EDGE)
+      - viewer_export.py: Consumes GraphTopology for visualization
+      - Monitoring UI: Consumes both topics for real-time dashboards
+      
+      QOS CONFIGURATION:
+      - Event topic: Volatile, reliable (see VolatileEventsProfile)
+      - GraphTopology topic: Transient local, reliable (see cft_Profile)
+    -->
+    
+    <!-- GraphTopology: Unified graph topology type (consolidates nodes and edges) -->
     <enum name="GraphElementKind">
-      <enumerator name="NODE" value="0"/>
-      <enumerator name="EDGE" value="1"/>
+      <enumerator name="NODE" value="0"/>  <!-- Component node (agent, interface, service, function) -->
+      <enumerator name="EDGE" value="1"/>  <!-- Connection/relationship between nodes -->
     </enum>
 
     <struct name="GraphTopology">
+      <!-- 
+        Unique element ID (key for DDS instance lifecycle):
+        - NODE kind: component_id (e.g., agent GUID, function ID)
+        - EDGE kind: "{source_id}_{target_id}_{edge_type}" for uniqueness
+      -->
       <member name="element_id" type="string" key="true" stringMaxLength="256"/>
+      
+      <!-- Element type: NODE or EDGE -->
       <member name="kind" type="nonBasic" nonBasicTypeName="GraphElementKind"/>
+      
+      <!-- Timestamp of last update (milliseconds since epoch) -->
       <member name="timestamp" type="int64"/>
+      
+      <!-- Component name (human-readable, e.g., "MathAgent", "WeatherService") -->
       <member name="component_name" type="string" stringMaxLength="256"/>
+      
+      <!-- Component type (e.g., "AGENT", "INTERFACE", "SERVICE", "FUNCTION") -->
       <member name="component_type" type="string" stringMaxLength="128"/>
+      
+      <!-- Component state (e.g., "READY", "BUSY", "DISCOVERING", "OFFLINE") -->
       <member name="state" type="string" stringMaxLength="64"/>
-      <!-- JSON payload for extensibility -->
-      <!-- NODE: metadata contains node_type, node_state, capabilities -->
-      <!-- EDGE: metadata contains source_id, target_id, edge_type -->
+      
+      <!-- 
+        JSON payload with kind-specific data for extensibility:
+        
+        NODE kind:
+        {
+          "node_type": "AGENT|INTERFACE|SERVICE|FUNCTION",
+          "node_state": "READY|BUSY|DISCOVERING|OFFLINE|DEGRADED",
+          "capabilities": {...},
+          "service_name": "...",
+          "agent_id": "...",
+          "function_id": "...",
+          "reason": "Node creation/state change reason"
+        }
+        
+        EDGE kind:
+        {
+          "source_id": "source-component-guid",
+          "target_id": "target-component-guid",
+          "edge_type": "INTERFACE_TO_AGENT|AGENT_TO_FUNCTION|AGENT_TO_AGENT",
+          "connection_type": "RPC|Advertisement|Direct",
+          "reason": "Edge creation reason"
+        }
+      -->
       <member name="metadata" type="string" stringMaxLength="8192"/>
     </struct>
 
-    <!-- Monitoring Event (Volatile) - Consolidates ChainEvent + ComponentLifecycleEvent + MonitoringEvent -->
+    <!-- MonitoringEventUnified: Unified event type (consolidates chain, lifecycle, general) -->
     <enum name="EventKind">
-      <enumerator name="CHAIN" value="0"/>
-      <enumerator name="LIFECYCLE" value="1"/>
-      <enumerator name="GENERAL" value="2"/>
+      <enumerator name="CHAIN" value="0"/>      <!-- Distributed tracing events -->
+      <enumerator name="LIFECYCLE" value="1"/>  <!-- Component lifecycle state changes -->
+      <enumerator name="GENERAL" value="2"/>    <!-- General monitoring events -->
     </enum>
 
     <struct name="MonitoringEventUnified">
+      <!-- Unique event ID (correlation ID for distributed tracing) -->
       <member name="event_id" type="string" stringMaxLength="128"/>
+      
+      <!-- Event kind: CHAIN, LIFECYCLE, or GENERAL -->
       <member name="kind" type="nonBasic" nonBasicTypeName="EventKind"/>
+      
+      <!-- Timestamp when event was published (milliseconds since epoch) -->
       <member name="timestamp" type="int64"/>
+      
+      <!-- Component that published this event (e.g., agent GUID, interface ID) -->
       <member name="component_id" type="string" stringMaxLength="256"/>
+      
+      <!-- Event severity: "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL" -->
       <member name="severity" type="string" stringMaxLength="32"/>
+      
+      <!-- Human-readable event message (e.g., "INTERFACE_REQUEST_START", "State transition READY→BUSY") -->
       <member name="message" type="string" stringMaxLength="2048"/>
-      <!-- JSON payload for event-specific data -->
-      <!-- CHAIN: chain_id, hop_number, latency, source_id, target_id, status -->
-      <!-- LIFECYCLE: previous_state, new_state, reason, capabilities -->
-      <!-- GENERAL: arbitrary event data -->
+      
+      <!-- 
+        JSON payload with kind-specific data:
+        
+        CHAIN kind (distributed tracing):
+        {
+          "chain_id": "unique-chain-id",
+          "call_id": "unique-call-id",
+          "interface_id": "interface-guid",
+          "primary_agent_id": "agent-guid",
+          "specialized_agent_ids": "comma-separated-guids",
+          "function_id": "function-id",
+          "query_id": "query-id",
+          "event_type": "INTERFACE_REQUEST_START|LLM_CALL_START|FUNCTION_CALL_START|...",
+          "source_id": "source-component-guid",
+          "target_id": "target-component-guid",
+          "status": 0
+        }
+        
+        LIFECYCLE kind (state transitions):
+        {
+          "previous_state": "READY",
+          "new_state": "BUSY",
+          "reason": "Processing user request",
+          "capabilities": {...},
+          "chain_id": "chain-id-if-applicable",
+          "call_id": "call-id-if-applicable"
+        }
+        
+        GENERAL kind (misc events):
+        {
+          "event_type": "custom-event-type",
+          "entity_type": "AGENT|INTERFACE|SERVICE|FUNCTION",
+          "entity_id": "entity-guid",
+          "metadata": {...},
+          "call_data": {...},
+          "result_data": {...}
+        }
+      -->
       <member name="payload" type="string" stringMaxLength="8192"/>
     </struct>
 

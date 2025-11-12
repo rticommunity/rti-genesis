@@ -475,7 +475,14 @@ await genesis_agent.run() # Agent joins Genesis network
     
 * **Built-in Monitoring:** `MonitoredAgent` publishes lifecycle, communication, status, and log events (`ComponentLifecycleEvent`, `ChainEvent`, `MonitoringEvent`, `LivelinessUpdate`, `LogMessage`) over DDS. Monitoring tools (`genesis_monitor.py`, `genesis_web_monitor.py`) provide comprehensive visibility into multi-agent chains.  
     
-* **Structured Request/Reply Framework:** Base classes (`GenesisReplier`, `GenesisRequester`) for robust request/reply communication with schema validation (jsonschema), error handling, and DDS-based request/reply management.
+* **Structured Request/Reply Framework:** Base classes (`GenesisReplier`, `GenesisRequester`) for robust request/reply communication with schema validation (jsonschema), error handling, and DDS-based request/reply management. These wrappers now use the unified DynamicData types `GenesisRPCRequest/Reply` defined in `genesis_lib/config/datamodel.xml`.
+
+### Design note: Why wrappers aren’t used for every RPC
+Genesis employs one unified data model (`GenesisRPCRequest/Reply`) across all RPC. We use two wiring styles:
+- Interface↔Agent: Thin, direct `rti.rpc` + DynamicData to keep control messages flexible and preserve exact logs/timings used by tests and monitoring.
+- Service/Function RPC: Higher-level `GenesisRequester/GenesisReplier` wrappers to standardize function-call semantics (function name/params/result), logs, and error mapping.
+
+Both paths share the same DDS types; the distinction is about ergonomics and stability, not data model differences.
 
 ## Advantages Over Alternatives
 

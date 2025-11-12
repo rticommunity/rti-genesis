@@ -6,6 +6,19 @@ Genesis Replier - Unified Topics with Intelligent Request Handling
 Service-side implementation using unified topics with intelligent request handling.
 Supports both broadcast and targeted requests with automatic load balancing and
 fault tolerance capabilities.
+
+ARCHITECTURAL DECISION: Wrapper vs. direct RPC usage
+====================================================
+Genesis employs a unified DDS data model (GenesisRPCRequest/Reply) for all RPC traffic.
+This wrapper is used for service function execution because it provides:
+- Function registry and invocation helpers
+- Standardized JSON packing/unpacking
+- Consistent logs and simple error mapping (status/message)
+
+For the Interface ↔ Agent path, Genesis intentionally uses a thinner, direct rti.rpc +
+DynamicData approach to keep control messages flexible and to preserve exact log formats
+and timings required by tests and monitoring. Both paths use the same types; the choice
+is about ergonomics and stability, not data model differences.
 """
 
 import json
@@ -17,7 +30,7 @@ from typing import Dict, Any, Optional
 import rti.connextdds as dds
 from rti.rpc import Replier
 
-from genesis_lib.datamodel import RPCRequestV2, RPCReplyV2
+from genesis_lib.utils import get_datamodel_path
 from genesis_lib.utils.guid_utils import format_guid
 
 
@@ -56,13 +69,12 @@ class GenesisReplier:
             logger.debug(f"Created DomainParticipant on domain {domain_id} for {self.service_type}")
         self.participant = participant
 
-        request_topic_name = f"rti/connext/genesis/rpc/{self.service_type}Request"
-        reply_topic_name = f"rti/connext/genesis/rpc/{self.service_type}Reply"
+        # Load unified RPC types from datamodel.xml
+        provider = dds.QosProvider(get_datamodel_path())
+        self.request_type = provider.type("genesis_lib", "GenesisRPCRequest")
+        self.reply_type = provider.type("genesis_lib", "GenesisRPCReply")
 
-        self._request_topic = dds.Topic(self.participant, request_topic_name, RPCRequestV2)
-        self._reply_topic = dds.Topic(self.participant, reply_topic_name, RPCReplyV2)
-
-        # Configure QoS for Request/Reply pattern (must be RELIABLE + KEEP_ALL)
+        # Create Replier with unified types; let it create topics automatically
         writer_qos = dds.DataWriterQos()
         writer_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
         writer_qos.history.kind = dds.HistoryKind.KEEP_ALL
@@ -70,12 +82,10 @@ class GenesisReplier:
         reader_qos = dds.DataReaderQos()
         reader_qos.reliability.kind = dds.ReliabilityKind.RELIABLE
         reader_qos.history.kind = dds.HistoryKind.KEEP_ALL
-
-        # Create Replier with service_name only - let it create topics automatically
-        # This matches what the Requester does
+        
         self.replier = Replier(
-            request_type=RPCRequestV2,
-            reply_type=RPCReplyV2,
+            request_type=self.request_type,
+            reply_type=self.reply_type,
             participant=self.participant,
             service_name=f"rti/connext/genesis/rpc/{self.service_type}",
             datawriter_qos=writer_qos,
@@ -114,18 +124,17 @@ class GenesisReplier:
         """
         func_name = func.__name__ if hasattr(func, '__name__') else str(func)
         
-        # Create a simple tool definition for compatibility
-        from genesis_lib.datamodel import Tool, Function as FunctionDef
+        # Store function metadata using SimpleNamespace to preserve attribute-style access
         import json
-        
-        # Store function with metadata matching legacy format
-        function_def = FunctionDef(
+        from types import SimpleNamespace
+        params_json = json.dumps(parameters) if isinstance(parameters, dict) else parameters
+        function_def = SimpleNamespace(
             name=func_name,
             description=description,
-            parameters=json.dumps(parameters) if isinstance(parameters, dict) else parameters
+            parameters=params_json,
+            strict=True
         )
-        tool = Tool(type="function", function=function_def)
-        
+        tool = SimpleNamespace(type="function", function=function_def)
         self.functions[func_name] = {
             "tool": tool,
             "implementation": func,
@@ -138,67 +147,61 @@ class GenesisReplier:
     
     def get_request_type(self):
         """Get the request type for request/reply communication (legacy compatibility)."""
-        return RPCRequestV2
+        return self.request_type
     
     def get_reply_type(self):
         """Get the reply type for request/reply communication (legacy compatibility)."""
-        return RPCReplyV2
+        return self.reply_type
 
     def _should_abort_broadcast(self, request_id: str, self_guid: str) -> bool:
-        # Get the reply topic from the replier's writer
-        reply_topic = self.replier.reply_datawriter.topic
-        reply_cft = dds.ContentFilteredTopic(
-            reply_topic,
-            f"Filtered{self.service_type}Reply_{request_id}",
-            dds.Filter("request_id = %0", dds.StringSeq([f"'{request_id}'"]))
-        )
-        temp_reader = dds.DataReader(dds.Subscriber(self.participant), reply_cft)
+        # Attempt to detect an existing reply for this request_id.
+        # If any error occurs (e.g., type/constructor mismatch), default to not aborting.
+        temp_reader = None
         try:
+            reply_topic = self.replier.reply_datawriter.topic
+            reply_cft = dds.ContentFilteredTopic(
+                reply_topic,
+                f"Filtered{self.service_type}Reply_{request_id}",
+                dds.Filter("request_id = %0", dds.StringSeq([f"'{request_id}'"]))
+            )
+            temp_reader = dds.DataReader(dds.Subscriber(self.participant), reply_cft)
             samples = temp_reader.read()
             for sample in samples:
                 if sample.info.valid:
-                    if sample.data.replier_service_guid and sample.data.replier_service_guid != self_guid:
+                    data = sample.data
+                    try:
+                        guid = data["replier_service_guid"]
+                    except Exception:
+                        guid = getattr(data, "replier_service_guid", "")
+                    if guid and guid != self_guid:
                         return True
             return False
+        except Exception:
+            return False
         finally:
-            temp_reader.close()
+            try:
+                if temp_reader is not None:
+                    temp_reader.close()
+            except Exception:
+                pass
 
-    async def _execute(self, function_name: str, arguments_json: str) -> RPCReplyV2:
+    async def _execute(self, function_name: str, arguments_json: str):
         start_ns = time.time_ns()
-        try:
-            func_data = self.functions.get(function_name)
-            if func_data is None:
-                return RPCReplyV2(
-                    ok=False,
-                    error_code="UnknownFunction",
-                    error_message=f"Unknown function: {function_name}",
-                    result_json=""
-                )
-            
-            # Extract implementation from function data structure
-            if isinstance(func_data, dict):
-                impl = func_data.get("implementation")
-            else:
-                impl = func_data
-            
-            if impl is None:
-                return RPCReplyV2(
-                    ok=False,
-                    error_code="UnknownFunction",
-                    error_message=f"No implementation for function: {function_name}",
-                    result_json=""
-                )
-            
-            args = json.loads(arguments_json) if arguments_json else {}
-            result = impl(**args)
-            if inspect.iscoroutine(result):
-                result = await result
-            result_json = json.dumps(result)
-            latency_ms = int((time.time_ns() - start_ns) / 1_000_000)
-            return RPCReplyV2(ok=True, result_json=result_json, latency_ms=latency_ms)
-        except Exception as e:
-            latency_ms = int((time.time_ns() - start_ns) / 1_000_000)
-            return RPCReplyV2(ok=False, error_code="Internal", error_message=str(e), result_json="", latency_ms=latency_ms)
+        func_data = self.functions.get(function_name)
+        if func_data is None:
+            raise RuntimeError(f"Unknown function: {function_name}")
+        
+        # Extract implementation from function data structure
+        impl = func_data.get("implementation") if isinstance(func_data, dict) else func_data
+        if impl is None:
+            raise RuntimeError(f"No implementation for function: {function_name}")
+        
+        args = json.loads(arguments_json) if arguments_json else {}
+        result = impl(**args)
+        if inspect.iscoroutine(result):
+            result = await result
+        latency_ms = int((time.time_ns() - start_ns) / 1_000_000)
+        return result, latency_ms
 
     async def run(self):
         try:
@@ -220,20 +223,59 @@ class GenesisReplier:
                         continue
                     req = req_sample.data
                     logger.info(
-                        "Replier received request: id=%s func=%s target_guid=%s",
-                        req.request_id, req.function_name, req.target_service_guid
+                        "Replier received request"
                     )
-                    targeted = bool(req.target_service_guid)
-                    if targeted and req.target_service_guid != self_guid:
+                    # Extract targeting and payload from unified request
+                    try:
+                        target_guid = req["target_service_guid"]
+                    except Exception:
+                        target_guid = ""
+                    targeted = bool(target_guid)
+                    if targeted and target_guid != self_guid:
                         continue
                     if not targeted:
-                        if self._should_abort_broadcast(req.request_id, self_guid):
+                        try:
+                            request_id = req["request_id"]
+                        except Exception:
+                            request_id = ""
+                        if request_id and self._should_abort_broadcast(request_id, self_guid):
                             continue
-                    reply = await self._execute(req.function_name, req.parameters_json)
-                    reply.request_id = req.request_id
-                    reply.service_type = req.service_type
-                    reply.replier_service_guid = self_guid
-                    self.replier.send_reply(reply, req_sample.info)
+                    # Decode function call from message JSON
+                    try:
+                        payload = req["message"] or "{}"
+                    except Exception:
+                        payload = "{}"
+                    try:
+                        call = json.loads(payload)
+                    except Exception:
+                        call = {}
+                    function_name = call.get("function", "")
+                    params = call.get("params", {})
+                    # Execute and build unified reply
+                    reply_sample = dds.DynamicData(self.reply_type)
+                    try:
+                        result, latency_ms = await self._execute(function_name, json.dumps(params))
+                        try:
+                            reply_sample["request_id"] = req["request_id"]
+                            reply_sample["message"] = json.dumps(result)
+                            reply_sample["status"] = 0
+                            reply_sample["conversation_id"] = req.get("conversation_id", "") if hasattr(req, "get") else req["conversation_id"]
+                            reply_sample["replier_service_guid"] = self_guid
+                            reply_sample["service_instance_tag"] = ""
+                        except Exception:
+                            # Best-effort population; continue
+                            pass
+                    except Exception as e:
+                        try:
+                            reply_sample["request_id"] = req["request_id"]
+                            reply_sample["message"] = str(e)
+                            reply_sample["status"] = 1
+                            reply_sample["conversation_id"] = req.get("conversation_id", "") if hasattr(req, "get") else req["conversation_id"]
+                            reply_sample["replier_service_guid"] = self_guid
+                            reply_sample["service_instance_tag"] = ""
+                        except Exception:
+                            pass
+                    self.replier.send_reply(reply_sample, req_sample.info)
             except dds.TimeoutError:
                 pass
 

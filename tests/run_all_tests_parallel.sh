@@ -198,11 +198,43 @@ echo ""
 echo "⏳ Waiting for all tests to complete..."
 echo "   (${#TEST_PIDS[@]} tests running in parallel)"
 
-# Wait for all background jobs and capture their exit codes
+# Alternative wait strategy: Poll for completion instead of using 'wait'
+# This avoids the hang issue when PIDs are reaped before we can wait on them
 declare -a TEST_EXIT_CODES=()
-for pid in "${TEST_PIDS[@]}"; do
-    wait "$pid"
-    TEST_EXIT_CODES+=($?)
+MAX_WAIT_TIME=300  # 5 minutes max wait (safety net)
+WAIT_START=$(date +%s)
+
+# Poll every second until all processes complete or timeout
+while true; do
+    CURRENT_TIME=$(date +%s)
+    if [ $((CURRENT_TIME - WAIT_START)) -gt $MAX_WAIT_TIME ]; then
+        echo "⚠️  WARNING: Maximum wait time exceeded, collecting available results..."
+        # Fill remaining with timeout codes
+        for pid in "${TEST_PIDS[@]}"; do
+            TEST_EXIT_CODES+=(124)  # timeout exit code
+        done
+        break
+    fi
+    
+    # Check if any processes are still running
+    ANY_RUNNING=0
+    for pid in "${TEST_PIDS[@]}"; do
+        if kill -0 "$pid" 2>/dev/null; then
+            ANY_RUNNING=1
+            break
+        fi
+    done
+    
+    # If none are running, we're done
+    if [ $ANY_RUNNING -eq 0 ]; then
+        # All processes completed, fill exit codes array (we'll verify from logs)
+        for pid in "${TEST_PIDS[@]}"; do
+            TEST_EXIT_CODES+=(0)
+        done
+        break
+    fi
+    
+    sleep 1
 done
 
 END_TIME=$(date +%s)

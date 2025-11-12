@@ -105,10 +105,10 @@ Agent-to-agent interaction follows a three-phase lifecycle:
 
 **PHASE 3: COMMUNICATION (Active - Repeated)**
     When: Every time you want to send a request to a connected agent
-    How: Use cached RPC Requester to send AgentAgentRequest, await AgentAgentReply
+    How: Use cached RPC Requester to send GenesisRPCRequest, await GenesisRPCReply
     Data: Request/reply messages with conversation_id for tracking
     
-    Example Flow (RPC v2 with GUID targeting):
+    Example Flow (GUID-based RPC targeting):
     1. PersonalAssistant calls: response = await send_agent_request(agent_id, "What's the weather?")
     2. First request: Broadcast (empty target_service_guid field)
     3. WeatherAgent replies, includes replier_service_guid in response
@@ -146,7 +146,7 @@ First request broadcasts, reply captures GUID, subsequent requests target that G
 **DETAILED FLOW**:
 ```
 Request 1 (Broadcast):
-    AgentAgentRequest {
+    GenesisRPCRequest {
         message: "What's the weather in London?",
         conversation_id: "conv-123",
         target_service_guid: "",  ← EMPTY = broadcast to all
@@ -156,7 +156,7 @@ Request 1 (Broadcast):
     → First to reply wins
 
 Reply 1 (GUID Capture):
-    AgentAgentReply {
+    GenesisRPCReply {
         message: "It's 15°C and sunny",
         status: 0,
         conversation_id: "conv-123",
@@ -165,7 +165,7 @@ Reply 1 (GUID Capture):
     → PersonalAssistant stores: agent_target_guids["weather-agent-uuid"] = "01abc123..."
 
 Request 2+ (Targeted):
-    AgentAgentRequest {
+    GenesisRPCRequest {
         message: "How about tomorrow?",
         conversation_id: "conv-456",
         target_service_guid: "01abc123...",  ← Targets specific instance
@@ -197,10 +197,19 @@ ARCHITECTURAL DECISION: Why Separate Agent-to-Agent vs. Interface-to-Agent Commu
 =================================================================================================
 
 Genesis implements TWO separate communication paths:
-1. Interface-to-Agent: Human interfaces → Agents (via InterfaceAgentRequest/Reply)
-2. Agent-to-Agent: Agents → Other Agents (via AgentAgentRequest/Reply) [THIS FILE]
+1. Interface-to-Agent: Human interfaces → Agents (via GenesisRPCRequest/Reply on Interface topics)
+2. Agent-to-Agent: Agents → Other Agents (via GenesisRPCRequest/Reply on Agent topics) [THIS FILE]
 
-WHY NOT A UNIFIED SYSTEM?
+Note: As of the unified RPC model, both paths use the same message types (GenesisRPCRequest/Reply)
+but with different topic names to maintain separation of concerns and traffic isolation.
+
+DESIGN NOTE: Why not use GenesisRequester/GenesisReplier wrappers here?
+The agent↔agent path retains a minimal surface on top of rti.rpc + DynamicData to match the
+interface/agent control path characteristics (thin, predictable logging, flexible payloads).
+Function-style RPC uses the GenesisRequester/GenesisReplier wrappers for convenience and
+consistent function-call behavior (packing params/results, result logs).
+
+WHY NOT A SINGLE COMBINED SYSTEM?
 
 This separation exists for fundamental architectural and technical reasons:
 
@@ -637,11 +646,11 @@ class AgentCommunicationMixin:
     
     def _initialize_agent_rpc_types(self):
         """
-        Load AgentAgentRequest and AgentAgentReply types from datamodel XML.
+        Load GenesisRPCRequest and GenesisRPCReply types from datamodel XML.
         
-        These types define the RPC message schemas for agent-to-agent communication,
-        distinct from InterfaceAgentRequest/Reply used for human-to-agent communication.
-        See module docstring for architectural rationale.
+        These types define the RPC message schemas for agent-to-agent communication.
+        The same types are used for interface-to-agent communication, but on different
+        topics to maintain traffic separation. See module docstring for architectural rationale.
         
         Called during agent communication setup to prepare for agent-to-agent RPC.
         
@@ -657,8 +666,8 @@ class AgentCommunicationMixin:
             type_provider = dds.QosProvider(config_path)
             
             # Load agent-to-agent communication types from datamodel.xml
-            self.agent_request_type = type_provider.type("genesis_lib", "AgentAgentRequest")
-            self.agent_reply_type = type_provider.type("genesis_lib", "AgentAgentReply")
+            self.agent_request_type = type_provider.type("genesis_lib", "GenesisRPCRequest")
+            self.agent_reply_type = type_provider.type("genesis_lib", "GenesisRPCReply")
             
             logger.info("Agent-to-agent RPC types loaded successfully")
             return True
@@ -1780,7 +1789,7 @@ class AgentCommunicationMixin:
             effective_service_tag = service_instance_tag or ""
             is_broadcast = not effective_target_guid
             
-            # Create AgentAgentRequest with RPC v2 fields
+            # Create GenesisRPCRequest with unified RPC fields
             request_sample = dds.DynamicData(self.agent_request_type)
             request_sample.set_string("message", message)
             request_sample.set_string("conversation_id", conversation_id)

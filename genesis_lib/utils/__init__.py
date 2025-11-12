@@ -6,7 +6,6 @@ Utility modules for the Genesis library
 
 from .openai_utils import convert_functions_to_openai_schema, generate_response_with_functions
 from .function_utils import call_function_thread_safe, find_function_by_name, filter_functions_by_relevance
-from ..datamodel import *
 
 import os
 import rti.connextdds as dds
