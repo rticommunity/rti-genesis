@@ -216,7 +216,7 @@
         - Agent→Agent: Delegation instruction ("Summarize this document")
         - Agent→Function: JSON parameters ('{"x": 5, "y": 3}')
       -->
-      <member name="message" type="string" stringMaxLength="8192"/>
+      <member name="message" type="string"/>
       
       <!-- Conversation/chain ID for multi-turn interactions and distributed tracing -->
       <member name="conversation_id" type="string" stringMaxLength="128"/>
@@ -281,7 +281,7 @@
         - Agent→Agent: Task result or delegation response
         - Function→Agent: JSON result ('{"result": 8}')
       -->
-      <member name="message" type="string" stringMaxLength="8192"/>
+      <member name="message" type="string"/>
       
       <!-- Status code: 0 = success, non-zero = error/warning -->
       <member name="status" type="int32"/>
@@ -459,7 +459,7 @@
           "capabilities": {...}      // Agent-specific capabilities
         }
       -->
-      <member name="payload" type="string" stringMaxLength="8192"/>
+      <member name="payload" type="string"/>
     </struct>
 
     <!--
