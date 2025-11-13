@@ -48,7 +48,7 @@ INHERITANCE HIERARCHY - How Interface Classes Relate
 GenesisInterface (THIS FILE - genesis_lib/interface.py)
 ├─ Core Business Logic:
 │  ├─ __init__() - Initialize DDS participant, setup agent discovery
-│  ├─ _setup_advertisement_monitoring() - Configure DDS readers for agent advertisements
+│  ├─ _setup_advertisement_listener() - Configure DDS readers for agent advertisements
 │  ├─ connect_to_agent() - Establish RPC connection to specific agent
 │  ├─ send_request() - Send request to agent, wait for reply with RPC v2 targeting
 │  ├─ close() - Clean up DDS resources
@@ -154,7 +154,7 @@ AdvertisementBus.get(participant).publish(
 
 **Subscription (by Interfaces)**:
 ```python
-# In GenesisInterface._setup_advertisement_monitoring():
+# In GenesisInterface._setup_advertisement_listener():
 filtered_topic = ContentFilteredTopic(
     advertisement_topic,
     filter="kind = 1"  # AGENT kind only
@@ -471,7 +471,8 @@ class GenesisInterface(ABC):
         self.available_agents: Dict[str, Dict[str, Any]] = {}
         self._agent_found_event = asyncio.Event()
         
-        # Get types from XML
+        # Get types from XML (business logic specific - each component loads its own types)
+        # GenesisApp provides infrastructure only; Interface needs RPC types for requester
         config_path = get_datamodel_path()
         self.type_provider = dds.QosProvider(config_path)
         # Use unified RPC types for all Genesis communication
@@ -482,17 +483,19 @@ class GenesisInterface(ABC):
         self.reply_members = [member.name for member in self.reply_type.members()]
         
         # Placeholders for callbacks
+        # Optional due to two-tier architecture: GenesisInterface (base) can be used standalone,
+        # MonitoredInterface (subclass) registers these callbacks for graph topology tracking
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._on_agent_discovered_callback: Optional[Callable[[Dict[str, Any]], Coroutine[Any, Any, None]]] = None
         self._on_agent_departed_callback: Optional[Callable[[str], Coroutine[Any, Any, None]]] = None
         
-        # Set up advertisement-based monitoring with listener
+        # Set up advertisement-based listener for agent discovery
         self._loop = asyncio.get_running_loop()
-        self._setup_advertisement_monitoring()
+        self._setup_advertisement_listener()
 
-    def _setup_advertisement_monitoring(self):
+    def _setup_advertisement_listener(self):
         """
-        Set up advertisement monitoring for agent discovery.
+        Set up advertisement listener for agent discovery.
         
         **What This Method Does**:
         Creates a DDS DataReader for the unified Advertisement topic with content filtering
@@ -733,15 +736,6 @@ class GenesisInterface(ABC):
             self.requester = None
             self.discovered_agent_service_name = None
             return False
-
-    async def _wait_for_rpc_match(self):
-        """Helper to wait for RPC discovery"""
-        if not self.requester:
-             logger.warning("⚠️ TRACE: Requester not created yet, cannot wait for RPC match.")
-             return
-        while self.requester.matched_replier_count == 0:
-            await asyncio.sleep(0.1)
-        logger.debug(f"RPC match confirmed for service: {self.discovered_agent_service_name}!")
 
     async def send_request(self, request_data: Dict[str, Any], timeout_seconds: float = 10.0, 
                           target_agent_guid: Optional[str] = None, 
