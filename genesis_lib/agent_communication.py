@@ -614,15 +614,15 @@ class AgentCommunicationMixin:
         # Store active agent connections (agent_id -> rpc.Requester)
         self.agent_connections: Dict[str, rpc.Requester] = {}
         
-        # Store discovered agents (agent_id -> agent_info)
-        self.discovered_agents: Dict[str, Dict[str, Any]] = {}
+        # Agent discovery state (DDS is single source of truth - no local cache)
+        # DDS reader with TRANSIENT_LOCAL durability maintains history
+        self.advertisement_reader = None  # Set during discovery setup
         
         # Agent discovery callbacks (similar to function discovery callbacks)
         self.agent_discovery_callbacks: List = []
         
         # Unified advertisement writer/reader for all discovery
         self.advertisement_writer = None
-        self.advertisement_reader = None
         self.advertisement_topic = None
         self.advertisement_type = None
         
@@ -641,7 +641,7 @@ class AgentCommunicationMixin:
     # ==========================================================================
     # Methods for initializing agent discovery infrastructure.
     # Discovery is passive - DDS listeners continuously receive advertisements.
-    # Agents are automatically added to self.discovered_agents as they appear.
+    # DDS (with TRANSIENT_LOCAL) is the single source of truth - no local cache.
     # ==========================================================================
     
     def _initialize_agent_rpc_types(self):
@@ -706,8 +706,8 @@ class AgentCommunicationMixin:
     # AGENT DISCOVERY QUERY API - Public Methods for Finding Agents
     # ==========================================================================
     # These methods provide various ways to query discovered agents.
-    # All operate on self.discovered_agents (populated by discovery listeners).
-    # Performance: O(n) scans, cache results if querying repeatedly.
+    # All operate by querying DDS directly (single source of truth - no caching).
+    # Performance: O(n) scans of DDS reader history.
     #
     # Method Patterns:
     # - get_*() methods: Return List[Dict[str, Any]] (full agent info)
@@ -718,28 +718,100 @@ class AgentCommunicationMixin:
     
     def get_discovered_agents(self) -> Dict[str, Dict[str, Any]]:
         """
-        Return a copy of all discovered agents.
+        Get currently available agents by querying DDS reader on-demand.
+        
+        DDS (with TRANSIENT_LOCAL durability) is the single source of truth.
+        No local cache maintained - each access queries DDS directly.
         
         Returns:
             Dictionary mapping agent_id -> agent_info containing:
             - agent_id, name, agent_type, service_name
             - capabilities, specializations, classification_tags
             - model_info, performance_metrics, default_capable
-            - discovered_at, last_seen timestamps
+            - last_seen timestamp
             
         Note:
-            Returns a copy to prevent external mutation. This is a snapshot;
-            the actual discovered_agents dict may be updated by discovery callbacks.
+            NOT_ALIVE instances are automatically filtered out by DDS.
+            Only currently alive agents are returned.
         """
-        return self.discovered_agents.copy()
+        if not self.advertisement_reader:
+            logger.warning("Advertisement reader not initialized, returning empty dict")
+            return {}
+        
+        agents: Dict[str, Dict[str, Any]] = {}
+        
+        try:
+            # Read all available samples from DDS reader (TRANSIENT_LOCAL history)
+            # DDS automatically filters out NOT_ALIVE instances
+            samples = self.advertisement_reader.take()
+            
+            for sample, info in samples:
+                # Skip invalid samples or not-alive instances
+                if sample is None or info.state.instance_state != dds.InstanceState.ALIVE:
+                    continue
+                
+                try:
+                    # Parse agent advertisement from DDS sample
+                    agent_id = sample.get_string("advertisement_id") or ""
+                    
+                    # Skip our own advertisement
+                    if hasattr(self, 'app') and agent_id == self.app.agent_id:
+                        continue
+                    
+                    name = sample.get_string("name") or ""
+                    description = sample.get_string("description") or ""
+                    service_name = sample.get_string("service_name") or ""
+                    last_seen = sample.get_int64("last_seen") if hasattr(sample, 'get_int64') else 0
+                    payload_str = sample.get_string("payload") or "{}"
+                    
+                    try:
+                        payload = json.loads(payload_str)
+                    except Exception:
+                        payload = {}
+                    
+                    agent_type = payload.get("agent_type", "")
+                    capabilities = payload.get("capabilities", [])
+                    specializations = payload.get("specializations", [])
+                    classification_tags = payload.get("classification_tags", [])
+                    model_info = payload.get("model_info")
+                    performance_metrics = payload.get("performance_metrics")
+                    default_capable = bool(payload.get("default_capable", True))
+                    
+                    agent_info = {
+                        "agent_id": agent_id,
+                        "name": name,
+                        "agent_type": agent_type,
+                        "service_name": service_name,
+                        "description": description,
+                        "last_seen": last_seen,
+                        "capabilities": capabilities,
+                        "specializations": specializations,
+                        "classification_tags": classification_tags,
+                        "model_info": model_info,
+                        "performance_metrics": performance_metrics,
+                        "default_capable": default_capable,
+                    }
+                    
+                    agents[agent_id] = agent_info
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to parse agent advertisement: {e}")
+                    continue
+            
+        except Exception as e:
+            logger.error(f"Error reading agents from DDS: {e}")
+        
+        return agents
     
     def add_agent_discovery_callback(self, callback: callable) -> None:
         """
-        Register a callback to be invoked when a new agent is discovered.
+        Register a callback to be invoked when a new agent advertisement is received.
         
-        The callback is invoked immediately after an agent is added to discovered_agents,
-        within the DDS listener thread context. Keep callbacks lightweight to avoid
-        blocking the discovery process.
+        The callback is invoked within the DDS listener thread context when an agent
+        advertisement arrives. Keep callbacks lightweight to avoid blocking discovery.
+        
+        Note: Callback is for notification only - agent data is NOT cached locally.
+        To query agents, use get_discovered_agents() which reads from DDS directly.
         
         Args:
             callback: Function with signature callback(agent_info: Dict[str, Any])
@@ -758,15 +830,16 @@ class AgentCommunicationMixin:
     
     def is_agent_discovered(self, agent_id: str) -> bool:
         """
-        Check if a specific agent has been discovered.
+        Check if a specific agent has been discovered by querying DDS.
         
         Args:
             agent_id: Unique identifier of the agent to check
             
         Returns:
-            True if agent is in discovered_agents, False otherwise
+            True if agent is currently alive in DDS, False otherwise
         """
-        return agent_id in self.discovered_agents
+        discovered_agents = self.get_discovered_agents()
+        return agent_id in discovered_agents
     
     async def wait_for_agent(self, agent_id: str, timeout_seconds: float = 30.0) -> bool:
         """
@@ -920,8 +993,8 @@ class AgentCommunicationMixin:
         """
         Handle discovered unified agent advertisement.
         
-        Processes agent advertisement data from the DDS listener, extracts
-        capabilities and metadata, and adds to discovered_agents dict.
+        Parses agent advertisement and triggers discovery callbacks for monitoring/topology.
+        Does NOT cache data locally - DDS (TRANSIENT_LOCAL) is the single source of truth.
         
         Args:
             ad_sample: DDS DynamicData sample containing agent advertisement
@@ -952,6 +1025,7 @@ class AgentCommunicationMixin:
             if hasattr(self, 'app') and agent_id == self.app.agent_id:
                 return
             
+            # Build agent_info for callback notification
             agent_info = {
                 "agent_id": agent_id,
                 "name": name,
@@ -959,7 +1033,6 @@ class AgentCommunicationMixin:
                 "service_name": service_name,
                 "description": description,
                 "last_seen": last_seen,
-                "discovered_at": time.time(),
                 "capabilities": capabilities,
                 "specializations": specializations,
                 "classification_tags": classification_tags,
@@ -968,19 +1041,16 @@ class AgentCommunicationMixin:
                 "default_capable": default_capable,
             }
             
-            is_new_agent = agent_id not in self.discovered_agents
-            self.discovered_agents[agent_id] = agent_info
+            logger.info(f"Received agent advertisement: {name} ({agent_id}) service={service_name}")
             
-            if is_new_agent:
-                logger.info(f"Discovered new agent: {name} ({agent_id}) service={service_name}")
-                
-                # Call agent discovery callbacks (for monitoring/graph topology)
-                for callback in self.agent_discovery_callbacks:
-                    try:
-                        callback(agent_info)
-                    except Exception as e:
-                        logger.error(f"Error in agent discovery callback: {e}")
-                        
+            # Trigger callbacks for monitoring/graph topology
+            # No caching - callbacks are for notification only
+            for callback in self.agent_discovery_callbacks:
+                try:
+                    callback(agent_info)
+                except Exception as e:
+                    logger.error(f"Error in agent discovery callback: {e}")
+                    
         except Exception as e:
             logger.error(f"Error processing agent advertisement: {e}")
     
@@ -1081,8 +1151,8 @@ class AgentCommunicationMixin:
     # AGENT DISCOVERY AND QUERY METHODS
     # ==========================================================================
     # These methods provide various ways to query discovered agents based on
-    # capabilities, specializations, and characteristics. All methods perform
-    # O(n) scans of discovered_agents, so cache results if querying repeatedly.
+    # capabilities, specializations, and characteristics.
+    # All methods query DDS directly via get_discovered_agents() - no caching.
     #
     # Return type patterns:
     # - get_*()  methods return List[Dict[str, Any]] (full agent info)
@@ -1102,8 +1172,9 @@ class AgentCommunicationMixin:
         Example:
             weather_agents = agent.get_agents_by_type("WeatherAgent")
         """
+        discovered_agents = self.get_discovered_agents()
         return [
-            agent_info for agent_info in self.discovered_agents.values()
+            agent_info for agent_info in discovered_agents.values()
             if agent_info.get("agent_type") == agent_type
         ]
     
@@ -1124,13 +1195,15 @@ class AgentCommunicationMixin:
             # Find any agents related to "weather"
             agents = agent.search_agents("weather")
         """
+        discovered_agents = self.get_discovered_agents()
+        
         if not search_term:
-            return list(self.discovered_agents.values())
+            return list(discovered_agents.values())
         
         search_lower = search_term.lower()
         matching_agents = []
         
-        for agent_info in self.discovered_agents.values():
+        for agent_info in discovered_agents.values():
             if (search_lower in agent_info.get("agent_type", "").lower() or
                 search_lower in agent_info.get("service_name", "").lower() or
                 search_lower in agent_info.get("description", "").lower()):
@@ -1155,8 +1228,10 @@ class AgentCommunicationMixin:
             # Find agents that can generate images
             image_agents = agent.find_agents_by_capability("image_generation")
         """
+        discovered_agents = self.get_discovered_agents()
         matching_agents = []
-        for agent_id, agent_info in self.discovered_agents.items():
+        
+        for agent_id, agent_info in discovered_agents.items():
             capabilities = self._extract_list_field(agent_info, 'capabilities')
             if capability in capabilities:
                 matching_agents.append(agent_id)
@@ -1180,10 +1255,11 @@ class AgentCommunicationMixin:
             # Find financial experts
             finance_agents = agent.find_agents_by_specialization("finance")
         """
+        discovered_agents = self.get_discovered_agents()
         matching_agents = []
         domain_lower = domain.lower()
         
-        for agent_id, agent_info in self.discovered_agents.items():
+        for agent_id, agent_info in discovered_agents.items():
             specializations = self._extract_list_field(agent_info, 'specializations')
             if domain_lower in [spec.lower() for spec in specializations]:
                 matching_agents.append(agent_id)
@@ -1204,8 +1280,10 @@ class AgentCommunicationMixin:
             # Get general-purpose agents for fallback
             general_agents = agent.find_general_agents()
         """
+        discovered_agents = self.get_discovered_agents()
         general_agents = []
-        for agent_id, agent_info in self.discovered_agents.items():
+        
+        for agent_id, agent_info in discovered_agents.items():
             default_capable = self._extract_bool_field(agent_info, 'default_capable', default=False)
             if default_capable:
                 general_agents.append(agent_id)
@@ -1226,8 +1304,10 @@ class AgentCommunicationMixin:
             # Try specialists first
             specialists = agent.find_specialized_agents()
         """
+        discovered_agents = self.get_discovered_agents()
         specialized_agents = []
-        for agent_id, agent_info in self.discovered_agents.items():
+        
+        for agent_id, agent_info in discovered_agents.items():
             default_capable = self._extract_bool_field(agent_info, 'default_capable', default=True)
             if not default_capable:
                 specialized_agents.append(agent_id)

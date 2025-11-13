@@ -6,15 +6,15 @@ Before setting up Genesis LIB, ensure you have:
 
 1. **Python 3.10**
 2. **RTI Connext DDS 7.3.0 or greater**
-    - make sure to have the license file
-    - set this in your environment:
+    - Make sure to have the license file
+    - Set this in your environment:
     ```bash
     export NDDSHOME=/path/to/rti_connext_dds-7.3.0/
     ```
 3. **API Keys**
    - OpenAI API Key (for GPT models)
    - Anthropic API Key (for Claude models)
-   - Set (at least one of) these in your environment :
+   - Set (at least one of) these in your environment:
      ```bash
      export OPENAI_API_KEY="your_openai_api_key"
      export ANTHROPIC_API_KEY="your_anthropic_api_key"
@@ -22,19 +22,33 @@ Before setting up Genesis LIB, ensure you have:
 
 ## Install Genesis
 
-Create virtual env
+### Option 1: Install from GitHub
 
-```
+Create a virtual environment and install Genesis:
+
+```bash
 mkdir hellogenesis
 cd hellogenesis
 python3.10 -m venv venv
 source venv/bin/activate
+pip install git+https://github.com/sploithunter/Genesis_LIB@main
 ```
 
-Get Genesis (and its dependencies)
+### Option 2: Install from Local Source
 
+If you have the Genesis_LIB repository cloned locally:
+
+```bash
+cd /path/to/Genesis_rc1/Genesis_LIB
+python3.10 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install .
 ```
-pip install  git+https://github.com/sploithunter/Genesis_LIB@main
+
+Verify installation:
+```bash
+python -c "import genesis_lib; print('Genesis installed:', genesis_lib.__file__)"
 ```
 
 ## Create a simple interactive agent (based on openai)
@@ -127,18 +141,23 @@ Your question:
 
 Ask your questions. 
 
-### MCP
-If you want your agent to be MCP enabled you can do it this way:
+### Optional: Enable MCP (Model Context Protocol)
+
+If you want your agent to be MCP enabled, add this after creating the agent:
 
 ```py
+import threading
+
+# In your main() function, after creating the agent:
 agent.enable_mcp(8000)
 ```
 
-You will need ``threading`` and ``fastmcp``
+**Note:** MCP support requires the `mcp` package (included in Genesis dependencies)
 
 
-## Add a service. 
-In another shell add a new file called `calc_service.py`
+## Add a Service
+
+In another shell, create a new file called `calc_service.py`:
 
 ```py
 #!/usr/bin/env python3
@@ -150,36 +169,38 @@ Provides basic arithmetic operations: add and multiply.
 
 import logging
 import asyncio
+import os
 from typing import Dict, Any
 from genesis_lib.monitored_service import MonitoredService
 from genesis_lib.decorators import genesis_function
 
 # Configure logging to show INFO level messages
-# This helps with debugging and monitoring service operations
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("hello_calculator")
 
 class HelloCalculator(MonitoredService):
     """A simple calculator service demonstrating Genesis functionality."""
     
-    def __init__(self):
-        """Initialize the calculator service."""
+    def __init__(self, domain_id=0):
+        """Initialize the calculator service.
+        
+        Args:
+            domain_id: DDS domain ID for network isolation (default: 0)
+        """
         # Initialize the base service with a name and capabilities
         # The capabilities list helps other services discover what this service can do
         super().__init__(
             "HelloCalculator",
-            capabilities=["calculator", "math"]
+            capabilities=["calculator", "math"],
+            domain_id=domain_id
         )
-        logger.info("HelloCalculator service initialized")
+        logger.info(f"HelloCalculator service initialized on domain {domain_id}")
+        
         # Advertise the available functions to the Genesis network
         # This makes the functions discoverable by other services
         self._advertise_functions()
         logger.info("Functions advertised")
 
-    # The @genesis_function decorator marks this as a callable function in the Genesis network
-    # The function signature (x: float, y: float) and docstring Args section must match exactly
-    # Both are used by Genesis to generate the function schema and validate calls
-    # Note: Comments must be above the decorator, not in the docstring
     @genesis_function()
     async def add(self, x: float, y: float, request_info=None) -> Dict[str, Any]:
         """Add two numbers together.
@@ -196,25 +217,16 @@ class HelloCalculator(MonitoredService):
             >>> await add(5, 3)
             {'result': 8}
         """
-        # Log the incoming request for debugging and monitoring
         logger.info(f"Received add request: x={x}, y={y}")
         
         try:
-            # Perform the addition operation
             result = x + y
-            # Log the result for debugging
             logger.info(f"Add result: {result}")
-            # Return the result in a standardized format
             return {"result": result}
         except Exception as e:
-            # Log any errors that occur during the operation
             logger.error(f"Error in add operation: {str(e)}")
             raise
 
-    # The @genesis_function decorator marks this as a callable function in the Genesis network
-    # The function signature (x: float, y: float) and docstring Args section must match exactly
-    # Both are used by Genesis to generate the function schema and validate calls
-    # Note: Comments must be above the decorator, not in the docstring
     @genesis_function()
     async def multiply(self, x: float, y: float, request_info=None) -> Dict[str, Any]:
         """Multiply two numbers together.
@@ -231,36 +243,70 @@ class HelloCalculator(MonitoredService):
             >>> await multiply(5, 3)
             {'result': 15}
         """
-        # Log the incoming request for debugging and monitoring
         logger.info(f"Received multiply request: x={x}, y={y}")
         
         try:
-            # Perform the multiplication operation
             result = x * y
-            # Log the result for debugging
             logger.info(f"Multiply result: {result}")
-            # Return the result in a standardized format
             return {"result": result}
         except Exception as e:
-            # Log any errors that occur during the operation
             logger.error(f"Error in multiply operation: {str(e)}")
             raise
 
 def main():
     """Run the calculator service."""
-    # Initialize and start the service
-    logger.info("Starting HelloCalculator service")
+    # Support domain isolation via GENESIS_DOMAIN_ID environment variable
+    domain_id = int(os.environ.get('GENESIS_DOMAIN_ID', 0))
+    
+    logger.info(f"Starting HelloCalculator service on domain {domain_id}")
     try:
-        # Create an instance of the calculator service
-        service = HelloCalculator()
-        # Run the service using asyncio
+        service = HelloCalculator(domain_id=domain_id)
         asyncio.run(service.run())
     except KeyboardInterrupt:
-        # Handle graceful shutdown on Ctrl+C
         logger.info("Shutting down HelloCalculator service")
 
 if __name__ == "__main__":
     main() 
 ```
 
-Now services are discovered by original agent and you can ask to do simple math and it will call the service
+Run the service in a separate terminal (keep your agent running):
+
+```bash
+python calc_service.py
+```
+
+Now services are discovered by the original agent and you can ask it to do simple math - it will call the service automatically!
+
+## Advanced Features
+
+### Domain Isolation
+Run agents and services on different DDS domains for network isolation:
+```bash
+export GENESIS_DOMAIN_ID=5
+python interactive.py
+```
+
+### Enable Debugging
+Enable detailed tracing in your agent:
+```py
+agent = HelloWorldAgent()
+agent.enable_tracing = True  # Or pass enable_tracing=True to __init__
+```
+
+### Monitoring & Visualization
+Genesis includes built-in monitoring and graph visualization:
+```bash
+# Terminal 1: Run the graph viewer
+genesis-graph-viewer
+
+# Terminal 2: Run your agents/services
+# Their topology will appear in the viewer at http://localhost:5000
+```
+
+## Next Steps
+
+- **More Examples**: Check the `examples/` directory for advanced patterns
+- **Multi-Agent Systems**: See `examples/MultiAgent/` for agent-to-agent communication
+- **Full Testing**: Run the test suite with `cd tests && ./run_all_tests_parallel.sh`
+- **Architecture Docs**: Read `AGENT_ARCHITECTURE_QUICK_REFERENCE.md` for implementation details
+- **Provider Guide**: See `NEW_PROVIDER_GUIDE.md` to add support for new LLM providers
