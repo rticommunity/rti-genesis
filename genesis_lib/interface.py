@@ -71,7 +71,7 @@ KEY RESPONSIBILITIES - What GenesisInterface Does
 
 1. **Agent Discovery** (via DDS Advertisements):
    - Listens for agent advertisements on the unified Advertisement topic
-   - Maintains cache of available agents (available_agents dict)
+   - Queries DDS on-demand for available agents (no local cache)
    - Triggers callbacks when agents join/leave
    - Supports content filtering (only AGENT advertisements, not SERVICE/FUNCTION)
 
@@ -88,7 +88,7 @@ KEY RESPONSIBILITIES - What GenesisInterface Does
    - Handles timeout, drains multiple replies, returns final reply
 
 4. **State Management**:
-   - Tracks available agents in available_agents dictionary
+   - Queries DDS for available agents on-demand (TRANSIENT_LOCAL durability)
    - Signals agent_found_event when first agent discovered
    - Manages target_agent_guid for RPC v2 targeting
    - Supports service_instance_tag for blue/green deployments
@@ -176,11 +176,11 @@ Interface lifecycle is simple compared to agents:
 1. **INITIALIZATION**:
    - Create DDS participant
    - Setup advertisement reader (agent discovery)
-   - Initialize state: available_agents = {}, requester = None
+   - Initialize state: agent_found_event, advertisement_reader
 
 2. **DISCOVERY PHASE** (continuous):
    - Listen for agent advertisements
-   - Update available_agents cache
+   - Query DDS for available agents on-demand
    - Trigger discovery callbacks
 
 3. **CONNECTION**:
@@ -434,15 +434,15 @@ class GenesisInterface(ABC):
         
         **Initialization Sequence**:
         1. Create GenesisApp (DDS participant + basic infrastructure)
-        2. Initialize state: available_agents dict, agent_found_event
+        2. Initialize state: agent_found_event, advertisement_reader reference
         3. Load DDS types from XML (GenesisRPCRequest/Reply - unified model)
-        4. Setup advertisement monitoring (agent discovery via DDS)
+        4. Setup advertisement listener (agent discovery via DDS)
         
         **State After Initialization**:
         - DDS participant is active
-        - Advertisement reader is listening for agents
+        - Advertisement reader is listening for agents (TRANSIENT_LOCAL)
         - No RPC requester yet (created later by connect_to_agent)
-        - available_agents is empty (populated as agents join)
+        - available_agents property queries DDS on-demand (no local cache)
         
         **Agent Discovery**:
         Discovery happens automatically after initialization. Agents that publish
@@ -467,9 +467,9 @@ class GenesisInterface(ABC):
         self.target_agent_guid: Optional[str] = None
         self.target_service_instance_tag: Optional[str] = None
         
-        # Core interface state: discovered agents cache
-        self.available_agents: Dict[str, Dict[str, Any]] = {}
+        # Agent discovery state (DDS is single source of truth - no local cache)
         self._agent_found_event = asyncio.Event()
+        self.advertisement_reader: Optional[dds.DynamicData.DataReader] = None  # Set by _setup_advertisement_listener()
         
         # Get types from XML (business logic specific - each component loads its own types)
         # GenesisApp provides infrastructure only; Interface needs RPC types for requester
@@ -517,7 +517,7 @@ class GenesisInterface(ABC):
         The AdvertisementListener class handles incoming agent advertisements:
         - on_data_available: Called when new agent joins
         - Triggers registered discovery callbacks
-        - Updates available_agents cache
+        - No local caching - DDS (TRANSIENT_LOCAL) is single source of truth
         - Handles agent departures (NOT_ALIVE states)
         
         **Why This Matters**:
@@ -558,8 +558,12 @@ class GenesisInterface(ABC):
                 def __init__(self, iface: "GenesisInterface"):
                     super().__init__()
                     self._iface = iface
-                    self.received = {}
+                    
                 def on_data_available(self, reader):
+                    """
+                    Handle agent advertisements - trigger callbacks only.
+                    DDS (with TRANSIENT_LOCAL) is the single source of truth - no local caching.
+                    """
                     try:
                         logger.info("🔔 INTERFACE: AdvertisementListener.on_data_available() CALLED!")
                         samples = reader.read()
@@ -572,33 +576,35 @@ class GenesisInterface(ABC):
                             agent_id = data.get_string("advertisement_id") or ""
                             if not agent_id:
                                 continue
+                                
                             if info.state.instance_state == dds.InstanceState.ALIVE:
-                                if agent_id not in self.received:
-                                    name = data.get_string("name") or ""
-                                    service_name = data.get_string("service_name") or ""
-                                    agent_info = {
-                                        'message': f'Agent {name} advertising',
-                                        'prefered_name': name,
-                                        'default_capable': 1,
-                                        'instance_id': agent_id,
-                                        'service_name': service_name,
-                                        'timestamp': time.time()
-                                    }
-                                    self.received[agent_id] = agent_info
-                                    # Legacy log format for test compatibility
-                                    logger.info(f"Agent DISCOVERED: {name} ({service_name})")
-                                    logger.debug(f"✨ TRACE: Agent DISCOVERED via Advertisement: {name} ({service_name}) - ID: {agent_id}")
-                                    cb = self._iface._on_agent_discovered_callback
-                                    if cb:
-                                        # Schedule on the interface's loop
-                                        self._iface._loop.call_soon_threadsafe(asyncio.create_task, cb(agent_info))
+                                name = data.get_string("name") or ""
+                                service_name = data.get_string("service_name") or ""
+                                agent_info = {
+                                    'message': f'Agent {name} advertising',
+                                    'prefered_name': name,
+                                    'default_capable': 1,
+                                    'instance_id': agent_id,
+                                    'service_name': service_name,
+                                    'timestamp': time.time()
+                                }
+                                # Legacy log format for test compatibility
+                                logger.info(f"Agent DISCOVERED: {name} ({service_name})")
+                                logger.debug(f"✨ TRACE: Agent DISCOVERED via Advertisement: {name} ({service_name}) - ID: {agent_id}")
+                                
+                                # Trigger discovery callback (if registered)
+                                cb = self._iface._on_agent_discovered_callback
+                                if cb:
+                                    # Schedule on the interface's loop
+                                    self._iface._loop.call_soon_threadsafe(asyncio.create_task, cb(agent_info))
+                                    
                             elif info.state.instance_state in [dds.InstanceState.NOT_ALIVE_DISPOSED, dds.InstanceState.NOT_ALIVE_NO_WRITERS]:
-                                if agent_id in self.received:
-                                    self.received.pop(agent_id, None)
-                                    logger.debug(f"👻 TRACE: Agent DEPARTED via Advertisement: ID: {agent_id} - Reason: {info.state.instance_state}")
-                                    cb = self._iface._on_agent_departed_callback
-                                    if cb:
-                                        self._iface._loop.call_soon_threadsafe(asyncio.create_task, cb(agent_id))
+                                logger.debug(f"👻 TRACE: Agent DEPARTED via Advertisement: ID: {agent_id} - Reason: {info.state.instance_state}")
+                                
+                                # Trigger departure callback (if registered)
+                                cb = self._iface._on_agent_departed_callback
+                                if cb:
+                                    self._iface._loop.call_soon_threadsafe(asyncio.create_task, cb(agent_id))
                     except Exception as e:
                         logger.error(f"❌ TRACE: Error in AdvertisementListener.on_data_available: {e}")
 
@@ -631,6 +637,85 @@ class GenesisInterface(ABC):
             logger.error(f"❌ TRACE: Error setting up advertisement monitoring: {e}")
             logger.error(traceback.format_exc())
             raise
+
+    def get_available_agents(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Query DDS reader directly for currently available agents (on-demand, no cache).
+        
+        Uses TRANSIENT_LOCAL durability to get all ALIVE agent instances from DDS.
+        DDS is the single source of truth - no local caching needed.
+        
+        **Why This Works**:
+        - TRANSIENT_LOCAL durability: DDS maintains history of agent advertisements
+        - reader.read(): Returns all ALIVE instances (DDS filters out DISPOSED/NO_WRITERS)
+        - Content filter: Only AGENT advertisements (kind=1) reach this reader
+        
+        **Performance**:
+        O(n) where n = number of agents (~10-100 typical). Fast enough for most use cases.
+        Called infrequently (agent selection, UI updates), not in hot path.
+        
+        Returns:
+            Dict[instance_id, agent_info] of currently alive agents
+            
+        Example:
+            ```python
+            agents = interface.available_agents  # Calls this method via @property
+            for agent_id, info in agents.items():
+                print(f"{info['prefered_name']}: {info['service_name']}")
+            ```
+        """
+        agents = {}
+        
+        try:
+            if not self.advertisement_reader:
+                logger.debug("No advertisement reader available yet")
+                return agents
+            
+            # Read all samples from DDS (TRANSIENT_LOCAL provides history)
+            samples = self.advertisement_reader.read()
+            
+            for data, info in samples:
+                # Only include ALIVE instances (skip DISPOSED/NO_WRITERS)
+                if info.state.instance_state != dds.InstanceState.ALIVE:
+                    continue
+                
+                if data is None:
+                    continue
+                    
+                agent_id = data.get_string("advertisement_id") or ""
+                if not agent_id:
+                    continue
+                
+                name = data.get_string("name") or ""
+                service_name = data.get_string("service_name") or ""
+                
+                agents[agent_id] = {
+                    'message': f'Agent {name} advertising',
+                    'prefered_name': name,
+                    'default_capable': 1,
+                    'instance_id': agent_id,
+                    'service_name': service_name,
+                    'timestamp': time.time()
+                }
+                
+        except Exception as e:
+            logger.error(f"Error querying available agents from DDS: {e}")
+            logger.error(traceback.format_exc())
+        
+        return agents
+    
+    @property
+    def available_agents(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Get currently available agents by querying DDS reader on-demand.
+        
+        DDS (with TRANSIENT_LOCAL) is the single source of truth.
+        No local cache maintained - each access queries DDS directly.
+        
+        Returns:
+            Dict[instance_id, agent_info] of currently alive agents
+        """
+        return self.get_available_agents()
 
     async def connect_to_agent(self, service_name: str, timeout_seconds: Optional[float] = None) -> bool:
         """
@@ -899,9 +984,10 @@ class GenesisInterface(ABC):
     
     async def _handle_agent_discovered(self, agent_info: dict):
         """
-        Core handler for agent discovery - manages interface state.
+        Core handler for agent discovery - signals availability.
         
-        This is the base implementation that manages discovered agent state.
+        This is the base implementation that signals when an agent becomes available.
+        No caching needed - DDS (TRANSIENT_LOCAL) is the single source of truth.
         Subclasses (like MonitoredInterface) can override to add monitoring
         but should call super() to preserve this core functionality.
         
@@ -915,50 +1001,40 @@ class GenesisInterface(ABC):
         
         logger.debug(f"GenesisInterface: Agent discovered: {prefered_name} ({service_name}) - ID: {instance_id}")
         
-        # Cache discovered agent
-        self.available_agents[instance_id] = agent_info
-        
         # Signal that an agent is available (for connect_to_agent waiting)
+        # No caching - DDS provides the state via available_agents property
         if not self._agent_found_event.is_set():
             self._agent_found_event.set()
     
     async def _handle_agent_departed(self, instance_id: str):
         """
-        Core handler for agent departure - manages interface state.
+        Core handler for agent departure - logs the event.
         
-        This is the base implementation that manages agent state when agents depart.
+        This is the base implementation that logs when agents depart.
+        No cache cleanup needed - DDS automatically filters out NOT_ALIVE instances.
         Subclasses can override to add monitoring but should call super().
         
         Args:
             instance_id: GUID of the departed agent
         """
-        if instance_id in self.available_agents:
-            departed_agent = self.available_agents.pop(instance_id)
-            prefered_name = departed_agent.get('prefered_name', 'Unknown')
-            logger.debug(f"GenesisInterface: Agent departed: {prefered_name} - ID: {instance_id}")
-        else:
-            logger.warning(f"GenesisInterface: Received departure for unknown agent: {instance_id}")
+        logger.debug(f"GenesisInterface: Agent departed - ID: {instance_id}")
+        # No cache to clean up - DDS handles instance state automatically
 
     # --- Callback Registration Methods ---
     def register_discovery_callback(self, callback: Callable[[Dict[str, Any]], Coroutine[Any, Any, None]]):
-        """Register a callback to be invoked when an agent is discovered."""
+        """
+        Register a callback to be invoked when an agent is discovered.
+        
+        Note: With TRANSIENT_LOCAL durability, DDS automatically provides historical
+        advertisements when callbacks are registered. No manual backfill needed.
+        """
         logger.debug(f"🔧 TRACE: Registering discovery callback: {callback.__name__ if callback else 'None'}")
         self._on_agent_discovered_callback = callback
-        # If advertisement listener exists, backfill any already-received agents
-        try:
-            listener = getattr(self, 'advertisement_listener', None)
-            if listener and hasattr(listener, 'received') and isinstance(listener.received, dict):
-                for agent_info in list(listener.received.values()):
-                    # Schedule callback on the interface loop
-                    self._loop.call_soon_threadsafe(asyncio.create_task, callback(agent_info))
-        except Exception:
-            pass
+        # DDS (TRANSIENT_LOCAL) automatically delivers historical advertisements
+        # No backfill mechanism needed - DDS is the source of truth
 
     def register_departure_callback(self, callback: Callable[[str], Coroutine[Any, Any, None]]):
         """Register a callback to be invoked when an agent departs."""
         logger.debug(f"🔧 TRACE: Registering departure callback: {callback.__name__ if callback else 'None'}")
         self._on_agent_departed_callback = callback
-        # If listener already exists, update its callback directly
-        if hasattr(self, 'registration_listener') and self.registration_listener:
-            self.registration_listener.on_agent_departed = callback
     # --- End New Callback Registration Methods --- 

@@ -443,8 +443,8 @@ class MonitoredInterface(GenesisInterface):
         Calls parent implementation (business logic) then adds monitoring.
         
         **Parent (GenesisInterface) Does** (Business Logic):
-        - Caches agent in available_agents dictionary
         - Signals _agent_found_event for connection establishment
+        - No caching - DDS (TRANSIENT_LOCAL) is the single source of truth
         
         **This Method Does** (Monitoring Layer):
         - Publishes interface→agent edge to graph topology
@@ -548,8 +548,8 @@ class MonitoredInterface(GenesisInterface):
         Calls parent implementation (business logic) then adds monitoring.
         
         **Parent (GenesisInterface) Does** (Business Logic):
-        - Removes agent from available_agents cache
-        - Logs departure for debugging
+        - Logs departure event
+        - No cache cleanup - DDS automatically filters out NOT_ALIVE instances
         
         **This Method Does** (Monitoring Layer):
         - Checks if departed agent was our connected agent
