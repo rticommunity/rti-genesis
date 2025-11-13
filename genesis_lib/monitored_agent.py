@@ -349,7 +349,6 @@ class MonitoredAgent(GenesisAgent):
         self.subscription = None  # Legacy monitoring (unused)
 
         self._initialize_function_requester()  # Sets up FunctionRequester (no active discovery yet)
-        self.function_cache: Dict[str, Dict[str, Any]] = {}  # Cache for discovered functions
         
         # Register callback for agent discovery (if agent communication enabled)
         if hasattr(self, 'agent_communication') and self.agent_communication:
