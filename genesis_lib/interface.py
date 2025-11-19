@@ -475,6 +475,14 @@ class GenesisInterface(ABC):
         # GenesisApp provides infrastructure only; Interface needs RPC types for requester
         config_path = get_datamodel_path()
         self.type_provider = dds.QosProvider(config_path)
+        
+        # Create a separate QoS provider for USER_QOS_PROFILES.xml
+        # This is loaded separately because datamodel.xml contains types, USER_QOS_PROFILES.xml contains QoS
+        config_dir = os.path.dirname(config_path)
+        user_qos_path = os.path.join(config_dir, "USER_QOS_PROFILES.xml")
+        self.qos_provider = dds.QosProvider(user_qos_path)
+        logger.debug(f"Loaded QoS profiles from {user_qos_path}")
+        
         # Use unified RPC types for all Genesis communication
         self.request_type = self.type_provider.type("genesis_lib", "GenesisRPCRequest")
         self.reply_type = self.type_provider.type("genesis_lib", "GenesisRPCReply")
@@ -531,21 +539,10 @@ class GenesisInterface(ABC):
         try:
             logger.debug("🔧 TRACE: Setting up advertisement monitoring...")
             
-            # Load reader QoS from XML profile - reuse existing type_provider to avoid duplicate load
+            # Load reader QoS from XML profile using the dedicated QoS provider
             # Configuration in genesis_lib/config/USER_QOS_PROFILES.xml
-            try:
-                reader_qos = self.type_provider.datareader_qos_from_profile("cft_Library::cft_Profile")
-                logger.debug("📋 TRACE: Loaded reader QoS from cft_Profile (transient local, reliable, depth 500)")
-            except Exception as e:
-                # Fallback: try loading USER_QOS_PROFILES separately if not already in type_provider
-                logger.warning(f"Failed to load cft_Profile from type_provider, trying separate load: {e}")
-                import os
-                config_path = get_datamodel_path()
-                config_dir = os.path.dirname(config_path)
-                user_qos_path = os.path.join(config_dir, "USER_QOS_PROFILES.xml")
-                qos_provider = dds.QosProvider(user_qos_path)
-                reader_qos = qos_provider.datareader_qos_from_profile("cft_Library::cft_Profile")
-                logger.debug("📋 TRACE: Loaded reader QoS from cft_Profile via fallback")
+            reader_qos = self.qos_provider.datareader_qos_from_profile("cft_Library::cft_Profile")
+            logger.debug("📋 TRACE: Loaded reader QoS from cft_Profile (transient local, reliable, depth 500)")
             
             # Resolve advertisement type/topic
             bus = AdvertisementBus.get(self.app.participant)

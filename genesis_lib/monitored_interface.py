@@ -388,10 +388,16 @@ class MonitoredInterface(GenesisInterface):
                 raise
             
             # Setup reply topic and async event-driven listener
-            self._reply_type = datamodel_provider.type("genesis_lib", "InterfaceAgentReply")
+            # Use unified RPC v2 types (GenesisRPCReply) instead of legacy InterfaceAgentReply
+            self._reply_type = datamodel_provider.type("genesis_lib", "GenesisRPCReply")
+            
+            # Use unified reply topic name for RPC v2
+            # All RPC communication (interface→agent, agent→agent, agent→function) uses this topic
+            reply_topic_name = "rti/connext/genesis/rpc/Reply"
+            
             self._reply_topic = dds.DynamicData.Topic(
                 self.app.participant, 
-                "OpenAIAgentReply", 
+                reply_topic_name, 
                 self._reply_type
             )
             self._reply_event = asyncio.Event()

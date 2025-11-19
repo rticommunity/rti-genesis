@@ -4,6 +4,13 @@
 agent_pid=""
 service_pid=""
 
+# Define quiet flag (default: no, set to "yes" to enable quiet mode)
+QUIET_MODE="${QUIET_MODE:-no}"
+QUIET_FLAG=""
+if [ "$QUIET_MODE" = "yes" ]; then
+    QUIET_FLAG="-q"
+fi
+
 # Get the directory of the currently executing script
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
@@ -64,7 +71,7 @@ sleep 1 # Brief pause
 echo "Starting Example Agent in the background... Outputting to $LOG_DIR/agent.log"
 # Run the agent. Redirect stdout and stderr to a log file.
 # You can add --tag here if you want to run multiple instances, e.g., --tag my_test_agent
-python3 -u "$SCRIPT_DIR/example_agent.py" > "$LOG_DIR/agent.log" 2>&1 &
+python3 -u "$SCRIPT_DIR/example_agent.py" $QUIET_FLAG > "$LOG_DIR/agent.log" 2>&1 &
 agent_pid=$!
 echo "Example Agent started with PID: $agent_pid"
 
@@ -76,7 +83,7 @@ echo "Starting Example Interface in the foreground."
 echo "Use 'quit' or 'exit' in the interface, or press Ctrl+C here to stop everything."
 # Run the interface in the foreground. It will be the primary interaction point.
 # If it exits, the EXIT trap will call the cleanup function.
-python3 "$SCRIPT_DIR/example_interface.py"
+python3 "$SCRIPT_DIR/example_interface.py" $QUIET_FLAG
 
 # The EXIT trap will handle cleanup, so no explicit call to cleanup here is strictly needed
 # if the script is only exited by the interface terminating or by a trapped signal.

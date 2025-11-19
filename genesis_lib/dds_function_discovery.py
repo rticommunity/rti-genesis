@@ -89,8 +89,8 @@ class DDSFunctionDiscoveryListener(dds.DynamicData.NoOpDataReaderListener):
                 if info.state.sample_state == dds.SampleState.NOT_READ and info.state.instance_state == dds.InstanceState.ALIVE:
                     function_name = ad.get_string("name") or "unknown"
                     # Emit both logger and print so scripts catch it regardless of logging config
-                    logger.info(f"📚 PRINT: Updated/Added discovered function: {function_name}")
-                    print(f"📚 PRINT: Updated/Added discovered function: {function_name}", flush=True)
+                    logger.info(f"Updated/Added discovered function: {function_name}")
+                    print(f"Updated/Added discovered function: {function_name}", flush=True)
         except Exception as e:
             logger.error(f"DDSFunctionDiscoveryListener error: {e}")
             logger.error(traceback.format_exc())
@@ -165,14 +165,12 @@ class DDSFunctionDiscovery:
         )
         
         # Create DataReader with TRANSIENT_LOCAL QoS to get historical data
-        try:
-            reader_qos = dds.QosProvider.default.datareader_qos_from_profile("cft_Library::cft_Profile")
-        except Exception:
-            import os
-            _config_dir = os.path.dirname(get_datamodel_path())
-            _user_qos_path = os.path.join(_config_dir, "USER_QOS_PROFILES.xml")
-            _qos_provider = dds.QosProvider(_user_qos_path)
-            reader_qos = _qos_provider.datareader_qos_from_profile("cft_Library::cft_Profile")
+        # Load QoS directly from USER_QOS_PROFILES.xml to avoid "Profile not found" errors
+        import os
+        _config_dir = os.path.dirname(get_datamodel_path())
+        _user_qos_path = os.path.join(_config_dir, "USER_QOS_PROFILES.xml")
+        _qos_provider = dds.QosProvider(_user_qos_path)
+        reader_qos = _qos_provider.datareader_qos_from_profile("cft_Library::cft_Profile")
         
         # Create listener to surface discovery events asynchronously
         self._listener = DDSFunctionDiscoveryListener(self)
@@ -199,8 +197,8 @@ class DDSFunctionDiscovery:
                 if info.state.instance_state == dds.InstanceState.ALIVE:
                     function_name = ad.get_string("name") or "unknown"
                     function_id = ad.get_string("advertisement_id") or ""
-                    logger.info(f"📚 PRINT: Updated/Added discovered function: {function_name}")
-                    print(f"📚 PRINT: Updated/Added discovered function: {function_name}", flush=True)
+                    logger.info(f"Updated/Added discovered function: {function_name}")
+                    print(f"Updated/Added discovered function: {function_name}", flush=True)
                     
         except Exception as e:
             logger.warning(f"Could not retrieve historical function advertisements: {e}")

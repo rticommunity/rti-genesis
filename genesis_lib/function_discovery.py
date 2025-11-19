@@ -336,15 +336,12 @@ class InternalFunctionRegistry:
                     )
                     
                     # CRITICAL: Use the same XML QoS profile as the AdvertisementBus writer
-                    # Try default provider first, then explicit USER_QOS_PROFILES.xml fallback
-                    try:
-                        ad_reader_qos = dds.QosProvider.default.datareader_qos_from_profile("cft_Library::cft_Profile")
-                    except Exception:
-                        import os as _os
-                        _config_dir = _os.path.dirname(get_datamodel_path())
-                        _user_qos_path = _os.path.join(_config_dir, "USER_QOS_PROFILES.xml")
-                        _qos_provider = dds.QosProvider(_user_qos_path)
-                        ad_reader_qos = _qos_provider.datareader_qos_from_profile("cft_Library::cft_Profile")
+                    # Load QoS directly from USER_QOS_PROFILES.xml to avoid "Profile not found" errors
+                    import os as _os
+                    _config_dir = _os.path.dirname(get_datamodel_path())
+                    _user_qos_path = _os.path.join(_config_dir, "USER_QOS_PROFILES.xml")
+                    _qos_provider = dds.QosProvider(_user_qos_path)
+                    ad_reader_qos = _qos_provider.datareader_qos_from_profile("cft_Library::cft_Profile")
                     
                     self.advertisement_reader = dds.DynamicData.DataReader(
                         cft=filtered_topic,  # Use content-filtered topic instead of base topic
@@ -354,7 +351,7 @@ class InternalFunctionRegistry:
                         mask=dds.StatusMask.DATA_AVAILABLE,
                     )
                     logger.info(f"FunctionRegistry: Created Advertisement reader with matching QoS")
-                    print(f"📚 PRINT: FunctionRegistry about to retrieve historical advertisements...", flush=True)
+                    print(f"PRINT: FunctionRegistry about to retrieve historical advertisements...", flush=True)
                     
                     # CRITICAL: For TRANSIENT_LOCAL, retrieve historical data without sleeps
                     # Use a WaitSet + ReadCondition to wait for available samples
@@ -618,7 +615,7 @@ class InternalFunctionRegistry:
 
             # Use same log format as legacy path for test compatibility
             # Also print to ensure test scripts can detect discovery even if logging is misconfigured
-            print(f"📚 PRINT: Updated/Added discovered function: {name}", flush=True)
+            print(f"Updated/Added discovered function: {name}", flush=True)
             logger.info(f"Updated/Added discovered function: {name} ({function_id}) from provider {provider_id} for service {service_name}")
             
             # Signal that first discovery has occurred
