@@ -307,10 +307,16 @@ run_with_timeout() {
     fi
     
     # Check for unexpected termination if no other failure detected yet
-    if [ $failure_detected -eq 0 ] && grep -q "Killed\|Segmentation fault\|Aborted\|core dumped" "$primary_log_file"; then
-        failure_detected=1
-        error_type="termination"
-        error_message="$script_name terminated unexpectedly"
+    # Exclude "Killed:" from test cleanup (lines with "Killed: 9" or "Killed: 15" are normal cleanup signals)
+    if [ $failure_detected -eq 0 ]; then
+        temp_check=$(mktemp)
+        grep -v "Killed: [0-9]\+\|TRACE.*Stopping\|TRACE.*Cleaning" "$primary_log_file" > "$temp_check" || true
+        if grep -q "Killed\|Segmentation fault\|Aborted\|core dumped" "$temp_check"; then
+            failure_detected=1
+            error_type="termination"
+            error_message="$script_name terminated unexpectedly"
+        fi
+        rm "$temp_check"
     fi
     
     # --- Failure Handling --- 

@@ -704,8 +704,12 @@ class AgentToAgentTester:
             import rti.connextdds as dds
             from genesis_lib.utils import get_datamodel_path
             
+            # Get domain from environment
+            domain_id = int(os.environ.get('GENESIS_DOMAIN_ID', 0))
+            print(f"📡 Creating monitoring participant on domain {domain_id}")
+            
             # Create DDS entities (following genesis_monitor.py pattern)
-            self.participant = dds.DomainParticipant(0)
+            self.participant = dds.DomainParticipant(domain_id)
             self.subscriber = dds.Subscriber(self.participant)
             
             # Get type provider

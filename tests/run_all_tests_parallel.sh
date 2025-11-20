@@ -198,44 +198,63 @@ echo ""
 echo "⏳ Waiting for all tests to complete..."
 echo "   (${#TEST_PIDS[@]} tests running in parallel)"
 
-# Alternative wait strategy: Poll for completion instead of using 'wait'
-# This avoids the hang issue when PIDs are reaped before we can wait on them
+# Wait for all test processes and capture their exit codes using temp file
+EXITCODE_TMPDIR=$(mktemp -d)
 declare -a TEST_EXIT_CODES=()
-MAX_WAIT_TIME=300  # 5 minutes max wait (safety net)
-WAIT_START=$(date +%s)
 
-# Poll every second until all processes complete or timeout
-while true; do
+# Modified launch function to write exit codes to files
+# (This requires updating launch_test, so we'll use polling instead)
+
+# Poll for completion and capture exit codes via wait when each finishes
+ALL_DONE=0
+MAX_WAIT_SECONDS=300  # 5 minutes max
+WAIT_START=$(date +%s)
+declare -a CAPTURED_PIDS=()
+
+while [ $ALL_DONE -eq 0 ]; do
     CURRENT_TIME=$(date +%s)
-    if [ $((CURRENT_TIME - WAIT_START)) -gt $MAX_WAIT_TIME ]; then
-        echo "⚠️  WARNING: Maximum wait time exceeded, collecting available results..."
-        # Fill remaining with timeout codes
-        for pid in "${TEST_PIDS[@]}"; do
-            TEST_EXIT_CODES+=(124)  # timeout exit code
-        done
+    ELAPSED=$((CURRENT_TIME - WAIT_START))
+    
+    if [ $ELAPSED -gt $MAX_WAIT_SECONDS ]; then
+        echo "⚠️  WARNING: Maximum wait time ($MAX_WAIT_SECONDS s) exceeded"
         break
     fi
     
-    # Check if any processes are still running
-    ANY_RUNNING=0
+    ALL_DONE=1
     for pid in "${TEST_PIDS[@]}"; do
+        # Skip if we already captured this PID
+        if [[ " ${CAPTURED_PIDS[@]} " =~ " ${pid} " ]]; then
+            continue
+        fi
+        
+        # Check if process is still running
         if kill -0 "$pid" 2>/dev/null; then
-            ANY_RUNNING=1
-            break
+            ALL_DONE=0
+        else
+            # Process finished - capture exit code and mark as captured
+            wait "$pid" 2>/dev/null
+            echo "$?" > "$EXITCODE_TMPDIR/$pid"
+            CAPTURED_PIDS+=("$pid")
         fi
     done
     
-    # If none are running, we're done
-    if [ $ANY_RUNNING -eq 0 ]; then
-        # All processes completed, fill exit codes array (we'll verify from logs)
-        for pid in "${TEST_PIDS[@]}"; do
-            TEST_EXIT_CODES+=(0)
-        done
-        break
+    if [ $ALL_DONE -eq 0 ]; then
+        sleep 1
     fi
-    
-    sleep 1
 done
+
+# Build final exit code array in same order as TEST_PIDS
+for pid in "${TEST_PIDS[@]}"; do
+    if [ -f "$EXITCODE_TMPDIR/$pid" ]; then
+        exit_code=$(cat "$EXITCODE_TMPDIR/$pid")
+    else
+        exit_code=999  # Unknown/timeout
+    fi
+    TEST_EXIT_CODES+=("$exit_code")
+done
+
+# Cleanup temp dir
+rm -rf "$EXITCODE_TMPDIR"
 
 END_TIME=$(date +%s)
 ELAPSED=$((END_TIME - START_TIME))
@@ -265,11 +284,50 @@ for i in "${!TEST_NAMES[@]}"; do
     # Get exit code from the wait capture
     exit_code=${TEST_EXIT_CODES[$i]:-999}
     
-    if [ "$exit_code" -eq 0 ]; then
+    # Enhanced failure detection (matches run_all_tests.sh logic)
+    failure_detected=0
+    failure_reason=""
+    
+    # Check exit code
+    if [ "$exit_code" -eq 124 ]; then
+        failure_detected=1
+        failure_reason="timeout"
+    elif [ "$exit_code" -ne 0 ]; then
+        failure_detected=1
+        failure_reason="exit code $exit_code"
+    fi
+    
+    # Check log file for test failures even if exit code is 0
+    if [ -f "$log_file" ]; then
+        # Check for explicit test failure markers
+        if [ $failure_detected -eq 0 ] && grep -q "Some tests failed\|❌.*tests failed\|Test Results Summary:.*❌" "$log_file"; then
+            failure_detected=1
+            failure_reason="test failures in log"
+        fi
+        
+        # Check for Python errors
+        if [ $failure_detected -eq 0 ] && grep -q "ImportError\|NameError\|TypeError\|AttributeError\|RuntimeError\|SyntaxError\|IndentationError" "$log_file"; then
+            failure_detected=1
+            failure_reason="Python errors in log"
+        fi
+        
+        # Check for unexpected termination (excluding normal cleanup kills)
+        if [ $failure_detected -eq 0 ]; then
+            temp_check=$(mktemp)
+            grep -v "Killed: [0-9]\+\|TRACE.*Stopping\|TRACE.*Cleaning" "$log_file" > "$temp_check" 2>/dev/null || true
+            if grep -q "Killed\|Segmentation fault\|Aborted\|core dumped" "$temp_check" 2>/dev/null; then
+                failure_detected=1
+                failure_reason="unexpected termination"
+            fi
+            rm -f "$temp_check"
+        fi
+    fi
+    
+    if [ $failure_detected -eq 0 ]; then
         echo "  ✅ PASS: $test_name (domain $domain)"
         ((PASSED_TESTS++))
     else
-        echo "  ❌ FAIL: $test_name (domain $domain, exit $exit_code)"
+        echo "  ❌ FAIL: $test_name (domain $domain) - $failure_reason"
         echo "     Log: $log_file"
         FAILED_TEST_NAMES+=("$test_name")
         ((FAILED_TESTS++))
