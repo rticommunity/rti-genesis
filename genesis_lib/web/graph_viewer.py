@@ -28,9 +28,10 @@ def create_graph_viewer_blueprint(graph: GraphService, url_prefix: str = "/genes
         static_url_path=f"{url_prefix}/static",
     )
 
+    # Default to empty - users must set GRAPH_SNAPSHOT_PATH env var to use snapshot mode
     snapshot_default = os.getenv(
         "GRAPH_SNAPSHOT_PATH",
-        os.path.join("feature_development", "interface_abstraction", "logs", "graph_snapshot.json"),
+        None,
     )
 
     @bp.get("/api/graph")
@@ -38,6 +39,8 @@ def create_graph_viewer_blueprint(graph: GraphService, url_prefix: str = "/genes
         source = request.args.get("source", "live")
         if source == "snapshot":
             path = request.args.get("path", snapshot_default)
+            if not path:
+                return jsonify({"error": "GRAPH_SNAPSHOT_PATH not set and no path provided", "elements": {"nodes": [], "edges": []}})
             try:
                 with open(path, "r") as f:
                     data = json.load(f)

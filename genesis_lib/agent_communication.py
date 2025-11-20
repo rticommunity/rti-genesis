@@ -490,7 +490,9 @@ class _AgentAdvertisementListener(dds.DynamicData.NoOpDataReaderListener):
             reader: DDS DataReader with available samples
         """
         try:
-            samples = reader.take()
+            # Use read() instead of take() to preserve durable advertisement data
+            # Advertisements are TRANSIENT_LOCAL - DDS is the source of truth
+            samples = reader.read()
             
             for data, info in samples:
                 # Only process valid, unread samples
@@ -742,8 +744,9 @@ class AgentCommunicationMixin:
         
         try:
             # Read all available samples from DDS reader (TRANSIENT_LOCAL history)
+            # Use read() instead of take() to preserve samples for future queries
             # DDS automatically filters out NOT_ALIVE instances
-            samples = self.advertisement_reader.take()
+            samples = self.advertisement_reader.read()
             
             for sample, info in samples:
                 # Skip invalid samples or not-alive instances
@@ -1766,7 +1769,8 @@ class AgentCommunicationMixin:
                 return False
             
             # Get target agent's service name from discovered agent info
-            agent_info = self.discovered_agents[target_agent_id]
+            discovered_agents = self.get_discovered_agents()
+            agent_info = discovered_agents.get(target_agent_id, {})
             target_service_name = agent_info.get("service_name")
             
             if not target_service_name:

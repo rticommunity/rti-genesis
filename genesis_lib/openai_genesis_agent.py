@@ -330,10 +330,15 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         Returns:
             List of agent tools in OpenAI format
         """
-        logger.debug("===== TRACING: Converting agent schemas to OpenAI tool format =====")
+        logger.info("===== TRACING: Converting agent schemas to OpenAI tool format =====")
         
         # Get universal agent schemas from parent (provider-agnostic)
         agent_schemas = self._get_agent_tool_schemas()
+        logger.info(f"===== TRACING: Got {len(agent_schemas)} agent schemas from _get_agent_tool_schemas =====")
+        
+        # Log discovered agents for debugging
+        available_agents = self._get_available_agent_tools()
+        logger.info(f"===== TRACING: Available agent tools: {list(available_agents.keys())} =====")
         
         # Wrap in OpenAI-specific format
         openai_tools = []
@@ -403,7 +408,7 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         Returns:
             Combined list of all tool schemas in OpenAI format
         """
-        logger.debug("===== TRACING: Getting ALL tool schemas (functions + agents + internal tools) for OpenAI =====")
+        logger.info("===== TRACING: Getting ALL tool schemas (functions + agents + internal tools) for OpenAI =====")
         
         # Get each tool type in OpenAI format
         function_tools = self._get_function_schemas_for_openai(relevant_functions)
@@ -413,7 +418,9 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         # Combine all tool types into one list
         all_tools = function_tools + agent_tools + internal_tools
         
-        logger.debug(f"===== TRACING: Combined {len(function_tools)} function tools + {len(agent_tools)} agent tools + {len(internal_tools)} internal tools = {len(all_tools)} total tools =====")
+        logger.info(f"===== TRACING: Combined {len(function_tools)} function tools + {len(agent_tools)} agent tools + {len(internal_tools)} internal tools = {len(all_tools)} total tools =====")
+        if agent_tools:
+            logger.info(f"===== TRACING: Agent tools exposed to LLM: {[t['function']['name'] for t in agent_tools]} =====")
         
         return all_tools
 

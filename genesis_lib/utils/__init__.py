@@ -15,7 +15,8 @@ __all__ = [
     'call_function_thread_safe', 
     'find_function_by_name', 
     'filter_functions_by_relevance',
-    'generate_response_with_functions'
+    'generate_response_with_functions',
+    'get_qos_provider'
 ]
 
 def get_datamodel_path():
@@ -26,6 +27,37 @@ def get_datamodel_path():
         str: The absolute path to the datamodel.xml file
     """
     return os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "datamodel.xml")
+
+# Singleton QosProvider to avoid duplicate profile loading errors
+_qos_provider = None
+
+def get_qos_provider():
+    """
+    Get a singleton QosProvider instance loaded with Genesis QoS profiles.
+    
+    This function ensures that the USER_QOS_PROFILES.xml is only loaded once per process,
+    avoiding DDS errors about duplicate profile registration when multiple Genesis
+    components are created.
+    
+    Returns:
+        dds.QosProvider: Singleton QosProvider instance with Genesis profiles loaded
+    """
+    global _qos_provider
+    
+    if _qos_provider is None:
+        config_dir = os.path.dirname(get_datamodel_path())
+        user_qos_path = os.path.join(config_dir, "USER_QOS_PROFILES.xml")
+        
+        try:
+            _qos_provider = dds.QosProvider(user_qos_path)
+        except dds.Error as e:
+            # If profiles are already loaded (e.g., by default provider), use default
+            if "already exists" in str(e):
+                _qos_provider = dds.QosProvider.default
+            else:
+                raise
+    
+    return _qos_provider
 
 def load_datamodel():
     """

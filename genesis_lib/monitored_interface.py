@@ -340,10 +340,9 @@ class MonitoredInterface(GenesisInterface):
             # Load datamodel for types
             datamodel_provider = dds.QosProvider(get_datamodel_path())
             
-            # Load QoS profiles from USER_QOS_PROFILES.xml
-            config_dir = os.path.dirname(get_datamodel_path())
-            user_qos_path = os.path.join(config_dir, "USER_QOS_PROFILES.xml")
-            qos_provider = dds.QosProvider(user_qos_path)
+            # Load QoS profiles using singleton to avoid duplicate registration errors
+            from genesis_lib.utils import get_qos_provider
+            qos_provider = get_qos_provider()
             
             # ===== Create Event Topic Writer (ChainEvent monitoring) =====
             # Load QoS from XML profile - no hardcoded values

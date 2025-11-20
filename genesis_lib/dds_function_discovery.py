@@ -166,10 +166,8 @@ class DDSFunctionDiscovery:
         
         # Create DataReader with TRANSIENT_LOCAL QoS to get historical data
         # Load QoS directly from USER_QOS_PROFILES.xml to avoid "Profile not found" errors
-        import os
-        _config_dir = os.path.dirname(get_datamodel_path())
-        _user_qos_path = os.path.join(_config_dir, "USER_QOS_PROFILES.xml")
-        _qos_provider = dds.QosProvider(_user_qos_path)
+        from genesis_lib.utils import get_qos_provider
+        _qos_provider = get_qos_provider()
         reader_qos = _qos_provider.datareader_qos_from_profile("cft_Library::cft_Profile")
         
         # Create listener to surface discovery events asynchronously

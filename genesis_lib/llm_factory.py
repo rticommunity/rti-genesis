@@ -158,7 +158,7 @@ Copyright (c) 2025, RTI & Jason Upchurch
 import os
 import logging
 from typing import Optional, Dict, Any
-from .llm import ChatAgent, AnthropicChatAgent
+from .llm import ChatAgent, AnthropicChatAgent, OpenAIChatAgent
 
 logger = logging.getLogger(__name__)
 
@@ -184,7 +184,7 @@ LLM_PROVIDERS = [
     {
         "name": "openai",
         "env_var": "OPENAI_API_KEY",
-        "class": None,  # TODO: Implement OpenAIChatAgent wrapper
+        "class": OpenAIChatAgent,
         "models": {
             "classifier": "gpt-4o-mini",
             "default": "gpt-4o",

@@ -1416,6 +1416,31 @@ class MonitoredAgent(GenesisAgent):
         function_metadata = available_functions.get(function_name, {})
         function_id = function_metadata.get('function_id', function_name)
         provider_id = function_metadata.get('provider_id', None)
+        provider_name = function_metadata.get('service_name', 'UnknownService')
+        
+        # Publish Agent→Service topology edge on first call
+        # This creates the static edge that activity events can pulse along
+        if provider_id and self.enable_monitoring:
+            if not hasattr(self, '_published_service_edges'):
+                self._published_service_edges = set()
+            if provider_id not in self._published_service_edges:
+                try:
+                    self.graph.publish_edge(
+                        source_id=self.app.agent_id,
+                        target_id=provider_id,
+                        edge_type=EDGE_TYPE["FUNCTION_CONNECTION"],
+                        attrs={
+                            "edge_type": "agent_service",
+                            "service_id": provider_id,
+                            "service_name": provider_name,
+                            "reason": f"Agent {self.agent_name} can call service {provider_name}"
+                        },
+                        component_type=COMPONENT_TYPE["AGENT_PRIMARY"] if self.agent_type == "AGENT" else COMPONENT_TYPE["AGENT_SPECIALIZED"]
+                    )
+                    self._published_service_edges.add(provider_id)
+                    logger.info(f"📊 Published Agent→Service edge: {self.agent_name} -> {provider_name}")
+                except Exception as e:
+                    logger.debug(f"Error publishing agent-service edge: {e}")
         
         # Publish start events
         self._publish_function_call_start(

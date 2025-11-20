@@ -477,11 +477,10 @@ class GenesisInterface(ABC):
         self.type_provider = dds.QosProvider(config_path)
         
         # Create a separate QoS provider for USER_QOS_PROFILES.xml
-        # This is loaded separately because datamodel.xml contains types, USER_QOS_PROFILES.xml contains QoS
-        config_dir = os.path.dirname(config_path)
-        user_qos_path = os.path.join(config_dir, "USER_QOS_PROFILES.xml")
-        self.qos_provider = dds.QosProvider(user_qos_path)
-        logger.debug(f"Loaded QoS profiles from {user_qos_path}")
+        # Load QoS profiles using singleton to avoid duplicate registration errors
+        from genesis_lib.utils import get_qos_provider
+        self.qos_provider = get_qos_provider()
+        logger.debug(f"Loaded QoS profiles (singleton)")
         
         # Use unified RPC types for all Genesis communication
         self.request_type = self.type_provider.type("genesis_lib", "GenesisRPCRequest")

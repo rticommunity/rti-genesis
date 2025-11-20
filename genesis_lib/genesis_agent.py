@@ -1770,10 +1770,15 @@ Be specific and accurate based on the actual tools and methods available."""
         """
         # Skip if agent communication is not enabled
         if not hasattr(self, 'agent_communication') or not self.agent_communication:
+            logger.info("===== TRACING: agent_communication not enabled, returning empty =====")
             return {}
         
         # Get discovered agents from the communication mixin (source of truth)
         discovered_agents = self.get_discovered_agents()
+        
+        logger.info(f"===== TRACING: get_discovered_agents() returned {len(discovered_agents)} agents =====")
+        for aid, info in discovered_agents.items():
+            logger.info(f"  - Agent {aid}: {info.get('name', 'unknown')}")
         
         if not discovered_agents:
             return {}

@@ -337,10 +337,8 @@ class InternalFunctionRegistry:
                     
                     # CRITICAL: Use the same XML QoS profile as the AdvertisementBus writer
                     # Load QoS directly from USER_QOS_PROFILES.xml to avoid "Profile not found" errors
-                    import os as _os
-                    _config_dir = _os.path.dirname(get_datamodel_path())
-                    _user_qos_path = _os.path.join(_config_dir, "USER_QOS_PROFILES.xml")
-                    _qos_provider = dds.QosProvider(_user_qos_path)
+                    from genesis_lib.utils import get_qos_provider
+                    _qos_provider = get_qos_provider()
                     ad_reader_qos = _qos_provider.datareader_qos_from_profile("cft_Library::cft_Profile")
                     
                     self.advertisement_reader = dds.DynamicData.DataReader(

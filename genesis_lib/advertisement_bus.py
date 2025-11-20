@@ -112,11 +112,10 @@ class AdvertisementBus:
         # DataWriter QoS configured in XML (genesis_lib/config/USER_QOS_PROFILES.xml)
         # Using default profile: RELIABLE, TRANSIENT_LOCAL, KEEP_LAST(500),
         # AUTOMATIC liveliness, SHARED ownership
-        # Load QoS directly from USER_QOS_PROFILES.xml to avoid "Profile not found" errors
-        import os
-        config_dir = os.path.dirname(get_datamodel_path())
-        user_qos_path = os.path.join(config_dir, "USER_QOS_PROFILES.xml")
-        qos_provider = dds.QosProvider(user_qos_path)
+        # Use singleton QosProvider to avoid duplicate profile loading errors
+        from genesis_lib.utils import get_qos_provider
+        
+        qos_provider = get_qos_provider()
         writer_qos = qos_provider.datawriter_qos_from_profile("cft_Library::cft_Profile")
 
         self.writer = dds.DynamicData.DataWriter(
