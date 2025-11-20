@@ -22,21 +22,9 @@ Before setting up Genesis LIB, ensure you have:
 
 ## Install Genesis
 
-### Option 1: Install from GitHub
+### Option 1: Install from Local Source
 
-Create a virtual environment and install Genesis:
-
-```bash
-mkdir hellogenesis
-cd hellogenesis
-python3.10 -m venv venv
-source venv/bin/activate
-pip install git+https://github.com/sploithunter/Genesis_LIB@main
-```
-
-### Option 2: Install from Local Source
-
-If you have the Genesis_LIB repository cloned locally:
+If you have the Genesis_LIB repository cloned or downloaded locally:
 
 ```bash
 cd /path/to/Genesis_rc1/Genesis_LIB
@@ -308,5 +296,6 @@ genesis-graph-viewer
 - **More Examples**: Check the `examples/` directory for advanced patterns
 - **Multi-Agent Systems**: See `examples/MultiAgent/` for agent-to-agent communication
 - **Full Testing**: Run the test suite with `cd tests && ./run_all_tests_parallel.sh`
-- **Architecture Docs**: Read `AGENT_ARCHITECTURE_QUICK_REFERENCE.md` for implementation details
-- **Provider Guide**: See `NEW_PROVIDER_GUIDE.md` to add support for new LLM providers
+- **Architecture Docs**: Read `docs/architecture/` for implementation details
+- **User Guides**: See `docs/user-guides/` for detailed guides
+- **Provider Guide**: See `docs/architecture/NEW_PROVIDER_GUIDE.md` to add support for new LLM providers

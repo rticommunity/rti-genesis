@@ -37,6 +37,7 @@ ENV/
 *.swp
 *.swo
 .cursor/
+RULES_CURSOR.md
 
 # OS
 .DS_Store

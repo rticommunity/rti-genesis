@@ -182,8 +182,7 @@ response = await agent.process_message("What is 2 + 2?")
 ### Quick Install
 
 ```bash
-# Clone repository
-git clone https://github.com/yourusername/Genesis_LIB.git
+# Clone repository (or download release)
 cd Genesis_LIB
 
 # Automated setup (recommended)
@@ -263,7 +262,7 @@ GENESIS uses a three-layer architecture that separates concerns and enables mult
 - Pub/Sub for monitoring and events
 - QoS-configurable reliability and performance
 
-📖 **Detailed architecture**: [AGENT_ARCHITECTURE_QUICK_REFERENCE.md](AGENT_ARCHITECTURE_QUICK_REFERENCE.md)
+📖 **Documentation**: [docs/](docs/) - Guides and architecture documentation
 
 ---
 
@@ -313,14 +312,9 @@ response = await interface.send_request({"message": "Hello!"})
 | Document | Description |
 |----------|-------------|
 | [QUICKSTART.md](QUICKSTART.md) | Get up and running in 5 minutes |
-| [AGENT_ARCHITECTURE_QUICK_REFERENCE.md](AGENT_ARCHITECTURE_QUICK_REFERENCE.md) | Architecture and design patterns |
-| [NEW_PROVIDER_GUIDE.md](NEW_PROVIDER_GUIDE.md) | Add support for new LLM providers |
-| [CAPABILITY_SYSTEM_ARCHITECTURE.md](CAPABILITY_SYSTEM_ARCHITECTURE.md) | Agent capability system explained |
+| [docs/](docs/) | Complete documentation (user guides + architecture) |
 | [CLAUDE.md](CLAUDE.md) | Guide for Claude/AI assistants |
 | [AGENTS.md](AGENTS.md) | Contributor guide and dev environment |
-| [DDS_CONFIGURATION.md](DDS_CONFIGURATION.md) | DDS setup and troubleshooting |
-| [GENESIS_TOPICS.md](GENESIS_TOPICS.md) | DDS topics reference |
-| [FUNCTION_DISCOVERY.md](FUNCTION_DISCOVERY.md) | Function discovery system |
 
 📂 **Full documentation**: See [`docs/`](docs/) directory
 
@@ -332,8 +326,9 @@ response = await interface.send_request({"message": "Hello!"})
 |---------|-------------|----------|
 | **Hello World** | Minimal agent + service + interface | `examples/HelloWorld/` |
 | **MultiAgent** | Agent-as-tool pattern with real APIs | `examples/MultiAgent/` |
-| **Weather Agent** | External API integration | `examples/weather_agent/` |
-| **Graph Interface** | Network visualization | `examples/GraphInterface/` |
+| **Graph Interface** | Chat + real-time network visualization | `examples/GraphInterface/` |
+| **Standalone Graph Viewer** | Pure network visualization server | `examples/StandaloneGraphViewer/` |
+| **Example Interface** | Basic interface patterns | `examples/ExampleInterface/` |
 
 ---
 
@@ -411,8 +406,7 @@ We welcome contributions! Here's how to get started:
 ### **Development Setup**
 
 ```bash
-# Clone and setup
-git clone https://github.com/yourusername/Genesis_LIB.git
+# Clone and setup (or download release)
 cd Genesis_LIB
 ./setup.sh
 
@@ -516,10 +510,10 @@ GENESIS builds on cutting-edge research in multi-agent systems:
 
 ## 📞 Support
 
-- 📧 **Email**: support@genesis-framework.io
-- 💬 **Discord**: [Join our community](https://discord.gg/genesis)
-- 🐛 **Issues**: [GitHub Issues](https://github.com/yourusername/Genesis_LIB/issues)
+- 🐛 **Issues**: GitHub Issues
 - 📖 **Docs**: [Full Documentation](docs/)
+
+> **Note**: Community support channels (Discord, email) coming soon.
 
 ---
 
@@ -539,6 +533,6 @@ If you find GENESIS useful, please consider starring the repository!
 
 **Built with ❤️ by the GENESIS Team**
 
-[Website](https://genesis-framework.io) • [Documentation](docs/) • [Examples](examples/) • [Discord](https://discord.gg/genesis)
+[Documentation](docs/) • [Examples](examples/)
 
 </div>
