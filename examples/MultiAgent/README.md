@@ -1,229 +1,226 @@
 # Genesis Multi-Agent System Example
 
-**Modern Multi-Agent System Featuring @genesis_tool Auto-Discovery**
+Modern multi-agent system demonstrating Genesis's `@genesis_tool` decorator for automatic tool discovery, schema generation, and agent-to-agent communication.
 
-This example demonstrates Genesis's revolutionary `@genesis_tool` decorator system that eliminates boilerplate and provides automatic tool discovery, schema generation, and execution.
-
-## 🚀 Quick Start
+## Quick Start
 
 ```bash
 # From examples/MultiAgent directory
+export OPENAI_API_KEY="your-key"  # Required
+export OPENWEATHERMAP_API_KEY="your-key"  # Optional (for real weather data)
+
 ./run_interactive_demo.sh
 ```
 
-## 🎯 What This Demonstrates
+## What This Demonstrates
 
-### **Zero-Boilerplate Tool Development**
-- **@genesis_tool decorators** automatically generate OpenAI tool schemas
-- **Type-safe development** using Python type hints
-- **No manual JSON schema definition** required
-- **Automatic tool injection** into LLM clients
+- **`@genesis_tool` decorators** - Zero-boilerplate tool development with automatic schema generation
+- **Agent-to-agent communication** - Automatic discovery and delegation between agents
+- **Function services** - Integration with computational services (Calculator)
+- **Real API integration** - Live weather data from OpenWeatherMap
 
-### **Advanced Multi-Agent Communication**
-- **Agent-to-agent delegation** with automatic discovery
-- **Specialized agents** with domain expertise
-- **Function services** for computational tasks
-- **Real-time monitoring** and tracing
-
-## 🏗️ Architecture
+## Architecture
 
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
 │ PersonalAssistant│◄──►│   WeatherAgent   │    │ Calculator      │
-│ (General Agent) │    │ (Specialized)    │    │ (Function)      │
+│ (Coordinator)   │    │ (@genesis_tool)  │    │ (Service)       │
 │                 │    │                  │    │                 │
-│ • Chat          │    │ • @genesis_tool  │    │ • Math ops      │
-│ • Delegation    │    │ • Auto-discovery │    │ • Arithmetic    │
-│ • Coordination  │    │ • Real weather   │    │ • Calculations  │
+│ • Delegation    │    │ • Weather data   │    │ • Math ops      │
+│ • Routing       │    │ • Forecasts      │    │ • Calculations  │
+│ • Coordination  │    │ • Auto-discovery │    │ • Functions     │
 └─────────────────┘    └──────────────────┘    └─────────────────┘
 ```
 
-## 📂 Directory Structure
+## Directory Structure
 
 ```
 examples/MultiAgent/
 ├── README.md                    # This file
-├── USAGE.md                     # Detailed usage examples
-├── run_interactive_demo.sh      # Start the demo
+├── run_interactive_demo.sh      # Launch the demo
 ├── agents/                      # Agent implementations
-│   ├── personal_assistant.py    # General-purpose agent
-│   └── weather_agent.py         # @genesis_tool weather specialist
+│   ├── personal_assistant.py    # General coordinator agent
+│   └── weather_agent.py         # Specialized weather agent
 ├── interfaces/                  # User interfaces
 │   ├── interactive_cli.py       # Chat interface
+│   ├── gui_interface.py         # Web interface
 │   └── quick_test.py           # Automated test
-└── config/                     # Configuration files
-    └── demo_config.py          # Demo settings
+└── config/                     # Configuration
+    └── demo_config.py          # Environment settings
 ```
 
-## 🛠️ Key Features Demonstrated
+## Key Features
 
-### 1. **@genesis_tool Decorator Magic**
+### @genesis_tool Decorator
 
-**OLD WAY (Manual Schema Definition):**
+**Before (Manual Schema):**
 ```python
 # 50+ lines of manual JSON schema definition
 weather_tools = [{
     "type": "function",
     "function": {
         "name": "get_current_weather",
-        "description": "Get current weather conditions...",
+        "description": "Get current weather...",
         "parameters": {
             "type": "object",
             "properties": {
-                "location": {"type": "string", "description": "..."}
-            },
-            "required": ["location"]
+                "location": {"type": "string"}
+            }
         }
     }
 }]
 ```
 
-**NEW WAY (@genesis_tool Decorator):**
+**After (@genesis_tool):**
 ```python
 @genesis_tool(description="Get current weather conditions worldwide")
 async def get_current_weather(self, location: str) -> dict:
-    """Get current weather conditions for a specific location."""
-    return await self.get_weather_data(location, forecast=False)
+    """Get current weather for a location."""
+    return await self.get_weather_data(location)
 ```
 
-### 2. **Automatic Agent Discovery**
+### Automatic Agent Discovery
 
-Agents automatically discover each other and create tool schemas based on capabilities:
+PersonalAssistant automatically discovers WeatherAgent and creates tools for delegation:
 
 ```python
-# PersonalAssistant automatically discovers WeatherAgent and creates:
-# - get_weather_info tool
-# - get_meteorology_info tool  
-# - use_weather_service tool
+# Auto-generated tools based on discovered agents:
+# - use_weather_service(query: str)
+# - delegate_to_weather_expert(location: str)
 ```
 
-### 3. **Clean Demo Mode**
+## Demo Scenarios
 
-Professional presentation experience with configurable tracing:
-
-- **Clean Mode (Default)**: Minimal output, perfect for demos and presentations
-- **Debug Mode**: Full tracing for development and troubleshooting
-- **Smart Progress Indicators**: Visual feedback during agent-to-agent communication
-- **Dynamic Configuration**: Switch between modes via demo script
-
-### 4. **Real Multi-Agent Scenarios**
-
-**Weather Delegation:**
+### 1. Weather Delegation (Agent-to-Agent)
 ```
-User → PersonalAssistant: "What's the weather in London?"
-PersonalAssistant → WeatherAgent: Automatic delegation
-WeatherAgent → OpenWeatherMap API: Real weather data
-WeatherAgent → PersonalAssistant: Weather response
-PersonalAssistant → User: Natural language weather report
+You: What's the weather in Tokyo?
+PersonalAssistant → WeatherAgent → OpenWeatherMap API
+Response: Current weather is 22.5°C with partly cloudy skies...
 ```
 
-**Function Calling:**
+### 2. Function Calling (Agent-to-Service)
 ```
-User → PersonalAssistant: "What is 123 * 456?"
-PersonalAssistant → Calculator Service: Math function call
-Calculator Service → PersonalAssistant: Result
-PersonalAssistant → User: "The result is 56,088"
+You: Calculate 987 * 654
+PersonalAssistant → Calculator Service
+Response: The result is 645,498
 ```
 
-## 🧪 Demo Scenarios
+### 3. Direct Specialization
+```
+You: Give me a 5-day forecast for Paris
+WeatherAgent → OpenWeatherMap API
+Response: [Detailed 5-day forecast]
+```
 
-### **Scenario 1: Weather Delegation**
-1. Connect to PersonalAssistant
-2. Ask: *"What's the weather in Tokyo, Japan?"*
-3. **Result**: PersonalAssistant automatically discovers and delegates to WeatherAgent
+### 4. Mixed Capabilities
+```
+You: Weather in London and calculate 15% tip on $85
+PersonalAssistant → WeatherAgent (weather) + Calculator (math)
+Response: [Weather data] and the 15% tip is $12.75
+```
 
-### **Scenario 2: Direct Specialization**
-1. Connect to WeatherAgent  
-2. Ask: *"Give me a 5-day forecast for Paris"*
-3. **Result**: WeatherAgent uses @genesis_tool methods to provide detailed forecast
+## Running the Demo
 
-### **Scenario 3: Function Calling**
-1. Connect to PersonalAssistant
-2. Ask: *"Calculate 987 * 654 + 321"*
-3. **Result**: PersonalAssistant calls Calculator service functions
-
-### **Scenario 4: Mixed Capabilities**
-1. Connect to PersonalAssistant
-2. Ask: *"What's the weather in London and calculate 15% tip on $85?"*
-3. **Result**: PersonalAssistant handles both weather delegation AND math functions
-
-## 🔧 Prerequisites
-
-### **Required:**
-- Python 3.8+
-- OpenAI API key (`OPENAI_API_KEY` environment variable)
-
-### **Optional:**
-- OpenWeatherMap API key (`OPENWEATHERMAP_API_KEY`) for real weather data
-- Without it, WeatherAgent uses realistic mock data
-
-## 📋 Environment Setup
-
+### Interactive Mode (Recommended)
 ```bash
-# Set OpenAI API key (required)
-export OPENAI_API_KEY="your-openai-api-key"
-
-# Set weather API key (optional - get free key at openweathermap.org)
-export OPENWEATHERMAP_API_KEY="your-weather-api-key"
-```
-
-## 🚀 Running the Demo
-
-### **Interactive Mode (Recommended)**
-```bash
-cd examples/MultiAgent/
 ./run_interactive_demo.sh
+
+# Choose interface:
+# 1. Interactive CLI - Chat interface
+# 2. Web GUI - Modern web interface with visualization
+# 3. Quick Test - Automated test scenarios
 ```
 
-**The demo script offers two modes:**
-- **Clean Demo Mode**: Professional output perfect for presentations
-- **Debug Mode**: Full tracing for development and troubleshooting
-
-### **Quick Test Mode**
+### Quick Test Mode
 ```bash
-cd examples/MultiAgent/
 python interfaces/quick_test.py
 ```
 
-### **Manual Mode**
+### Manual Mode (Advanced)
 ```bash
-# Terminal 1: Start Calculator Service
-python ../../test_functions/calculator_service.py
+# Terminal 1: Calculator Service
+python ../../test_functions/services/calculator_service.py
 
-# Terminal 2: Start WeatherAgent  
+# Terminal 2: WeatherAgent
 python agents/weather_agent.py
 
-# Terminal 3: Start PersonalAssistant
+# Terminal 3: PersonalAssistant
 python agents/personal_assistant.py
 
-# Terminal 4: Start Interactive CLI
+# Terminal 4: Interface
 python interfaces/interactive_cli.py
 ```
 
-## 🎯 Key Innovations
+## Prerequisites
 
-1. **Zero Boilerplate**: `@genesis_tool` eliminates manual schema definition
-2. **Type Safety**: Leverages Python type hints for robust development
-3. **Auto-Discovery**: Genesis automatically finds and registers tools
-4. **Multi-LLM Ready**: Schema generation works with OpenAI, Anthropic, etc.
-5. **Production Ready**: Real API integration with error handling
-6. **Clean Demo Mode**: Professional presentation experience with configurable tracing
-7. **Smart Progress Indicators**: Visual feedback during complex multi-agent operations
+**Required:**
+- Python 3.8+
+- OpenAI API key: `export OPENAI_API_KEY="sk-..."`
 
-## 📚 Learning Path
+**Optional:**
+- OpenWeatherMap API key for real weather data: `export OPENWEATHERMAP_API_KEY="..."`
+- Get free key at: https://openweathermap.org/api
+- Without it, WeatherAgent uses mock data
 
-1. **Start Here**: Run `./run_interactive_demo.sh` and try the demo scenarios
-2. **Explore Code**: Examine `agents/weather_agent.py` for @genesis_tool examples
-3. **Understand Flow**: Check logs to see agent-to-agent communication (enable debug mode)
-4. **Experiment**: Try different queries and watch automatic delegation
-5. **Build**: Create your own @genesis_tool methods
+**Check Environment:**
+```bash
+python config/demo_config.py
+```
 
-## 🔗 Related Documentation
+## What Makes This Example Special
 
-- [Complexity Reduction Plan](../../docs/architecture/complexity.md) - The vision behind @genesis_tool
-- [Agent Communication Guide](../../docs/agents/agent_to_agent_communication.md) - How agents work together
-- [Function Services](../../docs/guides/function_service_guide.md) - External function integration
+1. **Zero Boilerplate** - `@genesis_tool` eliminates manual schema definition
+2. **Type Safety** - Leverages Python type hints for robust development  
+3. **Auto-Discovery** - Agents find each other automatically via DDS
+4. **Production Ready** - Real API integration with error handling
+5. **Clean Demo Mode** - Professional output for presentations
+6. **Multi-Agent Patterns** - Demonstrates coordination and delegation
 
----
+## Example Output
 
-**🎉 This example showcases Genesis's transformation into a "magic decorator" system where developers write natural Python code and Genesis handles all distributed computing complexity automatically!**
+```bash
+$ ./run_interactive_demo.sh
+
+🚀 Genesis Multi-Agent System v3.0
+🤖 Model: gpt-4o
+✅ All services started successfully!
+
+Choose agent:
+  1. PersonalAssistant (General coordinator)
+  2. WeatherAgent (Weather specialist)
+
+PersonalAssistant> What's the weather in Tokyo and calculate 50 * 25?
+
+📤 Sending query...
+⏳ Processing (delegating to WeatherAgent)...
+⏳ Processing (calling Calculator)...
+
+📥 Response:
+The current weather in Tokyo is 22.5°C with partly cloudy skies and 68% 
+humidity. It's a pleasant day!
+
+The result of 50 × 25 is 1,250.
+```
+
+## Troubleshooting
+
+**"OPENAI_API_KEY not set"**
+- Export your key: `export OPENAI_API_KEY="sk-..."`
+
+**"No weather data"**
+- Either set `OPENWEATHERMAP_API_KEY` or use mock data (automatic)
+
+**"Services not connecting"**
+- Wait 5-10 seconds for DDS discovery
+- Check all services are running in demo script output
+
+**"Agent not responding"**
+- Check terminal output for errors
+- Verify API keys are valid
+- Try debug mode for detailed logs
+
+## See Also
+
+- `examples/StandaloneGraphViewer/` - Visualize multi-agent interactions
+- `tests/stress/` - Stress testing tools for large-scale deployments
+- Genesis documentation for advanced agent development

@@ -62,7 +62,7 @@ class PersonalAssistant(OpenAIGenesisAgent):
         super().__init__(
             model_name="o3-2025-04-16",
             agent_name="PersonalAssistant",
-            base_service_name="OpenAIAgent",
+            base_service_name="PersonalAssistant",
             description="General personal assistant with access to specialized agents and services",
             enable_agent_communication=True,
             enable_tracing=enable_tracing  # Use demo configuration

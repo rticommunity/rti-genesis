@@ -95,7 +95,7 @@ fi
 echo ""
 echo "🧮 Starting Calculator service..."
 cd ../../
-python -m test_functions.calculator_service &
+python test_functions/services/calculator_service.py &
 CALC_PID=$!
 echo "   ✅ Calculator service started (PID: $CALC_PID)"
 cd examples/MultiAgent/
