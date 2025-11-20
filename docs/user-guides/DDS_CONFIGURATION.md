@@ -101,7 +101,7 @@ With this configuration, you can run:
 Example:
 ```bash
 cd /path/to/Genesis_LIB
-./feature_development/interface_abstraction/start_topology.sh \
+./tests/stress/start_topology.sh \
   --agents 10 --services 20 --interfaces 1 -t 180 --force
 ```
 

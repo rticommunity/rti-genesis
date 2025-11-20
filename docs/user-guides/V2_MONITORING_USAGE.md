@@ -208,8 +208,7 @@ export USE_UNIFIED_MONITORING_V2=true
 HOST=0.0.0.0 PORT=5080 python3 examples/GraphInterface/server.py
 
 # In another terminal, start a topology
-cd feature_development/interface_abstraction
-./start_topology.sh 20 10 5  # 20 services, 10 agents, 5 interfaces
+./tests/stress/start_topology.sh -s 20 -a 10 -i 5 -t 180  # 20 services, 10 agents, 5 interfaces
 
 # Open http://localhost:5080 - you should see the full topology
 ```
