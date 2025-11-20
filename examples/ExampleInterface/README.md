@@ -6,11 +6,14 @@ A simple example showing an AI agent, a backend service, and a CLI interface wor
 
 ### Prerequisites
 
+- Python 3.10.x (Genesis LIB requires >=3.10,<3.11)
+- Outbound access to the OpenAI API; requests will bill to your account
+- An OpenAI API key exported in your shell
+
 ```bash
-# 1. Set your OpenAI API key
 export OPENAI_API_KEY=your_key_here
 
-# 2. Ensure Genesis LIB is installed (from Genesis_LIB root)
+# Install Genesis LIB (from Genesis_LIB root)
 pip install .
 ```
 
@@ -29,6 +32,11 @@ That's it! The script will:
 ```bash
 QUIET_MODE=yes ./run_example.sh
 ```
+
+**Verbosity controls**
+- Default run prints INFO-level logs.
+- Set `QUIET_MODE=yes` to suppress most agent/interface chatter.
+- Pass `-v` or `-q` to `example_agent.py` and/or `example_interface.py` if you launch them manually.
 
 ## What You'll See
 
@@ -51,9 +59,14 @@ You can now send messages. Type 'quit' or 'exit' to stop.
 
 To [SimpleGenesisAgentForTheWin]: Hello!
 Agent response: Hi! How can I help you today?
+
+To [SimpleGenesisAgentForTheWin]: First multiply 37 by 12, then divide by 8.
+Agent response: (from calculator) (37 * 12) / 8 = 55.5
 ```
 
 Type `quit` or press `Ctrl+C` to stop everything.
+
+If the interface exits after ~30 seconds with "No agents found," the agent or service probably failed to start (bad API key, blocked network, or Python version mismatch). Check `logs/agent.log` and `logs/service.log` for the error.
 
 ## Components
 
@@ -84,6 +97,7 @@ Run without quiet mode or check the log files.
 - **MonitoredService** - Service with automatic function registration via `@genesis_function`
 - **OpenAIGenesisAgent** - AI agent with built-in OpenAI integration
 - **MonitoredInterface** - Automatic agent discovery and RPC communication
+- **Tracing enabled** - The example agent sets `enable_tracing=True` so you can see detailed call flow in the logs
 - **Process orchestration** - Multi-component startup/shutdown management
 
 ## Advanced Usage
