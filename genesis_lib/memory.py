@@ -141,8 +141,7 @@ class MemoryRouter:
     Memory router for managing multiple memory backends.
     
     Current status: Scaffolding only. It defaults to the SimpleMemoryAdapter and
-    is not used by agents at runtime. A demo exists in
-    `tests/_archive/dev/test_memory_router.py`.
+    is not used by agents at runtime.
     
     Future backends could include:
     - Vector stores (Pinecone, Weaviate, Chroma)
