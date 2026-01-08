@@ -2,10 +2,32 @@
 
 [![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)](https://www.python.org/downloads/)
 [![RTI Connext DDS](https://img.shields.io/badge/RTI%20Connext%20DDS-7.3.0+-green.svg)](https://www.rti.com/)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-RC1-orange.svg)](https://github.com/yourusername/Genesis_LIB)
+[![License](https://img.shields.io/badge/license-RTI-blue.svg)](LICENSE)
+[![Status](https://img.shields.io/badge/status-RC1-orange.svg)]()
 
 **GENESIS** (Generative Networked System for Intelligent Services) is a Python framework for building distributed AI agent networks with the robustness and reliability required for production deployments.
+
+---
+
+## 📑 Table of Contents
+
+- [What You Get](#-what-you-get)
+- [Core Components](#-core-components)
+- [Key Features](#-key-features)
+- [Quick Example](#-quick-example)
+- [Installation](#-installation)
+- [Try the Demo](#-try-the-demo)
+- [Architecture](#️-architecture)
+- [Using Components](#-using-components)
+- [Documentation](#-documentation)
+- [Examples](#-examples)
+- [Testing](#-testing)
+- [Use Cases](#-use-cases)
+- [Roadmap](#-roadmap)
+- [Contributing](#-contributing)
+- [Technical Requirements](#️-technical-requirements)
+- [Security](#-security)
+- [Design Philosophy](#-design-philosophy)
 
 ---
 
@@ -232,6 +254,8 @@ cd examples/MultiAgent
 
 GENESIS uses a three-layer architecture that separates concerns and enables multi-provider support:
 
+![Genesis Architecture](docs/images/genesis_architecture.png)
+
 ```
 ┌─────────────────────────────────────────────────────────┐
 │ ProviderAgent (OpenAI, Anthropic, etc.)                │
@@ -266,7 +290,7 @@ GENESIS uses a three-layer architecture that separates concerns and enables mult
 
 ---
 
-## 🔧 Core Components
+## 🔧 Using Components
 
 ### **Agents**
 Intelligent entities that process requests, call functions/other agents, and interact with LLMs.
@@ -312,9 +336,8 @@ response = await interface.send_request({"message": "Hello!"})
 | Document | Description |
 |----------|-------------|
 | [QUICKSTART.md](QUICKSTART.md) | Get up and running in 5 minutes |
+| [INSTALL.md](INSTALL.md) | Detailed installation instructions |
 | [docs/](docs/) | Complete documentation (user guides + architecture) |
-| [CLAUDE.md](CLAUDE.md) | Guide for Claude/AI assistants |
-| [AGENTS.md](AGENTS.md) | Contributor guide and dev environment |
 
 📂 **Full documentation**: See [`docs/`](docs/) directory
 
@@ -401,7 +424,7 @@ We welcome contributions! Here's how to get started:
 4. **Run tests**: `./tests/run_all_tests.sh`
 5. **Submit a pull request**
 
-📖 **Contributor guide**: [AGENTS.md](AGENTS.md)
+📖 **Testing guide**: [tests/README.md](tests/README.md)
 
 ### **Development Setup**
 
@@ -486,19 +509,6 @@ This eliminates fragile configuration files, reduces operational complexity, and
 
 ---
 
-## 📖 Research & Publications
-
-GENESIS builds on cutting-edge research in multi-agent systems:
-
-- Agent-as-tool pattern for seamless agent composition
-- DDS-based distributed AI architectures
-- Dynamic function discovery and classification
-- Real-time monitoring and observability
-
-📂 **Research docs**: See [`docs/papers/`](docs/papers/)
-
----
-
 ## 🙏 Acknowledgments
 
 - **RTI Connext DDS**: Enterprise-grade middleware
@@ -519,7 +529,7 @@ GENESIS builds on cutting-edge research in multi-agent systems:
 
 ## 📄 License
 
-GENESIS is released under the MIT License. See [LICENSE](LICENSE) for details.
+GENESIS is released under the RTI License. See [LICENSE](LICENSE) for details.
 
 ---
 

@@ -20,10 +20,9 @@ Purpose: fast reference for contributors and agents to understand core class hie
   - `examples/GraphInterface/server.py`
   - `examples/MultiAgent/README.md`
 - Docs (deep dives)
-  - `docs/guides/genesis_function_rpc.md`
-  - `docs/guides/function_call_flow.md`
+  - `docs/user-guides/genesis_function_rpc.md`
+  - `docs/user-guides/function_call_flow.md`
   - `docs/reference/RTI_7.3_RPC.md`
-  - `docs/agents/agent_to_agent_communication.md`
   - `docs/architecture/monitoring_system.md`
 
 ## Core Class Hierarchy (who extends whom)
@@ -133,7 +132,7 @@ Monitoring
 - Targeted examples: `examples/GraphInterface/server.py` and `examples/MultiAgent/*`.
 
 ## Deeper Reads (once, then skim as needed)
-- `docs/guides/genesis_function_rpc.md` — complete Function RPC workflow and rationale.
-- `docs/guides/function_call_flow.md` — sequence diagram for agent-as-tool.
+- `docs/user-guides/genesis_function_rpc.md` — complete Function RPC workflow and rationale.
+- `docs/user-guides/function_call_flow.md` — sequence diagram for agent-as-tool.
 - `docs/reference/RTI_7.3_RPC.md` — `rti.rpc` primitives reference.
-- `docs/agents/agent_to_agent_communication.md` — plan and patterns for agent-to-agent.
+- `docs/architecture/AGENT_ARCHITECTURE_QUICK_REFERENCE.md` — agent patterns and architecture.

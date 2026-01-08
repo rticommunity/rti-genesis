@@ -89,6 +89,26 @@ PersonalAssistant automatically discovers WeatherAgent and creates tools for del
 # - delegate_to_weather_expert(location: str)
 ```
 
+## Understanding the Agents
+
+### PersonalAssistant (General Coordinator)
+- **Role**: Central hub that receives your requests and delegates to specialized agents
+- **When to use**: For most queries - it automatically routes to the right specialist
+- **Capabilities**: Can handle mixed queries (weather + math), coordinates multiple agents
+
+### WeatherAgent (Weather Specialist)
+- **Role**: Dedicated weather data retrieval
+- **When to use**: For direct weather queries if you want to bypass the coordinator
+- **Capabilities**: Current weather, forecasts, temperature conversions
+
+### Calculator Service
+- **Role**: Mathematical operations service
+- **Note**: This is a service, not an agent - it's called by agents, not directly by users
+
+**Tip**: Start with PersonalAssistant for the full multi-agent experience!
+
+---
+
 ## Demo Scenarios
 
 ### 1. Weather Delegation (Agent-to-Agent)
@@ -124,12 +144,29 @@ Response: [Weather data] and the 15% tip is $12.75
 ### Interactive Mode (Recommended)
 ```bash
 ./run_interactive_demo.sh
-
-# Choose interface:
-# 1. Interactive CLI - Chat interface
-# 2. Web GUI - Modern web interface with visualization
-# 3. Quick Test - Automated test scenarios
 ```
+
+You'll be presented with three interface options:
+
+#### Option 1: Interactive CLI
+Command-line chat interface for exploration. Type `scenarios` for demo examples.
+
+#### Option 2: Web GUI Interface (Recommended for First-Time Users)
+A modern web-based interface featuring:
+- **Chat panel** on the left for agent interaction
+- **3D network visualization** on the right showing the Genesis topology
+- **Real-time monitoring** of agent communications
+
+**Web GUI Quick Start:**
+1. Select option 2 when prompted
+2. Your browser will open automatically to `http://127.0.0.1:5000`
+3. Click **"Initialize Genesis"** (top-right corner)
+4. Wait 3 seconds for agent discovery
+5. Select **"PersonalAssistant"** from the dropdown
+6. Start chatting!
+
+#### Option 3: Quick Automated Test
+Runs pre-defined test scenarios for validation.
 
 ### Quick Test Mode
 ```bash

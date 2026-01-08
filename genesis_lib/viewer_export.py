@@ -23,7 +23,7 @@ def export_from_cytoscape(cytoscape: Dict[str, Any], *, version: str = "v1") -> 
     {"elements": {"nodes": [{"data": {"id", "label", "type", "state"}}],
                    "edges": [{"data": {"source", "target", "type"}}]}}
 
-    Returns a dict matching docs/planning/schemas/viewer_topology.schema.json.
+    Returns a dict with keys: nodes, edges, timestamp, version.
     """
     elems = (cytoscape or {}).get("elements", {})
     nodes: List[Dict[str, Any]] = []

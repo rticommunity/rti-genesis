@@ -143,10 +143,17 @@ echo "   4. Mixed Capabilities: 'Weather in London and calculate 15% tip on $85'
 echo ""
 
 # Prompt user for interface choice
+echo ""
 echo "🎯 Choose your interface:"
-echo "   1. Interactive CLI (recommended for exploration)"
-echo "   2. Web GUI Interface (modern web-based interface with network visualization)"
-echo "   3. Quick automated test (for validation)"
+echo ""
+echo "   • [1] Interactive CLI"
+echo "         Command-line chat interface (recommended for exploration)"
+echo ""
+echo "   • [2] Web GUI Interface"
+echo "         Modern web-based interface with 3D network visualization"
+echo ""
+echo "   • [3] Quick Automated Test"
+echo "         Run pre-defined test scenarios for validation"
 echo ""
 read -p "Your choice (1, 2, or 3): " interface_choice
 
@@ -161,18 +168,32 @@ case $interface_choice in
     2)
         echo ""
         echo "🌐 Starting Web GUI Interface..."
-        echo "🎯 Features:"
-        echo "   • Interactive chat with agents"
-        echo "   • Real-time network topology visualization"
-        echo "   • Live monitoring of agent communications"
-        echo "   • Dynamic agent discovery and selection"
         echo ""
-        echo "📡 Web interface will be available at: http://127.0.0.1:5000"
-        echo "💡 Open your browser to interact with the Genesis system"
+        echo "═══════════════════════════════════════════════════════════════"
+        echo "  📡 Web interface starting at: http://127.0.0.1:5000"
+        echo ""
+        echo "  🚀 GETTING STARTED:"
+        echo "     1. Your browser will open automatically"
+        echo "     2. Click 'Initialize Genesis' button (top-right corner)"
+        echo "     3. Wait for agents to be discovered (~3 seconds)"
+        echo "     4. Select an agent from the dropdown"
+        echo "     5. Start chatting!"
+        echo ""
+        echo "  💡 EXAMPLE PROMPTS TO TRY:"
+        echo "     • \"What's the weather in Tokyo?\""
+        echo "     • \"Calculate 987 * 654\""
+        echo "     • \"Give me a 5-day forecast for Paris\""
+        echo "     • \"Weather in London and calculate 15% tip on \$85\""
+        echo "═══════════════════════════════════════════════════════════════"
+        echo ""
         if [ ! -z "$DDSSPY_PID" ]; then
             echo "🔍 DDS traffic is being logged to: logs/dds_spy_output.log"
+            echo ""
         fi
-        echo ""
+        
+        # Auto-open browser after a short delay
+        (sleep 2 && python -c "import webbrowser; webbrowser.open('http://127.0.0.1:5000')" 2>/dev/null) &
+        
         python interfaces/gui_interface.py
         ;;
     3)

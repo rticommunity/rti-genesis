@@ -75,7 +75,7 @@ This document complements the overview with file‑level pointers, APIs, and ope
 
 ## Cross‑References
 - Architecture overview: `docs/architecture/architecture.md`
-- Function flow (sequence): `docs/guides/function_call_flow.md`
-- Function RPC deep dive: `docs/guides/genesis_function_rpc.md`
-- Agent‑to‑Agent plan: `docs/agents/agent_to_agent_communication.md`
-- Graph/monitoring plans: `docs/planning/unified_monitoring_system_plan.md`
+- Function flow (sequence): `docs/user-guides/function_call_flow.md`
+- Function RPC deep dive: `docs/user-guides/genesis_function_rpc.md`
+- Agent architecture: `docs/architecture/AGENT_ARCHITECTURE_QUICK_REFERENCE.md`
+- Graph/monitoring: `docs/architecture/monitoring_system.md`

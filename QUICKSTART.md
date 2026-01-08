@@ -121,13 +121,24 @@ Run it:
 python interactive.py
 ```
 
-You should get a prompt 
+You should see initialization output followed by:
 
 ```
+Hello! You can ask me questions. Type 'exit' to quit.
 Your question:
 ```
 
-Ask your questions. 
+**Note:** At this point, the agent is running but has **no services connected yet**. You can ask general questions that the LLM can answer directly (like "What is 2+2?" or "Tell me about Python"), but specialized capabilities require services to be running.
+
+### What's Happening Behind the Scenes
+
+When the agent starts, it:
+1. **Connects to DDS** - Joins the Genesis network on domain 0
+2. **Publishes its identity** - Advertises itself so other components can discover it
+3. **Starts discovery** - Listens for function advertisements from services
+4. **Waits for requests** - Ready to process your questions
+
+Without any services running, the agent can only use its built-in LLM capabilities. To unlock the full power of Genesis, you need to add services (see next section). 
 
 ### Optional: Enable MCP (Model Context Protocol)
 
@@ -263,7 +274,38 @@ Run the service in a separate terminal (keep your agent running):
 python calc_service.py
 ```
 
-Now services are discovered by the original agent and you can ask it to do simple math - it will call the service automatically!
+You should see output like:
+```
+INFO:hello_calculator:HelloCalculator service initialized on domain 0
+INFO:hello_calculator:Functions advertised
+```
+
+**Now the magic happens!** Within 2-3 seconds, the agent automatically discovers the calculator service through DDS. You can verify this by looking at the agent terminal - you may see discovery messages.
+
+### Try These Math Questions
+
+Now that the calculator service is connected, try these prompts:
+
+```
+Your question: What is 5 + 3?
+Your question: Calculate 100 divided by 4
+Your question: What's 7 times 8?
+Your question: Add 15.5 and 27.3
+```
+
+### What's Happening When You Ask a Math Question
+
+When you ask "What is 5 + 3?", here's the flow:
+
+1. **Request received** - Your message goes to HelloWorldAgent
+2. **Classification** - The agent's classifier identifies this as a math operation
+3. **Function discovery** - Agent checks discovered functions for matching capabilities
+4. **Function selected** - `HelloCalculator.add` is selected as the best match
+5. **RPC call** - Agent calls `add(x=5, y=3)` via DDS request/reply
+6. **Response received** - Calculator returns `{"result": 8}`
+7. **Final response** - Agent formats and returns "5 + 3 = 8"
+
+All of this happens automatically - no configuration required!
 
 ## Advanced Features
 

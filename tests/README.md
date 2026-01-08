@@ -126,7 +126,7 @@ Implementation notes:
 
 ## Not in `run_all_tests.sh` (But Potentially Useful)
 
-Some scripts look like tests or utilities but are not invoked by the runner today. See the full inventory and suggested actions in `docs/planning/run_scripts_inventory.md`.
+Some scripts look like tests or utilities but are not invoked by the runner today. See the structure notes below for categorization.
 
 - Baselines and variants: `baseline_test_agent.py`, `baseline_test_interface.py`, `run_baseline_*`, `run_math_interface_agent_test.sh`
 - Durability variants: `dev/test_interface_durability.sh`, `dev/test_personal_agent_durability.sh`
@@ -211,7 +211,7 @@ Monitoring
 Viewer Contract
 - `test_viewer_contract.py` validates that the library exports a stable viewer topology JSON:
   - Converts an in-memory graph (GenesisNetworkGraph) to viewer JSON via `genesis_lib.viewer_export`.
-  - Validates against `docs/planning/schemas/viewer_topology.schema.json`.
+  - Validates structure and required fields (nodes, edges, timestamp, version).
   - Enforces a small back-compat gate on counts and required fields.
 - `mcp/`: Optional MCP server to run tests from Cursor/assistants.
   - `mcp/test_runner_server.py` provides tools: `preflight`, `run_triage`, `run_all_tests`, `run_active_test`, `tail_log`, `sweep_dds`.

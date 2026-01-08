@@ -33,7 +33,7 @@ Purpose: a concise, high‑level view of how Genesis fits together. For deep, AP
   - Types: `AgentAgentRequest`/`AgentAgentReply` (XML)
   - Mechanism: `AgentCommunicationMixin` handles discovery + RPC endpoints.
 
-See the end‑to‑end sequence in `docs/guides/function_call_flow.md` (Agent‑as‑Tool pattern).
+See the end‑to‑end sequence in `docs/user-guides/function_call_flow.md` (Agent‑as‑Tool pattern).
 
 ## Discovery & Advertisement
 - Services advertise functions via `FunctionCapability` with name, description, JSON parameter schema, provider_id, and `service_name`.
@@ -51,7 +51,7 @@ See the end‑to‑end sequence in `docs/guides/function_call_flow.md` (Agent‑
 - Drone demo orchestrator: `examples/DroneGraphDemo/run_drone_graph_demo.sh`
 
 ## Further Reading
-- Function flow (sequence): `docs/guides/function_call_flow.md`
-- Function RPC deep dive: `docs/guides/genesis_function_rpc.md`
-- Agent‑to‑Agent plan: `docs/agents/agent_to_agent_communication.md`
+- Function flow (sequence): `docs/user-guides/function_call_flow.md`
+- Function RPC deep dive: `docs/user-guides/genesis_function_rpc.md`
+- Agent architecture: `docs/architecture/AGENT_ARCHITECTURE_QUICK_REFERENCE.md`
 - DDS RPC reference (quick): `docs/reference/RTI_7.3_RPC.md`

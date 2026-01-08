@@ -450,7 +450,17 @@
             <div id="chat-messages" class="chat-messages">
                 <div class="message message-agent">
                     <div class="message-content">
-                        Welcome! Initialize Genesis to discover agents and start chatting.
+                        <strong>Welcome to Genesis Multi-Agent System!</strong><br><br>
+                        <strong>To get started:</strong><br>
+                        1. Click <strong>"Initialize Genesis"</strong> (top-right corner)<br>
+                        2. Wait for agents to be discovered<br>
+                        3. Select an agent from the dropdown above<br>
+                        4. Start chatting!<br><br>
+                        <strong>Example prompts to try:</strong><br>
+                        • "What's the weather in Tokyo?"<br>
+                        • "Calculate 987 * 654"<br>
+                        • "Give me a 5-day forecast for Paris"<br>
+                        • "Weather in London and calculate 15% tip on $85"
                     </div>
                 </div>
             </div>
@@ -561,6 +571,12 @@
                 agents = data.agents;
                 updateAgentDropdown();
                 showMessage(`Discovered ${agents.length} agent(s)`, 'success');
+                
+                // Update Initialize button to show success state
+                const initButton = document.getElementById('init-button');
+                initButton.textContent = '✓ Genesis Ready';
+                initButton.style.background = '#27ae60';
+                initButton.disabled = true;
             });
 
             socket.on('agent_connected', function(data) {

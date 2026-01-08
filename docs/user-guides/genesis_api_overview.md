@@ -215,5 +215,5 @@ if __name__ == "__main__":
 
 ## 9. Further Reading and Examples
 - See `examples/MultiAgent/` for a complete demo.
-- See `docs/guides/function_call_flow.md`, `docs/business/proposals/genesis_overview_report.md`, and `docs/agents/agent_to_agent_communication.md` for deeper dives.
-- For advanced monitoring, see `docs/planning/unified_monitoring_system_plan.md`. 
+- See `docs/user-guides/function_call_flow.md` and `docs/user-guides/genesis_function_rpc.md` for deeper dives into agent-as-tool flows and function RPC.
+- For advanced monitoring, see `docs/architecture/monitoring_system.md`. 

@@ -80,12 +80,29 @@ export function initGraphViewer3D(container, options = {}) {
     return { nodes, links };
   }
   
-  // Debug panel
+  // Debug panel - collapsed by default
+  const debugContainer = document.createElement('div');
+  debugContainer.style.cssText = 'position:absolute; left:8px; right:8px; bottom:8px; z-index:10;';
+  container.appendChild(debugContainer);
+  
+  const debugToggle = document.createElement('button');
+  debugToggle.textContent = '▶ Show Debug';
+  debugToggle.style.cssText = 'background:rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.15); color:#8fa; ' +
+    'font:10px ui-monospace,monospace; padding:4px 8px; border-radius:4px; cursor:pointer; margin-bottom:4px;';
+  debugContainer.appendChild(debugToggle);
+  
   const debugPanel = document.createElement('div');
-  debugPanel.style.cssText = 'position:absolute; left:8px; right:8px; bottom:8px; max-height:200px; overflow:auto; ' +
+  debugPanel.style.cssText = 'max-height:180px; overflow:auto; display:none; ' +
     'background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.08); color:#cfe; ' +
-    'font:11px/1.3 ui-monospace,monospace; padding:6px 8px; border-radius:8px; z-index:10;';
-  container.appendChild(debugPanel);
+    'font:11px/1.3 ui-monospace,monospace; padding:6px 8px; border-radius:8px;';
+  debugContainer.appendChild(debugPanel);
+  
+  let debugVisible = false;
+  debugToggle.addEventListener('click', () => {
+    debugVisible = !debugVisible;
+    debugPanel.style.display = debugVisible ? 'block' : 'none';
+    debugToggle.textContent = debugVisible ? '▼ Hide Debug' : '▶ Show Debug';
+  });
   
   function appendDebugLine(text) {
     const div = document.createElement('div');
@@ -204,7 +221,8 @@ export function initGraphViewer3D(container, options = {}) {
     clock = new THREE.Clock();
     
     camera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.1, 10000);
-    camera.position.set(100, 80, 100);
+    // Position camera further out for better initial overview
+    camera.position.set(350, 280, 350);
     
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(container.clientWidth, container.clientHeight);
@@ -1034,8 +1052,28 @@ export function initGraphViewer3D(container, options = {}) {
             const n = payload.node || payload || {};
             const id = String(n.component_id || n.node_id || n.id || '');
             if (!id) return;
-            const type = mapTypeToThemeKey(n.component_type || n.node_type);
-            const label = (n.attrs && (n.attrs.prefered_name || n.attrs.service_name || n.attrs.function_name)) || n.node_name || id;
+            const type = mapTypeToThemeKey(n.component_type || n.node_type || n.type);
+            
+            // Improved label extraction - try multiple fields
+            let label = '';
+            if (n.attrs) {
+              label = n.attrs.prefered_name || n.attrs.preferred_name || n.attrs.service_name || 
+                      n.attrs.function_name || n.attrs.agent_name || n.attrs.name || '';
+            }
+            if (!label) {
+              label = n.node_name || n.name || n.label || '';
+            }
+            // If still no label, create a readable one from the ID
+            if (!label || label === 'Unknown') {
+              // Try to extract meaningful name from ID
+              if (id.includes('-') && id.length > 20) {
+                // UUID-like - use first segment + type
+                label = `${type}_${id.split('-')[0]}`;
+              } else {
+                label = id;
+              }
+            }
+            
             let existing = graphData.nodes.find(nd => nd.id === id);
             if (!existing) {
               graphData.nodes.push({ id, type, name: label });
