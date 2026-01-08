@@ -12,22 +12,17 @@
 ## 📑 Table of Contents
 
 - [What You Get](#-what-you-get)
-- [Core Components](#-core-components)
-- [Key Features](#-key-features)
 - [Quick Example](#-quick-example)
 - [Installation](#-installation)
 - [Try the Demo](#-try-the-demo)
+- [Key Features](#-key-features)
 - [Architecture](#️-architecture)
-- [Using Components](#-using-components)
-- [Documentation](#-documentation)
 - [Examples](#-examples)
-- [Testing](#-testing)
+- [Documentation](#-documentation)
 - [Use Cases](#-use-cases)
-- [Roadmap](#-roadmap)
-- [Contributing](#-contributing)
 - [Technical Requirements](#️-technical-requirements)
-- [Security](#-security)
-- [Design Philosophy](#-design-philosophy)
+- [Contributing](#-contributing)
+- [License](#-license)
 
 ---
 
@@ -84,51 +79,6 @@ Configure exactly how your data flows:
 
 ### **True Peer-to-Peer**
 No central broker to become a bottleneck or single point of failure. Agents communicate directly with sub-millisecond latency.
-
----
-
-## 🔧 Core Components
-
-GENESIS builds on DDS to provide AI-specific capabilities:
-
-### **1. Agent-as-Tool Integration**
-Agents can call other agents as LLM tools seamlessly:
-
-```python
-# Agent A automatically discovers Agent B
-You: "What's the weather in Tokyo?"
-→ PersonalAssistant discovers WeatherAgent via DDS
-→ Classifier windows available agents/functions
-→ LLM sees: [get_weather_info, calculate, ...]
-→ Calls: get_weather_info(message="Tokyo")
-→ Routed via DDS to WeatherAgent
-→ Response returned through the chain
-```
-
-### **2. Zero-Boilerplate Tool Development**
-Python decorators generate all the schema and wiring:
-
-```python
-@genesis_function()
-async def calculate(self, x: float, y: float) -> dict:
-    """Add two numbers."""
-    return {"result": x + y}
-
-# Type hints → JSON schema → LLM tool (automatic)
-# Function advertised on DDS (automatic)
-# RPC server created (automatic)
-```
-
-### **3. Memory Management**
-Context preservation with token limit awareness:
-
-- Automatic token counting and truncation
-- Sliding window for long conversations
-- Context preserved across agent chains
-- Memory adapters for different backends
-
-### **4. Multi-LLM Provider Support**
-Add a new LLM provider in ~150 lines by implementing 7 methods. OpenAI and Anthropic included.
 
 ---
 
@@ -286,48 +236,7 @@ GENESIS uses a three-layer architecture that separates concerns and enables mult
 - Pub/Sub for monitoring and events
 - QoS-configurable reliability and performance
 
-📖 **Documentation**: [docs/](docs/) - Guides and architecture documentation
-
----
-
-## 🔧 Using Components
-
-### **Agents**
-Intelligent entities that process requests, call functions/other agents, and interact with LLMs.
-
-```python
-from genesis_lib.openai_genesis_agent import OpenAIGenesisAgent
-
-agent = OpenAIGenesisAgent(
-    model_name="gpt-4o",
-    agent_name="MyAgent",
-    enable_agent_communication=True
-)
-```
-
-### **Services**
-Expose functions to the network for agent discovery and execution.
-
-```python
-from genesis_lib.monitored_service import MonitoredService
-from genesis_lib.decorators import genesis_function
-
-class MyService(MonitoredService):
-    @genesis_function()
-    async def my_function(self, param: str) -> dict:
-        return {"result": param.upper()}
-```
-
-### **Interfaces**
-Connect to agents and send requests (CLI, web UI, etc.).
-
-```python
-from genesis_lib.monitored_interface import MonitoredInterface
-
-interface = MonitoredInterface(interface_name="MyCLI")
-await interface.connect_to_agent(service_name="target_agent")
-response = await interface.send_request({"message": "Hello!"})
-```
+📖 **Full documentation**: [docs/](docs/)
 
 ---
 
@@ -355,26 +264,6 @@ response = await interface.send_request({"message": "Hello!"})
 
 ---
 
-## 🧪 Testing
-
-GENESIS includes a comprehensive test suite:
-
-```bash
-# Run all tests
-cd tests
-./run_all_tests.sh
-
-# Run parallel test suite (faster)
-./run_all_tests_parallel.sh
-
-# Run triage suite (quick validation)
-./run_triage_suite.sh
-```
-
-📖 **Testing guide**: [tests/README.md](tests/README.md)
-
----
-
 ## 🌟 Use Cases
 
 ### **Critical Infrastructure AI**
@@ -391,26 +280,6 @@ Connect legacy systems with AI agents using DDS's platform-independent middlewar
 
 ### **Large-Scale Agent Networks**
 Deploy hundreds of agents with DDS's proven scalability (tested in systems with thousands of nodes).
-
----
-
-## 🔮 Roadmap
-
-### ✅ RC1 (Current Release)
-- ✅ Agent-as-tool pattern
-- ✅ Multi-provider support (OpenAI, Anthropic)
-- ✅ Comprehensive monitoring
-- ✅ Real-time chaining (sequential, parallel, context-preserving)
-- ✅ Zero-configuration discovery
-- ✅ Decorator-based tool development
-
-### 🎯 Phase 6 (Planned)
-- 🔄 Advanced reasoning chains with optimization
-- 🔄 Cross-domain knowledge transfer
-- 🔄 Adaptive performance optimization
-- 🔄 Enhanced security framework
-- 🔄 Multi-modal agent support
-- 🔄 Additional LLM providers (Gemini, Llama, etc.)
 
 ---
 
@@ -445,21 +314,6 @@ cd tests && ./run_all_tests.sh
 
 ---
 
-## 📊 Project Status
-
-**Phase 5: COMPLETE ✅** (100%)
-
-- ✅ Agent-as-tool pattern implemented
-- ✅ Comprehensive chaining tested
-- ✅ Multi-provider architecture stable
-- ✅ Real API integration validated
-- ✅ Zero mock data
-- ✅ Production-ready monitoring
-
-**RC1 Release Status: Ready for Initial Release**
-
----
-
 ## 🛠️ Technical Requirements
 
 | Component | Requirement |
@@ -468,44 +322,6 @@ cd tests && ./run_all_tests.sh
 | **RTI Connext DDS** | 7.3.0 or greater |
 | **Operating System** | macOS, Linux, Windows |
 | **LLM APIs** | OpenAI and/or Anthropic |
-
----
-
-## 🔒 Security
-
-GENESIS is architected for enterprise security using DDS Security plugins:
-
-- **Authentication**: X.509 certificates
-- **Access Control**: Role-based permissions
-- **Encryption**: AES-GCM
-- **Audit Logging**: Complete activity tracking
-
-⚠️ **Note**: DDS Security is not yet enabled by default but the architecture is ready for seamless integration.
-
----
-
-## 💡 Design Philosophy
-
-GENESIS eliminates the complexity and fragility of traditional distributed systems:
-
-### **No Configuration Files**
-Start your components—they find each other. No IPs, ports, or service registries to manage.
-
-### **No Central Broker**
-Peer-to-peer architecture means no bottlenecks and no single points of failure.
-
-### **No Token Overflow**
-Classifiers automatically window function sets so LLMs see only relevant tools.
-
-### **No Manual Schemas**
-Type hints become tool schemas. Python decorators handle all the wiring.
-
-### **Execution-Time Dynamic Chaining**
-Chains emerge dynamically at **execution time**, not design time.
-- **Native Default**: Agents publish capabilities. When a query arrives, the system finds *currently available* agents matching that capability. If "MathAgent-1" is offline, it routes to "MathAgent-2".
-- **Future Capability**: Planned support for experience-based chaining, where RL models or user policies optimize routes based on historical performance.
-
-This eliminates fragile configuration files, reduces operational complexity, and enables truly dynamic AI systems where components can be added or removed without coordination.
 
 ---
 
@@ -518,24 +334,9 @@ This eliminates fragile configuration files, reduces operational complexity, and
 
 ---
 
-## 📞 Support
-
-- 🐛 **Issues**: GitHub Issues
-- 📖 **Docs**: [Full Documentation](docs/)
-
-> **Note**: Community support channels (Discord, email) coming soon.
-
----
-
 ## 📄 License
 
 GENESIS is released under the RTI License. See [LICENSE](LICENSE) for details.
-
----
-
-## ⭐ Star History
-
-If you find GENESIS useful, please consider starring the repository!
 
 ---
 
@@ -543,6 +344,6 @@ If you find GENESIS useful, please consider starring the repository!
 
 **Built with ❤️ by the GENESIS Team**
 
-[Documentation](docs/) • [Examples](examples/)
+[Documentation](docs/) • [Examples](examples/) • [Report Issues](../../issues)
 
 </div>
