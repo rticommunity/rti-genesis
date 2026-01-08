@@ -22,6 +22,7 @@
 - [Use Cases](#-use-cases)
 - [Technical Requirements](#️-technical-requirements)
 - [Contributing](#-contributing)
+- [Support](#-support)
 - [License](#-license)
 
 ---
@@ -337,12 +338,19 @@ cd tests && ./run_all_tests.sh
 
 ---
 
-## 🙏 Acknowledgments
+## 📞 Support
 
-- **RTI Connext DDS**: Enterprise-grade middleware
-- **OpenAI**: GPT models and API
-- **Anthropic**: Claude models and API
-- **The Community**: Contributors and early adopters
+Need help? We're here for you.
+
+**Email**: [genesis@rti.com](mailto:genesis@rti.com?subject=Genesis%20Support%20Request)
+
+When contacting support, please include:
+- **Subject line**: "Genesis: [brief description]"
+- **Environment**: OS, Python version, RTI Connext version
+- **Description**: What you're trying to do and what's happening
+- **Logs/errors**: Any relevant error messages or stack traces
+
+For bug reports, you can also [open a GitHub Issue](../../issues).
 
 ---
 
