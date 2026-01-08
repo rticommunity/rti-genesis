@@ -148,8 +148,20 @@ response = await agent.process_message("What is 2 + 2?")
 ### Prerequisites
 
 1. **Python 3.10** (required)
-2. **RTI Connext DDS 7.3.0+** ([download here](https://www.rti.com/downloads))
+2. **RTI Connext DDS 7.3.0+** (see below)
 3. **API Keys** (OpenAI or Anthropic)
+
+### Getting RTI Connext DDS
+
+GENESIS requires RTI Connext DDS. RTI offers several free options:
+
+| License Type | Best For | Limits |
+|--------------|----------|--------|
+| **[60-Day Evaluation](https://www.rti.com/get-connext)** | Exploring GENESIS, building prototypes | Unlimited scale, time-limited |
+| **[Connext Express](https://www.rti.com/get-connext)** | Small deployments, getting started | Free forever, participant-limited |
+| **[University Program](https://www.rti.com/developers/university-program)** | Researchers, academics, classrooms | Perpetual research licenses |
+
+> 💡 **Recommendation**: Start with the **60-day evaluation** for full functionality. If you're building networks with multiple agents/services, avoid the Express license (participant-limited). Researchers should apply for the University Program for perpetual access.
 
 ### Quick Install
 
