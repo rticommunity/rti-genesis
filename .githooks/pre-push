@@ -28,7 +28,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   fi
 
   for commit in ${revs}; do
-    matches="$(git grep -n -I -E "${pattern}" "${commit}" || true)"
+    matches="$(git grep -n -I -E "${pattern}" "${commit}" -- . ":(exclude).githooks/pre-push" || true)"
     if [ -n "${matches}" ]; then
       echo "Potential secret(s) detected in commit ${commit} (${local_ref}) to ${remote_name} ${remote_url}:" >&2
       echo "${matches}" >&2
