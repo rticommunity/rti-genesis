@@ -13,7 +13,6 @@ Features:
 - Agent-as-tool pattern with capability-based discovery
 - Enhanced tracing and monitoring
 
-Copyright (c) 2025, RTI & Jason Upchurch
 """
 
 import asyncio

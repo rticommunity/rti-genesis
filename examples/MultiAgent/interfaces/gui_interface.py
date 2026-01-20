@@ -12,7 +12,6 @@ Features:
 - Live monitoring of agent communications
 - Interactive network graph with node and edge information
 
-Copyright (c) 2025, RTI & Jason Upchurch
 """
 
 import asyncio

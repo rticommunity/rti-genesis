@@ -11,7 +11,6 @@ Features:
 - Function calling demonstration
 - @genesis_tool verification
 
-Copyright (c) 2025, RTI & Jason Upchurch
 """
 
 import asyncio

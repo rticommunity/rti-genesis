@@ -12,7 +12,6 @@ Features:
 - Automatic delegation visualization
 - Enhanced tracing and monitoring
 
-Copyright (c) 2025, RTI & Jason Upchurch
 """
 
 import asyncio

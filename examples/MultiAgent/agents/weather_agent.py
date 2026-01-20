@@ -13,7 +13,6 @@ Features:
 - Type-safe development with Python hints
 - Automatic tool injection into OpenAI client
 
-Copyright (c) 2025, RTI & Jason Upchurch
 """
 
 import asyncio

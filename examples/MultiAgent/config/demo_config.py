@@ -4,7 +4,6 @@ Demo Configuration - Genesis Multi-Agent Example
 
 Configuration settings and environment validation for the Genesis multi-agent demo.
 
-Copyright (c) 2025, RTI & Jason Upchurch
 """
 
 import os
