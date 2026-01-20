@@ -1,4 +1,5 @@
 #!/bin/bash
+# Copyright (c) 2025, RTI & Jason Upchurch
 # test_monitoring_complete.sh - Comprehensive monitoring coverage test
 # Verifies ALL monitoring features: nodes, edges (agent→agent, agent→service, service→function), and chain events
 

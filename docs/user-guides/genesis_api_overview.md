@@ -217,3 +217,6 @@ if __name__ == "__main__":
 - See `examples/MultiAgent/` for a complete demo.
 - See `docs/user-guides/function_call_flow.md` and `docs/user-guides/genesis_function_rpc.md` for deeper dives into agent-as-tool flows and function RPC.
 - For advanced monitoring, see `docs/architecture/monitoring_system.md`. 
+
+---
+*Copyright (c) 2025, RTI & Jason Upchurch*

@@ -1,3 +1,4 @@
+# Copyright (c) 2025, RTI & Jason Upchurch
 #!/usr/bin/env python3
 # --------------------------------------------------------------------------- #
 # LetterCounterService: Original Method for Genesis Service Function Definition

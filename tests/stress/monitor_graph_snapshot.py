@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025, RTI & Jason Upchurch
 """
 Monitor DDS topology and write a snapshot
 

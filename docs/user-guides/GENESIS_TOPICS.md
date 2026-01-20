@@ -169,3 +169,6 @@ reader = dds.DynamicData.DataReader(subscriber, cft)
 **For detailed type definitions, see**: `genesis_lib/config/datamodel.xml`  
 **For external validation**: `MONITORING_CONSOLIDATION_VALIDATION.md`
 
+
+---
+*Copyright (c) 2025, RTI & Jason Upchurch*

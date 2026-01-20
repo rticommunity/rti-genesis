@@ -1,4 +1,5 @@
 #!/bin/bash
+# Copyright (c) 2025, RTI & Jason Upchurch
 
 # Simple script to run the calculator service and test it
 

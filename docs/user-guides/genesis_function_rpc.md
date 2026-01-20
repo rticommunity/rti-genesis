@@ -291,3 +291,5 @@ When designing the new Interface-to-Agent RPC system, consider adopting similar 
 *   Integrate monitoring using patterns from `EnhancedServiceBase` (wrappers, lifecycle events).
 *   Strictly enforce the communication hierarchy (Interfaces only talk to Agents). This might involve checks within the RPC layers or discovery mechanisms.
 *   Pay close attention to data serialization (likely JSON) within the request/reply structures. 
+---
+*Copyright (c) 2025, RTI & Jason Upchurch*

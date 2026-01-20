@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Copyright (c) 2025, RTI & Jason Upchurch
 # Monitoring Topic Consolidation Validation Script
 # 
 # This script uses rtiddsspy to compare old vs new monitoring topics for 1:1 parity.

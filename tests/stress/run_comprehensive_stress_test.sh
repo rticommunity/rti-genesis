@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Copyright (c) 2025, RTI & Jason Upchurch
 # Comprehensive stress test for Genesis - Tests full end-to-end system
 # Configuration: 2 interfaces, 6 agents, 20 services, multiple questions
 #

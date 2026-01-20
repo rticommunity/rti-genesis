@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025, RTI & Jason Upchurch
 """
 Simple CLI tool to monitor the Genesis graph in real-time.
 Shows nodes and edges as they're discovered via DDS.

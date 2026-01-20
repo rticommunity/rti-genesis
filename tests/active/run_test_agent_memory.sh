@@ -1,4 +1,5 @@
 #!/bin/bash
+# Copyright (c) 2025, RTI & Jason Upchurch
 
 # run_test_agent_memory.sh - Test agent memory recall functionality
 # This script runs test_agent_memory.py with timeout and logs output for verification

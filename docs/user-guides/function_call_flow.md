@@ -237,3 +237,6 @@ For detailed implementation, see:
 - `genesis_lib/agent_communication.py` - Agent-to-agent communication
 - `examples/MultiAgent/` - Complete working demonstrations
 - `run_scripts/comprehensive_multi_agent_test_interface.py` - Comprehensive testing 
+
+---
+*Copyright (c) 2025, RTI & Jason Upchurch*

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Copyright (c) 2025, RTI & Jason Upchurch
 set -euo pipefail
 
 LOG_DIR="$(cd "$(dirname "$0")/../.." && pwd)/logs"

@@ -41,3 +41,6 @@ Please avoid renaming or relocating these without updating all runner scripts. I
 - DDS: Ensure `NDDSHOME` points to a valid RTI Connext DDS installation when running tests that communicate via DDS.
 - Set `OPENAI_API_KEY` for agent scenarios that require LLMs.
 
+
+---
+*Copyright (c) 2025, RTI & Jason Upchurch*

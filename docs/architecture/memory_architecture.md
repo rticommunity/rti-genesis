@@ -166,3 +166,6 @@ Let me know which of these areas you want to prototype first or if you’d like 
 [13]: https://arxiv.org/html/2505.13452v1?utm_source=chatgpt.com "Large Language Model powered Symbolic Execution - arXiv"
 [14]: https://docs.llamaindex.ai/en/stable/CHANGELOG/?utm_source=chatgpt.com "Changelog - LlamaIndex"
 [15]: https://arxiv.org/html/2501.05435v1?utm_source=chatgpt.com "Neuro-Symbolic AI in 2024: A Systematic Review - arXiv"
+
+---
+*Copyright (c) 2025, RTI & Jason Upchurch*

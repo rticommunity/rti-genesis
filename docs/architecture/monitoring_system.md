@@ -303,3 +303,6 @@ Each event message contains:
 [12:00:00.009] [EDGE.RESPONSE] Function (id=calc-123) -> Agent (id=agent-456) result: 15 (call_id=call-001)
 [12:00:00.010] [EDGE.RESPONSE] Agent (id=agent-456) -> Interface (id=web-789) request completed (request_id=req-001)
 ``` 
+
+---
+*Copyright (c) 2025, RTI & Jason Upchurch*

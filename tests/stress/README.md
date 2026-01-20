@@ -196,3 +196,6 @@ pkill -f "personal_assistant.py|weather_agent.py|calculator_service.py"
 - `examples/StandaloneGraphViewer/` - Visualize large topologies
 - `V2_MONITORING_USAGE.md` - Monitoring architecture
 - `tests/run_all_tests_parallel.sh` - Parallel test runner
+
+---
+*Copyright (c) 2025, RTI & Jason Upchurch*

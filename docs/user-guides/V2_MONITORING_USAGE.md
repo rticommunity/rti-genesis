@@ -251,3 +251,6 @@ Expected completion: Ready for RC1 release after Phase 8.
 - `genesis_lib/graph_state.py` - GraphSubscriber implementation
 - `genesis_lib/graph_monitoring.py` - GraphMonitor dual-publishing
 
+
+---
+*Copyright (c) 2025, RTI & Jason Upchurch*

@@ -55,3 +55,6 @@ See the end‑to‑end sequence in `docs/user-guides/function_call_flow.md` (Age
 - Function RPC deep dive: `docs/user-guides/genesis_function_rpc.md`
 - Agent architecture: `docs/architecture/AGENT_ARCHITECTURE_QUICK_REFERENCE.md`
 - DDS RPC reference (quick): `docs/reference/RTI_7.3_RPC.md`
+
+---
+*Copyright (c) 2025, RTI & Jason Upchurch*

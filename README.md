@@ -367,3 +367,6 @@ GENESIS is released under the RTI License. See [LICENSE](LICENSE) for details.
 [Documentation](docs/) • [Examples](examples/) • [Report Issues](../../issues)
 
 </div>
+
+---
+*Copyright (c) 2025, RTI & Jason Upchurch*

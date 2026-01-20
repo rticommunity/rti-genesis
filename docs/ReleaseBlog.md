@@ -58,3 +58,6 @@ Visit our [GitHub repository](https://github.com/rticommunity/rti-genesis) to di
 ---
 
 *Genesis is developed in collaboration with RTI, the infrastructure software company for physical AI systems.*
+
+---
+*Copyright (c) 2025, RTI & Jason Upchurch*

@@ -1,3 +1,4 @@
+# Copyright (c) 2025, RTI & Jason Upchurch
 #!/usr/bin/env python3
 # --------------------------------------------------------------------------- #
 # TextProcessorService: Decorator-Based Function Definition with Pydantic

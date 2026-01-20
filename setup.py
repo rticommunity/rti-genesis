@@ -1,3 +1,4 @@
+# Copyright (c) 2025, RTI & Jason Upchurch
 from setuptools import setup, find_packages
 
 setup(

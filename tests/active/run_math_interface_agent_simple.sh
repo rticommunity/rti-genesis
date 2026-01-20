@@ -1,4 +1,5 @@
 #!/bin/bash
+# Copyright (c) 2025, RTI & Jason Upchurch
 
 # Script to run simple Interface <-> Agent RPC test with DDS tracing
 

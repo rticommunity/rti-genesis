@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Copyright (c) 2025, RTI & Jason Upchurch
 # Wrapper script to run a test with monitoring parity validation
 #
 # Usage: ./run_with_parity_validation.sh <test_script> [validation_duration]

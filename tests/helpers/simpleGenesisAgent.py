@@ -1,3 +1,4 @@
+# Copyright (c) 2025, RTI & Jason Upchurch
 from genesis_lib.openai_genesis_agent import OpenAIGenesisAgent
 import asyncio
 import logging # Added for script-level logging

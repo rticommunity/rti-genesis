@@ -1,4 +1,5 @@
 #!/bin/bash
+# Copyright (c) 2025, RTI & Jason Upchurch
 
 # run_test_agent_with_functions.sh - A script to test TestAgent with calculator functions
 # This script starts calculator services and tests the agent's ability to discover and use them

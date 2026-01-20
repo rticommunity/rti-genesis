@@ -94,3 +94,5 @@ def wait_for_agent(self, timeout_seconds: int = 30) -> bool:
   ```
 - The client ID (replier's GUID) can be obtained using either method described above
 - These GUIDs are used for monitoring, discovery, and correlation of RPC calls 
+---
+*Copyright (c) 2025, RTI & Jason Upchurch*

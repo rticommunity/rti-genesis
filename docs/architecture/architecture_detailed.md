@@ -79,3 +79,6 @@ This document complements the overview with file‑level pointers, APIs, and ope
 - Function RPC deep dive: `docs/user-guides/genesis_function_rpc.md`
 - Agent architecture: `docs/architecture/AGENT_ARCHITECTURE_QUICK_REFERENCE.md`
 - Graph/monitoring: `docs/architecture/monitoring_system.md`
+
+---
+*Copyright (c) 2025, RTI & Jason Upchurch*

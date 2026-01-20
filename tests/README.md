@@ -230,3 +230,6 @@ Viewer Contract
    - `run_active_test {name}` → runs a single script from `run_scripts/active/`.
    - `tail_log {filename}` → returns the tail of a file under `logs/`.
    - `sweep_dds` → runs an advisory `rtiddsspy -printSample` sweep.
+
+---
+*Copyright (c) 2025, RTI & Jason Upchurch*

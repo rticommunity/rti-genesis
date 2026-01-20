@@ -308,3 +308,6 @@ result = await agent.process_request({"message": "What is 2+2?"})
 assert "4" in result["message"]
 ```
 
+
+---
+*Copyright (c) 2025, RTI & Jason Upchurch*

@@ -402,3 +402,6 @@ The user-definable capability system provides:
 - **Priority** over auto-generation for custom control
 
 Choose the approach that best fits your agent's needs, from simple class-level definitions to complex dynamic capability management.
+
+---
+*Copyright (c) 2025, RTI & Jason Upchurch*

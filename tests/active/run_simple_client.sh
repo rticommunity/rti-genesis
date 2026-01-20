@@ -1,4 +1,5 @@
 #!/bin/bash
+# Copyright (c) 2025, RTI & Jason Upchurch
 
 # Simple script to run the SimpleAgent with the SimpleClient
 # This script starts the necessary function services, the SimpleAgent, and the SimpleClient

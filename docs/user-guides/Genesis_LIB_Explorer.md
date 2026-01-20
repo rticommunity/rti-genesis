@@ -136,3 +136,6 @@ Monitoring
 - `docs/user-guides/function_call_flow.md` — sequence diagram for agent-as-tool.
 - `docs/reference/RTI_7.3_RPC.md` — `rti.rpc` primitives reference.
 - `docs/architecture/AGENT_ARCHITECTURE_QUICK_REFERENCE.md` — agent patterns and architecture.
+
+---
+*Copyright (c) 2025, RTI & Jason Upchurch*

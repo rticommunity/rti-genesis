@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025, RTI & Jason Upchurch
 """
 Test script for monitoring functionality.
 Verifies that agent and function monitoring events are being published correctly.

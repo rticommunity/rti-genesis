@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Copyright (c) 2025, RTI & Jason Upchurch
 
 # Genesis Fail-Fast Triage Test Suite
 # -----------------------------------

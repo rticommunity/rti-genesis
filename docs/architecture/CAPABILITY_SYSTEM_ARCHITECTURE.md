@@ -240,3 +240,6 @@ class DynamicAgent(OpenAIGenesisAgent):
 ## Conclusion
 
 The Genesis Agent Capability System provides a sophisticated, intelligent approach to agent metadata that balances automation with user control. The three-tier architecture ensures that the system always works while providing rich, discoverable metadata when needed. This design enables consistency across implementations while maintaining complete backward compatibility.
+
+---
+*Copyright (c) 2025, RTI & Jason Upchurch*

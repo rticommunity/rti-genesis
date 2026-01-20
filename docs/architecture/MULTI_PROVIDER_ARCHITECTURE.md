@@ -379,3 +379,6 @@ See the implementation in:
 - `genesis_lib/openai_genesis_agent.py` (Reference implementation)
 - `genesis_lib/schema_generators.py` (Schema converters)
 
+
+---
+*Copyright (c) 2025, RTI & Jason Upchurch*

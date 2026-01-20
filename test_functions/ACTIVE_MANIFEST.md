@@ -16,3 +16,6 @@ Notes
 - If you move any of the above into subfolders, keep a top-level shim file that re-exports the implementation and preserves `if __name__ == "__main__"` entrypoints.
 - After any reorg, always run: `python mcp/file_runner.py --enqueue triage --timeout 240 --wait` to verify.
 
+
+---
+*Copyright (c) 2025, RTI & Jason Upchurch*

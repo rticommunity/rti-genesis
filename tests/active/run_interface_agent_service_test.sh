@@ -1,4 +1,5 @@
 #!/bin/bash
+# Copyright (c) 2025, RTI & Jason Upchurch
 
 # Test for Interface -> Agent -> Service pipeline
 # 1. Checks for clean DDS environment for relevant topics.

@@ -341,3 +341,6 @@ genesis-graph-viewer
 - **Architecture Docs**: Read `docs/architecture/` for implementation details
 - **User Guides**: See `docs/user-guides/` for detailed guides
 - **Provider Guide**: See `docs/architecture/NEW_PROVIDER_GUIDE.md` to add support for new LLM providers
+
+---
+*Copyright (c) 2025, RTI & Jason Upchurch*

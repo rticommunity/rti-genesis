@@ -125,3 +125,6 @@ relevant = classifier.classify_functions("add two numbers", list(functions.value
   rather than keyword/regex matching to ensure agentic behavior
 
 
+
+---
+*Copyright (c) 2025, RTI & Jason Upchurch*

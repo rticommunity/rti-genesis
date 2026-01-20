@@ -1,3 +1,4 @@
+# Copyright (c) 2025, RTI & Jason Upchurch
 from genesis_lib.openai_genesis_agent import OpenAIGenesisAgent
 import os
 import asyncio

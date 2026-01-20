@@ -338,3 +338,5 @@ See the template files for complete examples:
 - `templates/client_template.py`
 
 These templates provide working examples of all patterns and practices described in this guide. 
+---
+*Copyright (c) 2025, RTI & Jason Upchurch*

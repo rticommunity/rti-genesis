@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025, RTI & Jason Upchurch
 """
 Detailed monitoring topic parity validation using rtiddsspy output.
 

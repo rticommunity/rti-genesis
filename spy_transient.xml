@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright (c) 2025, RTI & Jason Upchurch -->
 <dds>
   <qos_library name="SpyLib">
     <qos_profile name="TransientReliable" base_name="BuiltinQosLibExp::Generic.StrictReliable">

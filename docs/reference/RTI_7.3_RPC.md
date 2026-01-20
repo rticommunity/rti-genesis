@@ -449,3 +449,5 @@ Exception thrown by a client operation when the server indicates that the operat
 
 exceptionrti.rpc.RemoteUnknownExceptionError
 Exception thrown by a client operation when the server operation fails with an exception that is not declared in the interface.
+---
+*Copyright (c) 2025, RTI & Jason Upchurch*

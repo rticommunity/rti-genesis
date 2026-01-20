@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Copyright (c) 2025, RTI & Jason Upchurch
 # Start an arbitrary number of agents, services, and interfaces, track PIDs,
 # and clean up on Ctrl-C or after a timeout. Avoids GNU timeout dependency.
 set -Eeuo pipefail

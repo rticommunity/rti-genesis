@@ -107,3 +107,6 @@ When an error occurs, it must be:
 
 Silent failures are bugs that must be eliminated through defensive programming practices. Every error is an opportunity to improve system reliability.
 
+
+---
+*Copyright (c) 2025, RTI & Jason Upchurch*

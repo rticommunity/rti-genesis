@@ -72,3 +72,6 @@ See the `examples/` directory for practical examples:
 See the `tests/` directory for test suites and stress testing tools:
 - `tests/active/` - Active test suite
 - `tests/stress/` - Stress testing and topology tools
+
+---
+*Copyright (c) 2025, RTI & Jason Upchurch*

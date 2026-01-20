@@ -1,4 +1,5 @@
 #!/bin/bash
+# Copyright (c) 2025, RTI & Jason Upchurch
 
 # Genesis Framework Test Suite
 # This script runs comprehensive tests for the Genesis distributed framework

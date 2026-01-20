@@ -1,4 +1,5 @@
 #!/bin/bash
+# Copyright (c) 2025, RTI & Jason Upchurch
 
 # test_monitoring.sh - A script to test monitoring functionality
 # This script starts the monitoring test and example agent with functions
