@@ -242,4 +242,7 @@ class DynamicAgent(OpenAIGenesisAgent):
 The Genesis Agent Capability System provides a sophisticated, intelligent approach to agent metadata that balances automation with user control. The three-tier architecture ensures that the system always works while providing rich, discoverable metadata when needed. This design enables consistency across implementations while maintaining complete backward compatibility.
 
 ---
-*Copyright (c) 2025, RTI & Jason Upchurch*
+
+*(c) 2025 Copyright, Real-Time Innovations, Inc. (RTI) All rights reserved.*
+
+*RTI grants Licensee a license to use, modify, compile, and create derivative works of the Software. Licensee has the right to distribute object form only for use with RTI products. The Software is provided "as is", with no warranty of any type, including any warranty for fitness for any purpose. RTI is under no obligation to maintain or support the Software. RTI shall not be liable for any incidental or consequential damages arising out of the use or inability to use the software.*
