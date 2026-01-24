@@ -4,6 +4,7 @@
 [![RTI Connext DDS](https://img.shields.io/badge/RTI%20Connext%20DDS-7.3.0+-green.svg)](https://www.rti.com/)
 [![License](https://img.shields.io/badge/license-RTI-blue.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-RC1-orange.svg)]()
+[![Wiki](https://img.shields.io/badge/wiki-documentation-blue.svg)](https://github.com/rticommunity/rti-genesis/wiki)
 
 **GENESIS** (Generative Networked System for Intelligent Services) is a Python framework for building distributed AI agent networks with the robustness and reliability required for production deployments.
 
@@ -257,11 +258,12 @@ GENESIS uses a three-layer architecture that separates concerns and enables mult
 
 | Document | Description |
 |----------|-------------|
+| [**Wiki**](https://github.com/rticommunity/rti-genesis/wiki) | Comprehensive guides, API reference, and FAQ |
 | [QUICKSTART.md](QUICKSTART.md) | Get up and running in 5 minutes |
 | [INSTALL.md](INSTALL.md) | Detailed installation instructions |
-| [docs/](docs/) | Complete documentation (user guides + architecture) |
+| [docs/](docs/) | Technical documentation (architecture, internals) |
 
-📂 **Full documentation**: See [`docs/`](docs/) directory
+📖 **Start here**: [Wiki Home](https://github.com/rticommunity/rti-genesis/wiki) for guides and tutorials
 
 ---
 
@@ -364,7 +366,7 @@ GENESIS is released under the RTI License. See [LICENSE](LICENSE) for details.
 
 **Built with ❤️ by the GENESIS Team**
 
-[Documentation](docs/) • [Examples](examples/) • [Report Issues](../../issues)
+[Wiki](https://github.com/rticommunity/rti-genesis/wiki) • [Documentation](docs/) • [Examples](examples/) • [Report Issues](../../issues)
 
 </div>
 
