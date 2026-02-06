@@ -251,11 +251,6 @@ class LocalGenesisAgent(MonitoredAgent):
                 f"Start: ollama serve\n"
                 f"Error: {str(e)}"
             )
-
-        # Tool choice configuration (same as OpenAI)
-        # Ollama supports: "auto" | "required" | "none"
-        # Controlled via GENESIS_TOOL_CHOICE environment variable
-        self.ollama_tool_choice = os.getenv("GENESIS_TOOL_CHOICE", "auto")
         
         # Initialize function requester for RPC calls (provider-agnostic)
         logger.debug(f"===== TRACING: Initializing FunctionRequester using agent app's DDSFunctionDiscovery: {id(self.app.function_discovery)} =====")
@@ -484,10 +479,14 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         """
         Get provider-specific tool choice setting.
         
+        Ollama does not reliably support tool_choice parameter across all models.
+        Always returns "auto" to indicate default behavior (model decides when to use tools).
+        Tools are still fully functional - this only affects explicit control over strategy.
+        
         Returns:
-            Tool choice setting in Ollama format (same as OpenAI)
+            Always "auto" (Ollama uses default tool selection behavior)
         """
-        return self.ollama_tool_choice
+        return "auto"
     
     async def _call_llm(self, messages: List[Dict], tools: Optional[List[Dict]] = None, 
                         tool_choice: str = "auto") -> Any:
@@ -511,10 +510,9 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
         # Add tools if provided (for tool-based conversations)
         if tools:
             kwargs["tools"] = tools
-            # Note: Ollama supports tool_choice but may vary by model
-            # Some models may ignore this parameter
-            if tool_choice != "auto":
-                logger.debug(f"Using tool_choice: {tool_choice} (may not be supported by all Ollama models)")
+            # Note: tool_choice parameter is not passed to Ollama as support varies by model
+            # The model will use default behavior (auto - decides when to call tools)
+            # Tools remain fully functional without explicit tool_choice control
         
         # Make the API call
         # Ollama's chat() returns an OpenAI-compatible response structure
