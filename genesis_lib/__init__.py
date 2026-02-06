@@ -37,7 +37,14 @@ from .function_classifier import FunctionClassifier
 from .llm import AnthropicChatAgent
 from .llm_factory import LLMFactory
 from .openai_genesis_agent import OpenAIGenesisAgent
-from .local_genesis_agent import LocalGenesisAgent
+
+# LocalGenesisAgent requires optional ollama dependency
+try:
+    from .local_genesis_agent import LocalGenesisAgent
+    _HAS_LOCAL_GENESIS_AGENT = True
+except ImportError:
+    _HAS_LOCAL_GENESIS_AGENT = False
+
 from .function_requester import FunctionRequester
 from .genesis_service import GenesisService
 from .monitored_service import MonitoredService
@@ -56,7 +63,6 @@ __all__ = [
     'AnthropicChatAgent',
     'LLMFactory',
     'OpenAIGenesisAgent',
-    'LocalGenesisAgent',
     'FunctionRequester',
     'GenesisService',
     'MonitoredService',
@@ -67,4 +73,8 @@ __all__ = [
     'filter_functions_by_relevance',
     'get_datamodel_path',
     'load_datamodel'
-] 
+]
+
+# Add LocalGenesisAgent to __all__ only if ollama dependency is available
+if _HAS_LOCAL_GENESIS_AGENT:
+    __all__.append('LocalGenesisAgent') 
