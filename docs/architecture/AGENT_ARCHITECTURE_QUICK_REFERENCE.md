@@ -99,6 +99,48 @@ def _get_tool_choice():
     return self.openai_tool_choice  # "auto", "required", or "none"
 ```
 
+### LocalGenesisAgent (Ollama Implementation)
+
+**Implements all abstract methods for local inference:**
+
+```python
+# LLM interaction (Ollama-specific)
+async def _call_llm(messages, tools=None, tool_choice="auto"):
+    return self.client.chat(
+        model=self.model_config['model_name'],
+        messages=messages,
+        tools=tools  # Ollama uses OpenAI-compatible format
+    )
+
+def _format_messages(user_message, system_prompt, memory_items):
+    # Returns Ollama/OpenAI-compatible format: [{"role": ..., "content": ...}, ...]
+    
+def _extract_tool_calls(response):
+    # Parses response['message']['tool_calls']
+    # Includes argument cleaning to remove metadata fields
+    
+def _extract_text_response(response):
+    # Returns response['message']['content']
+    
+def _create_assistant_message(response):
+    # Creates {"role": "assistant", "content": ..., "tool_calls": ...}
+
+# Tool configuration (Ollama-specific)
+async def _get_tool_schemas():
+    return self._get_all_tool_schemas_for_ollama()  # OpenAI-compatible
+    
+def _get_tool_choice():
+    return self.ollama_tool_choice  # "auto", "required", or "none"
+```
+
+**Key Differences from OpenAI:**
+- ✅ No API key required (local inference)
+- ✅ No token costs
+- ✅ Complete data privacy
+- ✅ Uses Ollama Python client
+- ✅ OpenAI-compatible message and tool format
+- ⚠️ Requires local GPU for best performance
+
 **OpenAI-specific helper methods:**
 
 ```python

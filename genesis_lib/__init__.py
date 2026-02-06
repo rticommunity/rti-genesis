@@ -37,6 +37,7 @@ from .function_classifier import FunctionClassifier
 from .llm import AnthropicChatAgent
 from .llm_factory import LLMFactory
 from .openai_genesis_agent import OpenAIGenesisAgent
+from .local_genesis_agent import LocalGenesisAgent
 from .function_requester import FunctionRequester
 from .genesis_service import GenesisService
 from .monitored_service import MonitoredService
@@ -55,6 +56,7 @@ __all__ = [
     'AnthropicChatAgent',
     'LLMFactory',
     'OpenAIGenesisAgent',
+    'LocalGenesisAgent',
     'FunctionRequester',
     'GenesisService',
     'MonitoredService',

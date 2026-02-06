@@ -126,6 +126,7 @@ await service.run()
 
 ### Create an Agent (30 seconds)
 
+**Option 1: Cloud-based (OpenAI)**
 ```python
 from genesis_lib.openai_genesis_agent import OpenAIGenesisAgent
 
@@ -141,6 +142,23 @@ agent = MathAgent()
 response = await agent.process_message("What is 2 + 2?")
 # Classifier determines Calculator.add is relevant
 # Agent calls function via DDS
+```
+
+**Option 2: Local inference (Ollama)**
+```python
+from genesis_lib.local_genesis_agent import LocalGenesisAgent
+
+class LocalMathAgent(LocalGenesisAgent):
+    def __init__(self):
+        super().__init__(
+            model_name="llama3.2:3b",  # Or any Ollama model
+            agent_name="LocalMathAssistant"
+        )
+
+# Run it—completely local, no API costs, full privacy
+agent = LocalMathAgent()
+response = await agent.process_message("What is 2 + 2?")
+# Works identically to OpenAI version, but runs locally
 ```
 
 ---
