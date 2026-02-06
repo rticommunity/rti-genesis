@@ -97,7 +97,7 @@ fi
 
 # Check if required model is available
 echo "Checking for nemotron-mini:latest model..."
-if ! ollama list | grep -q "nemotron-mini"; then
+if ! ollama list | grep -q "^nemotron-mini:latest[[:space:]]"; then
     echo "⚠️  Warning: nemotron-mini:latest not found"
     echo "Attempting to pull the model (this may take a few minutes)..."
     if ! ollama pull nemotron-mini:latest; then
