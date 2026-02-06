@@ -216,7 +216,9 @@ fi
 echo ""
 echo "⏳ Waiting for all tests to complete..."
 echo "   (${#TEST_PIDS[@]} tests running in parallel)"
-echo "   DEBUG: PIDs: ${TEST_PIDS[*]}"
+if [ "$DEBUG" = "true" ]; then
+    echo "   DEBUG: PIDs: ${TEST_PIDS[*]}"
+fi
 
 # Wait for all test processes and capture their exit codes using temp file
 EXITCODE_TMPDIR=$(mktemp -d)
