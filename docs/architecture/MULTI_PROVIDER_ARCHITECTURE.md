@@ -35,13 +35,14 @@ This document explains how to add support for new LLM providers.
 │ - OpenAI message format                                     │
 │ - _get_all_tool_schemas_for_openai()                        │
 └─────────────────────────────────────────────────────────────┘
-┌───────────────────────────────────────────────────────────┐
+┌─────────────────────────────────────────────────────────────┐
 │ LocalGenesisAgent (local_genesis_agent.py)                  │
 │ - ollama.Client().chat() calls                              │
 │ - OpenAI-compatible message format                          │
 │ - _get_all_tool_schemas_for_ollama()                        │
 │ - Local inference (no API key, no costs)                    │
-└───────────────────────────────────────────────────────────┘```
+└─────────────────────────────────────────────────────────────┘
+```
 
 ## What Goes Where
 
