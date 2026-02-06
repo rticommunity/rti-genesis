@@ -485,7 +485,7 @@ fi
 # Local agent test with Ollama
 # Guard: skip run_test_local_agent_with_functions when Ollama is not available
 echo "🤖 Checking for Ollama availability..."
-if command -v ollama &> /dev/null && curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+if command -v ollama &> /dev/null && curl --fail -sS --connect-timeout 2 --max-time 5 http://localhost:11434/api/tags > /dev/null 2>&1; then
     echo "✅ Ollama detected, running LocalGenesisAgent test..."
     DEBUG=true run_with_timeout "$(resolve_path run_test_local_agent_with_functions.sh)" 90 || { echo "Test failed: run_test_local_agent_with_functions.sh"; exit 1; }
 else
