@@ -482,6 +482,16 @@ else
     DEBUG=true run_with_timeout "$(resolve_path run_test_agent_with_functions.sh)" 60 || { echo "Test failed: run_test_agent_with_functions.sh"; exit 1; }
 fi
 
+# Local agent test with Ollama
+# Guard: skip run_test_local_agent_with_functions when Ollama is not available
+echo "🤖 Checking for Ollama availability..."
+if command -v ollama &> /dev/null && curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+    echo "✅ Ollama detected, running LocalGenesisAgent test..."
+    DEBUG=true run_with_timeout "$(resolve_path run_test_local_agent_with_functions.sh)" 90 || { echo "Test failed: run_test_local_agent_with_functions.sh"; exit 1; }
+else
+    echo "⚠️  Skipping run_test_local_agent_with_functions.sh: Ollama not available (install from https://ollama.com)"
+fi
+
 # Services and agent test
 # run_with_timeout "start_services_and_agent.py" 90 || { echo "Test failed: start_services_and_agent.py"; exit 1; }
 

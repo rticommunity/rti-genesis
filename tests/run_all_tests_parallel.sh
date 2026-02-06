@@ -204,9 +204,19 @@ else
     echo "  ⚠️  Skipping test_monitoring.sh: OPENAI_API_KEY not set"
 fi
 
+# LocalGenesisAgent test (Ollama) - Domain 18
+echo "  🤖 LocalGenesisAgent Test (Ollama)"
+# Check if ollama is available
+if command -v ollama &> /dev/null && curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+    launch_test "$(resolve_path run_test_local_agent_with_functions.sh)" 18 90
+else
+    echo "  ⚠️  Skipping run_test_local_agent_with_functions.sh: Ollama not available (install from https://ollama.com)"
+fi
+
 echo ""
 echo "⏳ Waiting for all tests to complete..."
 echo "   (${#TEST_PIDS[@]} tests running in parallel)"
+echo "   DEBUG: PIDs: ${TEST_PIDS[*]}"
 
 # Wait for all test processes and capture their exit codes using temp file
 EXITCODE_TMPDIR=$(mktemp -d)
@@ -225,6 +235,8 @@ while [ $ALL_DONE -eq 0 ]; do
     CURRENT_TIME=$(date +%s)
     ELAPSED=$((CURRENT_TIME - WAIT_START))
     
+    [ "$DEBUG" = "true" ] && echo "DEBUG: Wait loop iteration, elapsed=${ELAPSED}s, captured=${#CAPTURED_PIDS[@]}, total=${#TEST_PIDS[@]}"
+    
     if [ $ELAPSED -gt $MAX_WAIT_SECONDS ]; then
         echo "⚠️  WARNING: Maximum wait time ($MAX_WAIT_SECONDS s) exceeded"
         break
@@ -232,6 +244,7 @@ while [ $ALL_DONE -eq 0 ]; do
     
     ALL_DONE=1
     for pid in "${TEST_PIDS[@]}"; do
+        [ "$DEBUG" = "true" ] && echo "DEBUG: Checking PID $pid"
         # Skip if we already captured this PID
         if [[ " ${CAPTURED_PIDS[@]} " =~ " ${pid} " ]]; then
             continue
