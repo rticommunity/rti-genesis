@@ -207,7 +207,7 @@ fi
 # LocalGenesisAgent test (Ollama) - Domain 18
 echo "  🤖 LocalGenesisAgent Test (Ollama)"
 # Check if ollama is available
-if command -v ollama &> /dev/null && curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+if command -v ollama &> /dev/null && curl -s --connect-timeout 2 --max-time 5 http://localhost:11434/api/tags > /dev/null 2>&1; then
     launch_test "$(resolve_path run_test_local_agent_with_functions.sh)" 18 90
 else
     echo "  ⚠️  Skipping run_test_local_agent_with_functions.sh: Ollama not available (install from https://ollama.com)"
