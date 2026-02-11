@@ -591,22 +591,11 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
             # Handle both dict and object-style access
             if isinstance(tc, dict):
                 # Extract arguments and ensure it's a dict
-                args = tc['function']['arguments']
-                if isinstance(args, str):
-                    args = json.loads(args)
+                args = self._normalize_tool_arguments(tc['function']['arguments'])
                 
                 # Debug logging
                 if self.enable_tracing:
                     logger.debug(f"===== TRACING: Extracted tool call: name={tc['function']['name']}, args={args} =====")
-                
-                # Clean up arguments - remove any metadata fields that shouldn't be passed
-                # Sometimes Ollama includes 'function' or other metadata in arguments
-                if isinstance(args, dict):
-                    # Create a clean copy without metadata keys
-                    clean_args = {k: v for k, v in args.items() if k not in ['function', 'name', 'id', 'type']}
-                    if self.enable_tracing and args != clean_args:
-                        logger.debug(f"===== TRACING: Cleaned arguments from {args} to {clean_args} =====")
-                    args = clean_args
                 
                 result.append({
                     'id': tc.get('id', str(uuid.uuid4())),  # Generate ID if not provided
@@ -615,21 +604,115 @@ Be friendly, professional, and maintain a helpful tone while being concise and c
                 })
             else:
                 # Object-style access (if Ollama returns objects)
-                args = tc.function.arguments
-                if isinstance(args, str):
-                    args = json.loads(args)
-                
-                # Clean up arguments
-                if isinstance(args, dict):
-                    args = {k: v for k, v in args.items() if k not in ['function', 'name', 'id', 'type']}
+                args = self._normalize_tool_arguments(tc.function.arguments)
                 
                 result.append({
                     'id': getattr(tc, 'id', str(uuid.uuid4())),
                     'name': tc.function.name,
                     'arguments': args
                 })
-        
-        return result
+
+        # If a model emits malformed calls, skip invalid function calls and continue.
+        filtered = []
+        for tool_call in result:
+            if self._has_required_function_arguments(tool_call["name"], tool_call["arguments"]):
+                filtered.append(tool_call)
+            else:
+                logger.warning(
+                    "Skipping malformed tool call for function '%s' due to missing required args: %s",
+                    tool_call["name"],
+                    tool_call["arguments"],
+                )
+
+        return filtered or None
+
+    def _normalize_tool_arguments(self, raw_args: Any) -> Any:
+        """
+        Normalize model-emitted tool arguments into plain function kwargs.
+
+        Some local models return wrapper payloads like:
+          {"arguments": {"x": 1, "y": 2}, "function_name": "add"}
+        This helper unwraps those payloads and drops obvious metadata keys.
+        """
+        args = raw_args
+
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except json.JSONDecodeError:
+                return args
+
+        if not isinstance(args, dict):
+            return args
+
+        # Parse nested JSON-in-string payloads if present.
+        nested_args = args.get("arguments")
+        if isinstance(nested_args, str):
+            try:
+                nested_args = json.loads(nested_args)
+                args["arguments"] = nested_args
+            except json.JSONDecodeError:
+                pass
+
+        metadata_keys = {
+            "function",
+            "function_name",
+            "functionName",
+            "name",
+            "id",
+            "type",
+            "tool",
+            "tool_name",
+            "toolName",
+        }
+
+        # Common wrapper format: {"arguments": {...}, "function_name": "..."}.
+        if isinstance(args.get("arguments"), dict):
+            wrapper_extras = [k for k in args.keys() if k not in metadata_keys and k != "arguments"]
+            if not wrapper_extras:
+                normalized = args["arguments"]
+                if self.enable_tracing and normalized != raw_args:
+                    logger.debug(f"===== TRACING: Normalized wrapped args from {raw_args} to {normalized} =====")
+                return normalized
+
+        # Fallback: if metadata keys are mixed in, drop only metadata keys.
+        if any(k in metadata_keys for k in args.keys()):
+            clean_args = {k: v for k, v in args.items() if k not in metadata_keys}
+            if clean_args and clean_args != args:
+                if self.enable_tracing:
+                    logger.debug(f"===== TRACING: Cleaned metadata args from {args} to {clean_args} =====")
+                return clean_args
+
+        return args
+
+    def _has_required_function_arguments(self, tool_name: str, args: Any) -> bool:
+        """
+        Validate required arguments for discovered external functions.
+        """
+        available_functions = self._get_available_functions()
+        function_info = available_functions.get(tool_name)
+
+        # Only validate discovered external functions. Agent/internal tools may differ.
+        if not function_info:
+            return True
+
+        required = function_info.get("schema", {}).get("required", [])
+        if not required:
+            return True
+
+        if not isinstance(args, dict):
+            return False
+
+        for field in required:
+            if field not in args:
+                return False
+            value = args[field]
+            if value is None:
+                return False
+            if isinstance(value, str) and value.strip() == "":
+                return False
+
+        return True
 
     def _extract_text_response(self, response: Any) -> str:
         """
