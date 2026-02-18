@@ -1,0 +1,65 @@
+;===============================================================
+; Event Normalization: CodingEvent Dataclass
+;
+; All backend-specific events are normalized to CodingEvent
+; instances. This is the API boundary between the backend
+; parsers and the Genesis agent logic.
+;===============================================================
+
+;---------------------------------------------------------------
+; CodingEvent has all required fields with sensible defaults.
+;---------------------------------------------------------------
+GIVEN the CodingEvent dataclass.
+
+WHEN a CodingEvent is created with kind "text" and text "hello".
+
+THEN the event has kind "text".
+THEN the event has text "hello".
+THEN the event has session_id "".
+THEN the event has tool_name "".
+THEN the event has tool_input as an empty dict.
+THEN the event has tool_output "".
+THEN the event has raw as an empty dict.
+
+;---------------------------------------------------------------
+; CodingEvent kind values are constrained.
+;---------------------------------------------------------------
+GIVEN the CodingEvent dataclass.
+
+WHEN listing all valid kind values.
+
+THEN the valid kinds are "init", "text", "tool_start", "tool_result", "done", and "error".
+
+;---------------------------------------------------------------
+; Claude and Codex produce identical CodingEvents for text.
+;---------------------------------------------------------------
+GIVEN a Claude assistant/text event with text "Hello world".
+GIVEN a Codex item.completed/agent_message event with text "Hello world".
+
+WHEN both events are parsed by their respective backends.
+
+THEN both produce a CodingEvent with kind "text".
+THEN both produce a CodingEvent with text "Hello world".
+
+;---------------------------------------------------------------
+; Claude and Codex produce identical CodingEvents for init.
+;---------------------------------------------------------------
+GIVEN a Claude system/init event with session_id "sess-001".
+GIVEN a Codex thread.started event with thread_id "thread-001".
+
+WHEN both events are parsed by their respective backends.
+
+THEN both produce a CodingEvent with kind "init".
+THEN the Claude event has session_id "sess-001".
+THEN the Codex event has session_id "thread-001".
+
+;---------------------------------------------------------------
+; Claude and Codex produce identical CodingEvents for tool_start.
+;---------------------------------------------------------------
+GIVEN a Claude assistant/tool_use event for tool "Write".
+GIVEN a Codex item.completed/tool_call event for tool "shell".
+
+WHEN both events are parsed by their respective backends.
+
+THEN both produce a CodingEvent with kind "tool_start".
+THEN both have non-empty tool_name.

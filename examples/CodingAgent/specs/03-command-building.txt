@@ -1,0 +1,100 @@
+;===============================================================
+; Command Building: Claude Backend
+;
+; The Claude backend must construct the correct argv for
+; "claude -p" with streaming JSON output. Session resume and
+; working directory are optional.
+;===============================================================
+
+;---------------------------------------------------------------
+; Basic Claude command with prompt only.
+;---------------------------------------------------------------
+GIVEN the "claude" backend is selected.
+
+WHEN the backend builds a command with prompt "Write a hello world script".
+
+THEN the command is ["claude", "-p", "Write a hello world script", "--output-format", "stream-json"].
+
+;---------------------------------------------------------------
+; Claude command with session resume.
+;---------------------------------------------------------------
+GIVEN the "claude" backend is selected.
+
+WHEN the backend builds a command with prompt "Continue the refactor" and session id "sess-abc-123".
+
+THEN the command contains "--session-id".
+THEN the command contains "sess-abc-123".
+THEN the command contains "-p".
+THEN the command contains "--output-format".
+
+;---------------------------------------------------------------
+; Claude command with working directory.
+;---------------------------------------------------------------
+GIVEN the "claude" backend is selected.
+
+WHEN the backend builds a command with prompt "Fix the tests" and working directory "/home/user/project".
+
+THEN the command contains "--cwd".
+THEN the command contains "/home/user/project".
+
+;---------------------------------------------------------------
+; Claude command with session resume and working directory.
+;---------------------------------------------------------------
+GIVEN the "claude" backend is selected.
+
+WHEN the backend builds a command with prompt "Continue" and session id "sess-xyz" and working directory "/tmp/work".
+
+THEN the command contains "--session-id" followed by "sess-xyz".
+THEN the command contains "--cwd" followed by "/tmp/work".
+THEN the command contains "--output-format" followed by "stream-json".
+
+
+;===============================================================
+; Command Building: Codex Backend
+;
+; The Codex backend must construct the correct argv for
+; "codex exec" with JSON output. The model must be specified
+; explicitly to avoid the gpt-5.3-codex-spark restriction.
+;===============================================================
+
+;---------------------------------------------------------------
+; Basic Codex command with prompt only (default model).
+;---------------------------------------------------------------
+GIVEN the "codex" backend is selected.
+GIVEN the model is "gpt-5.3-codex".
+
+WHEN the backend builds a command with prompt "Write unit tests".
+
+THEN the command is ["codex", "exec", "-m", "gpt-5.3-codex", "--json", "Write unit tests"].
+
+;---------------------------------------------------------------
+; Codex command with custom model.
+;---------------------------------------------------------------
+GIVEN the "codex" backend is selected.
+GIVEN the model is "gpt-5.2-codex".
+
+WHEN the backend builds a command with prompt "Debug the API".
+
+THEN the command contains "-m".
+THEN the command contains "gpt-5.2-codex".
+
+;---------------------------------------------------------------
+; Codex command with session resume.
+;---------------------------------------------------------------
+GIVEN the "codex" backend is selected.
+GIVEN the model is "gpt-5.3-codex".
+
+WHEN the backend builds a command with prompt ignored and session id "019c7199-a895-74f2".
+
+THEN the command is ["codex", "exec", "resume", "019c7199-a895-74f2", "-m", "gpt-5.3-codex", "--json"].
+THEN the command does not contain the prompt text.
+
+;---------------------------------------------------------------
+; Codex working directory is handled via subprocess cwd, not argv.
+;---------------------------------------------------------------
+GIVEN the "codex" backend is selected.
+
+WHEN the backend builds a command with prompt "Fix bugs" and working directory "/home/user/project".
+
+THEN the command does not contain "/home/user/project".
+THEN the working directory is passed as the subprocess cwd parameter.

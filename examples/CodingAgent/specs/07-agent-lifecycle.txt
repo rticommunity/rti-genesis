@@ -1,0 +1,140 @@
+;===============================================================
+; Agent Lifecycle: Initialization
+;
+; CodingGenesisAgent extends MonitoredAgent. During init it must
+; set up DDS infrastructure, probe auth, and advertise
+; capabilities. No genesis_lib modifications are required.
+;===============================================================
+
+;---------------------------------------------------------------
+; Agent initializes with Claude backend.
+;---------------------------------------------------------------
+GIVEN the "claude" backend is selected.
+GIVEN a working directory of "/home/user/project".
+
+WHEN a CodingGenesisAgent is created with agent_name "ClaudeCoder".
+
+THEN the agent extends MonitoredAgent.
+THEN the agent has agent_type "SPECIALIZED_AGENT".
+THEN the agent has a DDS participant via self.app.participant.
+THEN the agent has a unique agent_id via self.app.agent_id.
+THEN the agent has a GraphMonitor via self.graph.
+
+;---------------------------------------------------------------
+; Agent initializes with Codex backend.
+;---------------------------------------------------------------
+GIVEN the "codex" backend is selected.
+
+WHEN a CodingGenesisAgent is created with agent_name "CodexCoder".
+
+THEN the agent extends MonitoredAgent.
+THEN the agent has agent_type "SPECIALIZED_AGENT".
+THEN the backend name is "codex".
+
+
+;===============================================================
+; Agent Lifecycle: Capability Advertising
+;
+; The agent must advertise coding-specific capabilities so
+; other agents can discover it via the agent-as-tool pattern.
+;===============================================================
+
+;---------------------------------------------------------------
+; Agent advertises coding capabilities on init.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "claude" and agent_name "ClaudeCoder".
+
+WHEN the agent finishes initialization.
+
+THEN set_agent_capabilities has been called.
+THEN the capabilities include "code-generation".
+THEN the capabilities include "file-editing".
+THEN the capabilities include "shell-execution".
+THEN the specializations include "claude-code".
+THEN the specializations include "software-engineering".
+THEN the classification_tags include "code".
+THEN the classification_tags include "programming".
+THEN the model_info contains "backend" with value "claude".
+THEN the model_info contains "subscription" with value true.
+
+;---------------------------------------------------------------
+; Codex agent advertises with codex-specific specialization.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "codex" and agent_name "CodexCoder".
+
+WHEN the agent finishes initialization.
+
+THEN the specializations include "codex-code".
+THEN the model_info contains "backend" with value "codex".
+
+
+;===============================================================
+; Agent Lifecycle: Graph Node Publishing
+;
+; MonitoredAgent publishes DISCOVERING and READY node events
+; during init. The coding agent inherits this behavior.
+;===============================================================
+
+;---------------------------------------------------------------
+; Agent publishes discovery and ready states on init.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent is being created.
+
+WHEN MonitoredAgent.__init__ completes.
+
+THEN a graph node event is published with state "DISCOVERING".
+THEN a graph node event is published with state "READY".
+THEN the node events have component_type "AGENT_SPECIALIZED".
+THEN the node events contain the agent_id.
+THEN the node events contain the agent_name.
+
+
+;===============================================================
+; Agent Lifecycle: Shutdown
+;
+; On close, the agent must publish OFFLINE state, terminate
+; any active subprocesses, and clean up DDS resources.
+;===============================================================
+
+;---------------------------------------------------------------
+; Agent publishes OFFLINE and cleans up on close.
+;---------------------------------------------------------------
+GIVEN a running CodingGenesisAgent with agent_name "ClaudeCoder".
+GIVEN no active subprocess is running.
+
+WHEN agent.close() is called.
+
+THEN a graph node event is published with state "OFFLINE".
+THEN the DDS participant is closed.
+
+;---------------------------------------------------------------
+; Agent terminates active subprocess on close.
+;---------------------------------------------------------------
+GIVEN a running CodingGenesisAgent with agent_name "ClaudeCoder".
+GIVEN an active subprocess is running for a coding task.
+
+WHEN agent.close() is called.
+
+THEN the active subprocess is terminated.
+THEN the subprocess is waited on to prevent zombie processes.
+THEN a graph node event is published with state "OFFLINE".
+
+
+;===============================================================
+; Agent Lifecycle: Agent Communication
+;
+; The agent must support agent-to-agent communication so other
+; Genesis agents can send it coding tasks via DDS RPC.
+;===============================================================
+
+;---------------------------------------------------------------
+; Agent enables agent-to-agent communication by default.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent created with default parameters.
+
+WHEN the agent finishes initialization.
+
+THEN enable_agent_communication is true.
+THEN the agent has an agent_communication wrapper.
+THEN the agent has published its agent capability to the DDS network.
+THEN other agents can discover this agent via the AgentCapability topic.
