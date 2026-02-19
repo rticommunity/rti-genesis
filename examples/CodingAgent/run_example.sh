@@ -36,7 +36,9 @@ cleanup() {
 trap cleanup SIGINT SIGTERM EXIT
 
 # ── Environment ──────────────────────────────────────────────────
-if [ -f "$ROOT_DIR/venv/bin/activate" ]; then
+if [ -f "$ROOT_DIR/.venv/bin/activate" ]; then
+    source "$ROOT_DIR/.venv/bin/activate"
+elif [ -f "$ROOT_DIR/venv/bin/activate" ]; then
     source "$ROOT_DIR/venv/bin/activate"
 fi
 if [ -f "$ROOT_DIR/.env" ]; then

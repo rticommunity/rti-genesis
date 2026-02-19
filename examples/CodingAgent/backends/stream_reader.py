@@ -51,6 +51,8 @@ async def read_events(
                 result_text += event.text
             elif event.kind == "done" and event.text:
                 result_text = event.text  # override
+            elif event.kind == "error":
+                result_text = f"Error: {event.text}"
 
     try:
         await asyncio.wait_for(_stream(), timeout=timeout)

@@ -12,6 +12,7 @@ import argparse
 import asyncio
 import logging
 import os
+import subprocess
 import sys
 
 # Ensure genesis_lib is importable
@@ -74,6 +75,16 @@ class CodingGenesisAgent(MonitoredAgent):
             **kwargs,
         )
 
+        # --- Ensure working directory is a git repo (Codex requires it) ---
+        if self._working_dir and backend == "codex":
+            git_dir = os.path.join(self._working_dir, ".git")
+            if not os.path.isdir(git_dir):
+                logger.info("Initializing git repo in %s (required by Codex)", self._working_dir)
+                subprocess.run(
+                    ["git", "init"], cwd=self._working_dir,
+                    capture_output=True, check=True,
+                )
+
         # --- Auth probe (synchronous subprocess.run) ---
         auth_mode = probe_auth(self._backend, timeout=30.0)
         self._backend.set_auth_mode(auth_mode)
@@ -99,6 +110,31 @@ class CodingGenesisAgent(MonitoredAgent):
                 },
             },
         )
+
+    # ------------------------------------------------------------------
+    # LLM abstract method stubs (not used — we delegate to subprocess)
+    # ------------------------------------------------------------------
+
+    async def _call_llm(self, messages, tools=None, tool_choice="auto"):
+        raise NotImplementedError("CodingGenesisAgent delegates to subprocess")
+
+    def _format_messages(self, user_message, system_prompt, memory_items):
+        raise NotImplementedError("CodingGenesisAgent delegates to subprocess")
+
+    def _extract_tool_calls(self, response):
+        return None
+
+    def _extract_text_response(self, response):
+        return ""
+
+    def _create_assistant_message(self, response):
+        return {}
+
+    async def _get_tool_schemas(self):
+        return []
+
+    def _get_tool_choice(self):
+        return "none"
 
     # ------------------------------------------------------------------
     # Override get_agent_capabilities for the parent init call
@@ -130,10 +166,72 @@ class CodingGenesisAgent(MonitoredAgent):
         }
 
     # ------------------------------------------------------------------
-    # Request handling
+    # Request handling (overrides the full LLM pipeline)
     # ------------------------------------------------------------------
 
-    async def _process_request(self, request):
+    async def process_request(self, request):
+        """Override process_request to bypass the LLM pipeline entirely.
+
+        MonitoredAgent.process_request() → GenesisAgent.process_request()
+        calls _format_messages → _call_llm etc. which we don't use.
+        We override at this level and handle monitoring ourselves.
+        """
+        logger.debug("CodingGenesisAgent.process_request called")
+
+        # Publish BUSY state
+        try:
+            self.graph.publish_node(
+                component_id=self.app.agent_id,
+                component_type=COMPONENT_TYPE["AGENT_SPECIALIZED"],
+                state=STATE["BUSY"],
+                attrs={
+                    "agent_type": self.agent_type,
+                    "service": self.base_service_name,
+                    "agent_id": self.app.agent_id,
+                    "reason": "Processing coding request",
+                },
+            )
+        except Exception:
+            pass
+
+        try:
+            result = await self._do_coding_request(request)
+        except Exception as exc:
+            logger.error("Error in _do_coding_request: %s", exc, exc_info=True)
+            try:
+                self.graph.publish_node(
+                    component_id=self.app.agent_id,
+                    component_type=COMPONENT_TYPE["AGENT_SPECIALIZED"],
+                    state=STATE["DEGRADED"],
+                    attrs={"reason": str(exc)[:500]},
+                )
+            except Exception:
+                pass
+            result = {
+                "message": f"Error: {exc}",
+                "status": 1,
+                "conversation_id": request.get("conversation_id", ""),
+            }
+
+        # Publish READY state
+        try:
+            self.graph.publish_node(
+                component_id=self.app.agent_id,
+                component_type=COMPONENT_TYPE["AGENT_SPECIALIZED"],
+                state=STATE["READY"],
+                attrs={
+                    "agent_type": self.agent_type,
+                    "service": self.base_service_name,
+                    "agent_id": self.app.agent_id,
+                    "reason": f"Request complete: {str(result)[:200]}",
+                },
+            )
+        except Exception:
+            pass
+
+        return result
+
+    async def _do_coding_request(self, request):
         """Execute a coding task via subprocess."""
         message = request.get("message", "")
         conv_id = request.get("conversation_id")

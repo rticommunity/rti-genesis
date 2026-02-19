@@ -3,6 +3,19 @@ CodexBackend — OpenAI Codex CLI subprocess bridge.
 
 Translates 'codex exec --json' JSONL event streams into normalised
 CodingEvent objects.
+
+Codex CLI event types (observed from codex-cli 0.101.0):
+  thread.started          → init
+  item.completed/agent_message    → text
+  item.completed/command_execution (completed) → tool_result
+  item.completed/command_execution (in_progress via item.started) → tool_start
+  item.completed/tool_call        → tool_start  (legacy/alternate path)
+  item.completed/tool_output      → tool_result (legacy/alternate path)
+  item.completed/reasoning        → skipped (internal chain-of-thought)
+  item.started                    → tool_start (for command_execution)
+  turn.completed                  → done
+  turn.failed                     → error
+  error                           → error
 """
 
 import json
@@ -15,7 +28,7 @@ from .events import CodingEvent
 
 class CodexBackend(CodingBackend):
 
-    def __init__(self, model: str = "gpt-5.3-codex"):
+    def __init__(self, model: str = "gpt-5.2-codex"):
         super().__init__()
         self._model = model
 
@@ -50,8 +63,14 @@ class CodexBackend(CodingBackend):
             return [
                 "codex", "exec", "resume", session_id,
                 "-m", self._model, "--json",
+                "-c", 'approval_policy="never"',
             ]
-        return ["codex", "exec", "-m", self._model, "--json", prompt]
+        return [
+            "codex", "exec",
+            "-m", self._model, "--json",
+            "-c", 'approval_policy="never"',
+            prompt,
+        ]
 
     # ------------------------------------------------------------------
     # Environment
@@ -80,6 +99,7 @@ class CodexBackend(CodingBackend):
         item = obj.get("item", {})
         item_type = item.get("type", "")
 
+        # -- Init --
         if t == "thread.started":
             return CodingEvent(
                 kind="init",
@@ -87,6 +107,7 @@ class CodexBackend(CodingBackend):
                 raw=obj,
             )
 
+        # -- Text response --
         if t == "item.completed" and item_type == "agent_message":
             return CodingEvent(
                 kind="text",
@@ -94,8 +115,26 @@ class CodexBackend(CodingBackend):
                 raw=obj,
             )
 
+        # -- Command execution (Codex's primary tool mechanism) --
+        # item.started → tool_start with the command
+        if t == "item.started" and item_type == "command_execution":
+            return CodingEvent(
+                kind="tool_start",
+                tool_name="shell",
+                tool_input={"cmd": item.get("command", "")},
+                raw=obj,
+            )
+
+        # item.completed → tool_result with output and exit code
+        if t == "item.completed" and item_type == "command_execution":
+            return CodingEvent(
+                kind="tool_result",
+                tool_output=item.get("aggregated_output", ""),
+                raw={"exit_code": item.get("exit_code"), **obj},
+            )
+
+        # -- Legacy/alternate tool_call path --
         if t == "item.completed" and item_type == "tool_call":
-            # Arguments may be malformed JSON — degrade gracefully
             args_raw = item.get("arguments", "{}")
             try:
                 tool_input = json.loads(args_raw)
@@ -115,11 +154,28 @@ class CodexBackend(CodingBackend):
                 raw=obj,
             )
 
+        # -- Done --
         if t == "turn.completed":
             return CodingEvent(
                 kind="done",
                 raw=obj.get("usage", {}),
             )
 
-        # turn.started and other unknown events are skipped
+        # -- Errors --
+        if t == "turn.failed":
+            error = obj.get("error", {})
+            return CodingEvent(
+                kind="error",
+                text=error.get("message", "Turn failed"),
+                raw=obj,
+            )
+
+        if t == "error":
+            return CodingEvent(
+                kind="error",
+                text=obj.get("message", "Unknown error"),
+                raw=obj,
+            )
+
+        # reasoning, turn.started, and other unknown events are skipped
         return None

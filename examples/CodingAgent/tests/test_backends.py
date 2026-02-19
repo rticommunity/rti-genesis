@@ -176,6 +176,55 @@ check("codex-done: kind", ev.kind == "done")
 check("codex-done: raw input_tokens", ev.raw.get("input_tokens") == 11161)
 check("codex-done: raw output_tokens", ev.raw.get("output_tokens") == 24)
 
+# command_execution (item.started → tool_start)
+line = json.dumps({
+    "type": "item.started",
+    "item": {"id": "item_1", "type": "command_execution",
+             "command": '/bin/zsh -lc "cat hello.py"',
+             "aggregated_output": "", "exit_code": None, "status": "in_progress"}
+})
+ev = xb.parse_line(line)
+check("codex-cmd_exec-started: kind", ev.kind == "tool_start")
+check("codex-cmd_exec-started: tool_name", ev.tool_name == "shell")
+check("codex-cmd_exec-started: cmd", "cat hello.py" in ev.tool_input.get("cmd", ""))
+
+# command_execution (item.completed → tool_result)
+line = json.dumps({
+    "type": "item.completed",
+    "item": {"id": "item_1", "type": "command_execution",
+             "command": '/bin/zsh -lc "cat hello.py"',
+             "aggregated_output": "print('hello')", "exit_code": 0, "status": "completed"}
+})
+ev = xb.parse_line(line)
+check("codex-cmd_exec-completed: kind", ev.kind == "tool_result")
+check("codex-cmd_exec-completed: output", "print('hello')" in ev.tool_output)
+
+# reasoning (should be skipped)
+line = json.dumps({
+    "type": "item.completed",
+    "item": {"id": "item_0", "type": "reasoning", "text": "Thinking about it..."}
+})
+ev = xb.parse_line(line)
+check("codex-reasoning: None", ev is None)
+
+# turn.failed → error
+line = json.dumps({
+    "type": "turn.failed",
+    "error": {"message": "Model not supported"}
+})
+ev = xb.parse_line(line)
+check("codex-turn_failed: kind", ev.kind == "error")
+check("codex-turn_failed: text", "Model not supported" in ev.text)
+
+# error event → error
+line = json.dumps({
+    "type": "error",
+    "message": "API rate limit exceeded"
+})
+ev = xb.parse_line(line)
+check("codex-error: kind", ev.kind == "error")
+check("codex-error: text", "rate limit" in ev.text)
+
 # turn.started is skipped
 ev = xb.parse_line('{"type":"turn.started"}')
 check("codex-turn_started: None", ev is None)
@@ -225,16 +274,25 @@ print("\n--- Codex command building ---")
 xb = CodexBackend()
 
 cmd = xb.build_command("Write unit tests")
-check("codex-cmd-basic", cmd == ["codex", "exec", "-m", "gpt-5.3-codex", "--json", "Write unit tests"])
+check("codex-cmd-basic: codex", cmd[0] == "codex")
+check("codex-cmd-basic: exec", cmd[1] == "exec")
+check("codex-cmd-basic: -m", "-m" in cmd)
+check("codex-cmd-basic: model", "gpt-5.2-codex" in cmd)
+check("codex-cmd-basic: --json", "--json" in cmd)
+check("codex-cmd-basic: prompt", "Write unit tests" in cmd)
+check("codex-cmd-basic: approval_policy", 'approval_policy="never"' in cmd)
 
-xb2 = CodexBackend(model="gpt-5.2-codex")
+xb2 = CodexBackend(model="o4-mini")
 cmd = xb2.build_command("Debug the API")
 check("codex-cmd-custom-model: -m", "-m" in cmd)
-check("codex-cmd-custom-model: value", "gpt-5.2-codex" in cmd)
+check("codex-cmd-custom-model: value", "o4-mini" in cmd)
 
 cmd = xb.build_command("ignored", session_id="019c7199-a895-74f2")
-check("codex-cmd-resume", cmd == ["codex", "exec", "resume", "019c7199-a895-74f2", "-m", "gpt-5.3-codex", "--json"])
+check("codex-cmd-resume: resume", "resume" in cmd)
+check("codex-cmd-resume: session_id", "019c7199-a895-74f2" in cmd)
+check("codex-cmd-resume: --json", "--json" in cmd)
 check("codex-cmd-resume: no prompt", "ignored" not in cmd)
+check("codex-cmd-resume: approval_policy", 'approval_policy="never"' in cmd)
 
 # Codex cwd is NOT in command
 cmd = xb.build_command("Fix bugs", cwd="/home/user/project")
