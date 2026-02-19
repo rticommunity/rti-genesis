@@ -44,4 +44,11 @@ RULES_CURSOR.md
 Thumbs.db
 
 # Generated files
-docs/commit_history.md 
+docs/commit_history.md
+
+# MCP generated results
+mcp/results/
+
+# Sensitive files
+*.pem
+sbir63/
