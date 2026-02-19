@@ -1,0 +1,67 @@
+;===============================================================
+; Environment Sanitization: Subscription Mode
+;
+; When running in subscription mode, the backend must strip
+; API key env vars so the CLI uses cached OAuth credentials.
+; All other env vars must be preserved.
+;===============================================================
+
+;---------------------------------------------------------------
+; Claude backend strips ANTHROPIC_API_KEY in subscription mode.
+;---------------------------------------------------------------
+GIVEN the "claude" backend is selected.
+GIVEN the auth mode is "subscription".
+GIVEN "ANTHROPIC_API_KEY" is set to "sk-ant-test123" in the environment.
+GIVEN "HOME" is set to "/Users/jason" in the environment.
+GIVEN "PATH" is set in the environment.
+
+WHEN the backend builds its subprocess environment.
+
+THEN the resulting environment does not contain "ANTHROPIC_API_KEY".
+THEN the resulting environment contains "HOME" with value "/Users/jason".
+THEN the resulting environment contains "PATH".
+
+;---------------------------------------------------------------
+; Codex backend strips OPENAI_API_KEY and CODEX_API_KEY.
+;---------------------------------------------------------------
+GIVEN the "codex" backend is selected.
+GIVEN the auth mode is "subscription".
+GIVEN "OPENAI_API_KEY" is set to "sk-openai-test456" in the environment.
+GIVEN "CODEX_API_KEY" is set to "sk-codex-test789" in the environment.
+GIVEN "HOME" is set in the environment.
+
+WHEN the backend builds its subprocess environment.
+
+THEN the resulting environment does not contain "OPENAI_API_KEY".
+THEN the resulting environment does not contain "CODEX_API_KEY".
+THEN the resulting environment contains "HOME".
+
+
+;===============================================================
+; Environment Sanitization: API Key Mode
+;
+; When running in api_key mode, the backend must preserve the
+; API key env vars so the CLI can authenticate via API billing.
+;===============================================================
+
+;---------------------------------------------------------------
+; Claude backend preserves ANTHROPIC_API_KEY in api_key mode.
+;---------------------------------------------------------------
+GIVEN the "claude" backend is selected.
+GIVEN the auth mode is "api_key".
+GIVEN "ANTHROPIC_API_KEY" is set to "sk-ant-test123" in the environment.
+
+WHEN the backend builds its subprocess environment.
+
+THEN the resulting environment contains "ANTHROPIC_API_KEY" with value "sk-ant-test123".
+
+;---------------------------------------------------------------
+; Codex backend preserves OPENAI_API_KEY in api_key mode.
+;---------------------------------------------------------------
+GIVEN the "codex" backend is selected.
+GIVEN the auth mode is "api_key".
+GIVEN "OPENAI_API_KEY" is set to "sk-openai-test456" in the environment.
+
+WHEN the backend builds its subprocess environment.
+
+THEN the resulting environment contains "OPENAI_API_KEY" with value "sk-openai-test456".

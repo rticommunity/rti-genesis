@@ -1,0 +1,122 @@
+;===============================================================
+; Graph Monitoring: Node State Transitions
+;
+; The coding agent publishes node state transitions to the DDS
+; GraphMonitor, following the same pattern as all Genesis agents.
+; This enables real-time visualization in GraphInterface.
+;===============================================================
+
+;---------------------------------------------------------------
+; READY to BUSY transition on request received.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent in "READY" state.
+
+WHEN the agent receives a coding request.
+
+THEN a graph node event is published with state "BUSY".
+THEN the node event contains component_type "AGENT_SPECIALIZED".
+THEN the node event contains the agent_id.
+THEN the node event contains reason describing the request.
+
+;---------------------------------------------------------------
+; BUSY to READY transition on successful completion.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent in "BUSY" state.
+GIVEN the subprocess completes successfully.
+
+WHEN the response is assembled.
+
+THEN a graph node event is published with state "READY".
+THEN the node event contains reason describing the result.
+
+;---------------------------------------------------------------
+; BUSY to DEGRADED on unhandled exception, then recovery to READY.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent in "BUSY" state.
+GIVEN an unhandled exception occurs during processing.
+
+WHEN MonitoredAgent.process_request catches the exception.
+
+THEN a graph node event is published with state "DEGRADED".
+THEN a graph node event is published with state "READY" after recovery.
+THEN the node event contains reason describing the error.
+
+;---------------------------------------------------------------
+; READY to OFFLINE on agent shutdown.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent in "READY" state.
+
+WHEN agent.close() is called.
+
+THEN a graph node event is published with state "OFFLINE".
+
+
+;===============================================================
+; Graph Monitoring: Edge Events for Tool Usage
+;
+; When the harness invokes a tool (file edit, bash, etc.), the
+; agent publishes an edge event linking the agent to the tool.
+; This makes harness internals visible in the graph.
+;===============================================================
+
+;---------------------------------------------------------------
+; Edge published for Claude tool_use event.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "claude".
+GIVEN the subprocess emits a tool_use event for tool "Write".
+
+WHEN the event is processed.
+
+THEN a graph edge event is published.
+THEN the edge source_id is the agent's agent_id.
+THEN the edge target_id is "claude:Write".
+THEN the edge type is "SERVICE_TO_FUNCTION".
+THEN the edge attrs contain "tool" with value "Write".
+THEN the edge attrs contain "backend" with value "claude".
+
+;---------------------------------------------------------------
+; Edge published for Codex tool_call event.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "codex".
+GIVEN the subprocess emits a tool_call event for tool "shell".
+
+WHEN the event is processed.
+
+THEN a graph edge event is published.
+THEN the edge source_id is the agent's agent_id.
+THEN the edge target_id is "codex:shell".
+THEN the edge attrs contain "tool" with value "shell".
+THEN the edge attrs contain "backend" with value "codex".
+
+;---------------------------------------------------------------
+; Multiple tool calls produce multiple edge events.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "claude".
+GIVEN the subprocess emits tool_use events for "Read", "Edit", and "Bash".
+
+WHEN all events are processed.
+
+THEN 3 graph edge events are published.
+THEN the edge target_ids are "claude:Read", "claude:Edit", and "claude:Bash".
+
+;---------------------------------------------------------------
+; No edge events when no tools are used.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "claude".
+GIVEN the subprocess emits only text and done events.
+
+WHEN the request completes.
+
+THEN no graph edge events are published for tools.
+
+;---------------------------------------------------------------
+; Graph monitoring failures do not crash the agent.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "claude".
+GIVEN the GraphMonitor.publish_edge raises an exception.
+
+WHEN a tool_use event is processed.
+
+THEN the exception is caught silently.
+THEN event processing continues.
+THEN the final response is returned normally.

@@ -1,0 +1,129 @@
+;===============================================================
+; Event Parsing: Claude Backend — Init Event
+;
+; The Claude backend emits a system/init event at the start of
+; a session containing the session_id for resume.
+;===============================================================
+
+;---------------------------------------------------------------
+; Parse system init event.
+;---------------------------------------------------------------
+GIVEN the "claude" backend parser.
+
+WHEN parsing the line '{"type":"system","subtype":"init","session_id":"sess-abc-123"}'.
+
+THEN the result is a CodingEvent with kind "init".
+THEN the result has session_id "sess-abc-123".
+
+
+;===============================================================
+; Event Parsing: Claude Backend — Text Output
+;
+; Streaming text from the model arrives as assistant/text events.
+; Multiple text events may arrive for a single response.
+;===============================================================
+
+;---------------------------------------------------------------
+; Parse assistant text event.
+;---------------------------------------------------------------
+GIVEN the "claude" backend parser.
+
+WHEN parsing the line '{"type":"assistant","subtype":"text","text":"I will help you refactor"}'.
+
+THEN the result is a CodingEvent with kind "text".
+THEN the result has text "I will help you refactor".
+
+;---------------------------------------------------------------
+; Parse assistant text event with empty text.
+;---------------------------------------------------------------
+GIVEN the "claude" backend parser.
+
+WHEN parsing the line '{"type":"assistant","subtype":"text","text":""}'.
+
+THEN the result is a CodingEvent with kind "text".
+THEN the result has text "".
+
+
+;===============================================================
+; Event Parsing: Claude Backend — Tool Usage
+;
+; When the harness invokes a built-in tool (Write, Bash, Read,
+; etc.), it emits assistant/tool_use followed by tool/result.
+;===============================================================
+
+;---------------------------------------------------------------
+; Parse tool_use event.
+;---------------------------------------------------------------
+GIVEN the "claude" backend parser.
+
+WHEN parsing the line '{"type":"assistant","subtype":"tool_use","tool":{"name":"Write","input":{"file_path":"/tmp/hello.py","content":"print(42)"}}}'.
+
+THEN the result is a CodingEvent with kind "tool_start".
+THEN the result has tool_name "Write".
+THEN the result has tool_input containing key "file_path" with value "/tmp/hello.py".
+
+;---------------------------------------------------------------
+; Parse tool result event.
+;---------------------------------------------------------------
+GIVEN the "claude" backend parser.
+
+WHEN parsing the line '{"type":"tool","subtype":"result","tool_use_id":"tu-001","content":"File written successfully"}'.
+
+THEN the result is a CodingEvent with kind "tool_result".
+THEN the result has tool_output "File written successfully".
+
+
+;===============================================================
+; Event Parsing: Claude Backend — Final Result
+;
+; The result event signals task completion and contains the
+; final answer text. This overrides any accumulated streaming text.
+;===============================================================
+
+;---------------------------------------------------------------
+; Parse result event.
+;---------------------------------------------------------------
+GIVEN the "claude" backend parser.
+
+WHEN parsing the line '{"type":"result","subtype":"success","result":"The script has been created at /tmp/hello.py"}'.
+
+THEN the result is a CodingEvent with kind "done".
+THEN the result has text "The script has been created at /tmp/hello.py".
+
+
+;===============================================================
+; Event Parsing: Claude Backend — Unrecognized Events
+;
+; Lines that don't match known event patterns must be skipped
+; without error. Claude Code may emit additional event types
+; in future versions.
+;===============================================================
+
+;---------------------------------------------------------------
+; Unknown event type is skipped.
+;---------------------------------------------------------------
+GIVEN the "claude" backend parser.
+
+WHEN parsing the line '{"type":"progress","subtype":"thinking","thinking":"..."}'.
+
+THEN the result is None.
+
+;---------------------------------------------------------------
+; Empty line is skipped.
+;---------------------------------------------------------------
+GIVEN the "claude" backend parser.
+
+WHEN parsing the line "".
+
+THEN the result is None.
+
+;---------------------------------------------------------------
+; Malformed JSON is skipped without raising an exception.
+;---------------------------------------------------------------
+GIVEN the "claude" backend parser.
+
+WHEN parsing the line "this is not json".
+
+THEN a JSONDecodeError is caught internally.
+THEN no exception propagates to the caller.
+THEN the result is None.

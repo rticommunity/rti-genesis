@@ -1,0 +1,106 @@
+;===============================================================
+; Backend Protocol: Abstract Interface
+;
+; CodingBackend defines the contract that all backends must
+; implement. This is the extension point for adding new
+; harnesses beyond Claude Code and Codex.
+;===============================================================
+
+;---------------------------------------------------------------
+; CodingBackend requires build_command implementation.
+;---------------------------------------------------------------
+GIVEN a class that extends CodingBackend.
+GIVEN the class does not implement build_command.
+
+WHEN the class is instantiated.
+
+THEN a TypeError is raised for the missing abstract method.
+
+;---------------------------------------------------------------
+; CodingBackend requires build_env implementation.
+;---------------------------------------------------------------
+GIVEN a class that extends CodingBackend.
+GIVEN the class does not implement build_env.
+
+WHEN the class is instantiated.
+
+THEN a TypeError is raised for the missing abstract method.
+
+;---------------------------------------------------------------
+; CodingBackend requires parse_line implementation.
+;---------------------------------------------------------------
+GIVEN a class that extends CodingBackend.
+GIVEN the class does not implement parse_line.
+
+WHEN the class is instantiated.
+
+THEN a TypeError is raised for the missing abstract method.
+
+;---------------------------------------------------------------
+; CodingBackend requires name property.
+;---------------------------------------------------------------
+GIVEN a class that extends CodingBackend.
+GIVEN the class does not implement the name property.
+
+WHEN the class is instantiated.
+
+THEN a TypeError is raised for the missing abstract property.
+
+;---------------------------------------------------------------
+; ClaudeBackend satisfies the CodingBackend protocol.
+;---------------------------------------------------------------
+GIVEN the ClaudeBackend class.
+
+WHEN an instance is created.
+
+THEN no TypeError is raised.
+THEN the name property returns "claude".
+
+;---------------------------------------------------------------
+; CodexBackend satisfies the CodingBackend protocol.
+;---------------------------------------------------------------
+GIVEN the CodexBackend class.
+
+WHEN an instance is created.
+
+THEN no TypeError is raised.
+THEN the name property returns "codex".
+
+;---------------------------------------------------------------
+; CodingGenesisAgent rejects unknown backend names.
+;---------------------------------------------------------------
+GIVEN a backend name "unknown-harness".
+
+WHEN a CodingGenesisAgent is created with backend "unknown-harness".
+
+THEN a ValueError is raised.
+THEN the error message contains "Unknown backend".
+
+
+;===============================================================
+; Backend Protocol: Auth Mode Propagation
+;
+; The agent probes auth and passes the result to the backend
+; via set_auth_mode. The backend uses this to decide whether
+; to strip API keys from the environment.
+;===============================================================
+
+;---------------------------------------------------------------
+; Backend receives auth mode from agent.
+;---------------------------------------------------------------
+GIVEN a ClaudeBackend instance.
+
+WHEN set_auth_mode is called with "subscription".
+
+THEN the backend's auth_mode is "subscription".
+THEN subsequent build_env calls strip "ANTHROPIC_API_KEY".
+
+;---------------------------------------------------------------
+; Backend in api_key mode preserves API keys.
+;---------------------------------------------------------------
+GIVEN a ClaudeBackend instance.
+
+WHEN set_auth_mode is called with "api_key".
+
+THEN the backend's auth_mode is "api_key".
+THEN subsequent build_env calls preserve "ANTHROPIC_API_KEY".

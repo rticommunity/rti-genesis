@@ -1,0 +1,5 @@
+# Ignore all generated files in workspace
+*
+# But keep the directory itself
+!.gitignore
+!.gitkeep

@@ -1,0 +1,159 @@
+;===============================================================
+; Request Processing: Basic Request-Response
+;
+; The agent receives requests via DDS RPC, spawns a subprocess
+; to the coding harness, collects streaming events, and returns
+; the final result as a Genesis RPC response.
+;===============================================================
+
+;---------------------------------------------------------------
+; Simple text response from Claude backend.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "claude".
+GIVEN the agent is in "READY" state.
+
+WHEN the agent receives a request with message "What is 2 + 2?".
+
+THEN the agent transitions to "BUSY" state.
+THEN a subprocess is spawned with the "claude" command.
+THEN the subprocess stdout is read line by line.
+THEN each line is passed to ClaudeBackend.parse_line.
+THEN the response contains key "message" with the final text.
+THEN the response contains key "status" with value 0.
+THEN the response contains key "backend" with value "claude".
+THEN the agent transitions back to "READY" state.
+
+;---------------------------------------------------------------
+; Simple text response from Codex backend.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "codex".
+GIVEN the agent is in "READY" state.
+
+WHEN the agent receives a request with message "What is 2 + 2?".
+
+THEN a subprocess is spawned with the "codex" command.
+THEN the response contains key "message" with the final text.
+THEN the response contains key "status" with value 0.
+THEN the response contains key "backend" with value "codex".
+
+
+;===============================================================
+; Request Processing: Text Accumulation
+;
+; Multiple "text" events from the stream are concatenated.
+; A final "done" event with text overrides the accumulation.
+;===============================================================
+
+;---------------------------------------------------------------
+; Multiple text events are concatenated.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "claude".
+GIVEN the subprocess emits 3 text events: "Hello ", "world", "!".
+
+WHEN the agent processes the request.
+
+THEN the response message is "Hello world!".
+
+;---------------------------------------------------------------
+; Done event with text overrides accumulated text.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "claude".
+GIVEN the subprocess emits text events "partial output".
+GIVEN the subprocess then emits a done event with text "The final answer is 42".
+
+WHEN the agent processes the request.
+
+THEN the response message is "The final answer is 42".
+
+;---------------------------------------------------------------
+; Done event without text preserves accumulated text.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "codex".
+GIVEN the subprocess emits a text event "GENESIS_CODEX_TEST_OK".
+GIVEN the subprocess then emits a turn.completed event with no text.
+
+WHEN the agent processes the request.
+
+THEN the response message is "GENESIS_CODEX_TEST_OK".
+
+
+;===============================================================
+; Request Processing: Tool Call Counting
+;
+; The response includes a count of tool calls the harness made
+; during execution, for observability.
+;===============================================================
+
+;---------------------------------------------------------------
+; Response includes tool call count.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "claude".
+GIVEN the subprocess emits 3 tool_start events and 3 tool_result events.
+
+WHEN the agent processes the request.
+
+THEN the response contains key "tool_calls" with value 3.
+
+;---------------------------------------------------------------
+; Response reports zero tool calls when none occurred.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "claude".
+GIVEN the subprocess emits only text events and a done event.
+
+WHEN the agent processes the request.
+
+THEN the response contains key "tool_calls" with value 0.
+
+
+;===============================================================
+; Request Processing: Session ID Extraction
+;
+; The response includes the session_id from the init event,
+; enabling the caller to resume the session later.
+;===============================================================
+
+;---------------------------------------------------------------
+; Response includes session_id from init event.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "claude".
+GIVEN the subprocess emits a system/init event with session_id "sess-new-001".
+
+WHEN the agent processes the request.
+
+THEN the response contains key "session_id" with value "sess-new-001".
+
+;---------------------------------------------------------------
+; Response includes thread_id from Codex as session_id.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "codex".
+GIVEN the subprocess emits a thread.started event with thread_id "019c7199-abcd".
+
+WHEN the agent processes the request.
+
+THEN the response contains key "session_id" with value "019c7199-abcd".
+
+
+;===============================================================
+; Request Processing: Subprocess Working Directory
+;
+; The subprocess must be launched in the configured working
+; directory so the harness can access project files.
+;===============================================================
+
+;---------------------------------------------------------------
+; Subprocess runs in configured working directory.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with working_dir "/home/user/project".
+
+WHEN the agent spawns a subprocess.
+
+THEN the subprocess cwd is set to "/home/user/project".
+
+;---------------------------------------------------------------
+; No working directory uses current directory.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with working_dir set to None.
+
+WHEN the agent spawns a subprocess.
+
+THEN the subprocess cwd is None, inheriting the agent's working directory.

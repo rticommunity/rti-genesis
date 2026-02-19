@@ -1,0 +1,139 @@
+;===============================================================
+; Event Parsing: Codex Backend — Thread Started
+;
+; Codex emits a thread.started event containing the thread_id
+; which serves as the session identifier for resume.
+;===============================================================
+
+;---------------------------------------------------------------
+; Parse thread.started event.
+;---------------------------------------------------------------
+GIVEN the "codex" backend parser.
+
+WHEN parsing the line '{"type":"thread.started","thread_id":"019c7199-a895-74f2-a004-3b2efce37bc3"}'.
+
+THEN the result is a CodingEvent with kind "init".
+THEN the result has session_id "019c7199-a895-74f2-a004-3b2efce37bc3".
+
+
+;===============================================================
+; Event Parsing: Codex Backend — Agent Message
+;
+; Text output from the model arrives as item.completed events
+; with item.type "agent_message". The text is in item.text.
+;===============================================================
+
+;---------------------------------------------------------------
+; Parse agent_message item.
+;---------------------------------------------------------------
+GIVEN the "codex" backend parser.
+
+WHEN parsing the line '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"GENESIS_CODEX_TEST_OK"}}'.
+
+THEN the result is a CodingEvent with kind "text".
+THEN the result has text "GENESIS_CODEX_TEST_OK".
+
+;---------------------------------------------------------------
+; Parse agent_message with multi-line text.
+;---------------------------------------------------------------
+GIVEN the "codex" backend parser.
+
+WHEN parsing the line '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Line 1\nLine 2\nLine 3"}}'.
+
+THEN the result is a CodingEvent with kind "text".
+THEN the result has text containing "Line 1".
+THEN the result has text containing "Line 3".
+
+
+;===============================================================
+; Event Parsing: Codex Backend — Tool Calls
+;
+; Codex emits item.completed with item.type "tool_call" when
+; the harness invokes a tool. Arguments are JSON-encoded strings.
+;===============================================================
+
+;---------------------------------------------------------------
+; Parse tool_call item.
+;---------------------------------------------------------------
+GIVEN the "codex" backend parser.
+
+WHEN parsing the line '{"type":"item.completed","item":{"id":"item_1","type":"tool_call","name":"shell","arguments":"{\"cmd\":\"ls -la\"}"}}'.
+
+THEN the result is a CodingEvent with kind "tool_start".
+THEN the result has tool_name "shell".
+THEN the result has tool_input containing key "cmd" with value "ls -la".
+
+;---------------------------------------------------------------
+; Parse tool_call with malformed arguments gracefully.
+;---------------------------------------------------------------
+GIVEN the "codex" backend parser.
+
+WHEN parsing the line '{"type":"item.completed","item":{"id":"item_1","type":"tool_call","name":"shell","arguments":"not valid json"}}'.
+
+THEN the parser does not raise an unhandled exception.
+
+
+;===============================================================
+; Event Parsing: Codex Backend — Tool Output
+;
+; Tool results arrive as item.completed with item.type
+; "tool_output". The output is in item.output.
+;===============================================================
+
+;---------------------------------------------------------------
+; Parse tool_output item.
+;---------------------------------------------------------------
+GIVEN the "codex" backend parser.
+
+WHEN parsing the line '{"type":"item.completed","item":{"id":"item_2","type":"tool_output","output":"total 42\ndrwxr-xr-x  5 user staff 160 Jan  1 00:00 ."}}'.
+
+THEN the result is a CodingEvent with kind "tool_result".
+THEN the result has tool_output containing "total 42".
+
+
+;===============================================================
+; Event Parsing: Codex Backend — Turn Completed
+;
+; The turn.completed event signals task completion and includes
+; token usage statistics in the usage field.
+;===============================================================
+
+;---------------------------------------------------------------
+; Parse turn.completed event.
+;---------------------------------------------------------------
+GIVEN the "codex" backend parser.
+
+WHEN parsing the line '{"type":"turn.completed","usage":{"input_tokens":11161,"cached_input_tokens":6912,"output_tokens":24}}'.
+
+THEN the result is a CodingEvent with kind "done".
+THEN the result has raw containing key "input_tokens" with value 11161.
+THEN the result has raw containing key "output_tokens" with value 24.
+
+
+;===============================================================
+; Event Parsing: Codex Backend — Skipped Events
+;
+; turn.started and error events on stderr must not produce
+; CodingEvents. Only stdout JSON lines are parsed.
+;===============================================================
+
+;---------------------------------------------------------------
+; turn.started is skipped.
+;---------------------------------------------------------------
+GIVEN the "codex" backend parser.
+
+WHEN parsing the line '{"type":"turn.started"}'.
+
+THEN the result is None.
+
+;---------------------------------------------------------------
+; Codex stderr error lines are never passed to the parser.
+; The subprocess reader only feeds stdout lines.
+;---------------------------------------------------------------
+GIVEN the "codex" backend parser.
+GIVEN the subprocess emits "ERROR codex_core::rollout::list: state db missing rollout path" on stderr.
+
+WHEN the event loop reads from the subprocess.
+
+THEN the stderr line is not passed to parse_line.
+THEN no CodingEvent is produced from the stderr line.

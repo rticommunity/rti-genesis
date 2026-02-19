@@ -1,0 +1,165 @@
+;===============================================================
+; End-to-End: Claude Code Single Request
+;
+; A complete round-trip from Genesis RPC request through
+; subprocess execution to RPC response, using the Claude backend
+; on subscription pricing.
+;===============================================================
+
+;---------------------------------------------------------------
+; Claude Code completes a coding task end-to-end.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "claude" and working_dir "/tmp/test-project".
+GIVEN the auth mode is "subscription".
+GIVEN the agent is in "READY" state.
+GIVEN "ANTHROPIC_API_KEY" is set in the host environment.
+
+WHEN a request arrives with message "Create a file /tmp/test-project/hello.py that prints hello world".
+
+THEN the agent transitions to "BUSY".
+THEN a subprocess is spawned: claude -p "Create a file..." --output-format stream-json --cwd /tmp/test-project.
+THEN the subprocess environment does not contain "ANTHROPIC_API_KEY".
+THEN the subprocess emits a system/init event with a session_id.
+THEN the subprocess emits tool_use events for file creation.
+THEN the subprocess emits a result event with the final answer.
+THEN graph edge events are published for each tool the harness used.
+THEN the response has status 0.
+THEN the response has a non-empty message.
+THEN the response has a session_id.
+THEN the response has tool_calls greater than 0.
+THEN the agent transitions to "READY".
+
+
+;===============================================================
+; End-to-End: Codex Single Request
+;
+; Same round-trip using the Codex backend.
+;===============================================================
+
+;---------------------------------------------------------------
+; Codex completes a coding task end-to-end.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "codex" and working_dir "/tmp/test-project".
+GIVEN the auth mode is "subscription".
+GIVEN the agent is in "READY" state.
+GIVEN "OPENAI_API_KEY" is set in the host environment.
+
+WHEN a request arrives with message "Reply with only: GENESIS_CODEX_TEST_OK".
+
+THEN a subprocess is spawned: codex exec -m gpt-5.3-codex --json "Reply with only: GENESIS_CODEX_TEST_OK".
+THEN the subprocess environment does not contain "OPENAI_API_KEY".
+THEN the subprocess environment does not contain "CODEX_API_KEY".
+THEN the subprocess emits a thread.started event with a thread_id.
+THEN the subprocess emits an item.completed/agent_message event.
+THEN the subprocess emits a turn.completed event with usage stats.
+THEN the response has status 0.
+THEN the response message contains "GENESIS_CODEX_TEST_OK".
+THEN the response has a session_id matching the thread_id.
+THEN the agent transitions to "READY".
+
+
+;===============================================================
+; End-to-End: Multi-Turn Conversation
+;
+; Two requests in the same conversation. The second request
+; resumes the harness session established by the first.
+;===============================================================
+
+;---------------------------------------------------------------
+; Claude multi-turn: second request resumes session.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "claude".
+GIVEN the auth mode is "subscription".
+
+WHEN request 1 arrives with conversation_id "conv-mt-001" and message "Read the file main.py".
+
+THEN the subprocess does not include "--session-id" (no prior session).
+THEN the response has session_id "sess-first".
+THEN the session map stores "conv-mt-001" to "sess-first".
+
+WHEN request 2 arrives with conversation_id "conv-mt-001" and message "Now add error handling to the parse function".
+
+THEN the subprocess includes "--session-id" with value "sess-first".
+THEN the harness has context from request 1.
+THEN the response has status 0.
+
+
+;===============================================================
+; End-to-End: Agent-as-Tool Delegation
+;
+; An OpenAIGenesisAgent discovers the CodingGenesisAgent and
+; delegates a coding task to it via DDS agent-to-agent RPC.
+;===============================================================
+
+;---------------------------------------------------------------
+; Orchestrator delegates to CodingAgent via agent-as-tool.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "claude" and agent_name "ClaudeCoder".
+GIVEN an OpenAIGenesisAgent with agent_name "Orchestrator".
+GIVEN both agents are on DDS domain 0.
+GIVEN the Orchestrator has discovered ClaudeCoder.
+
+WHEN the Orchestrator receives user message "Write a Python script that sorts a CSV file by the second column".
+GIVEN the Orchestrator's LLM decides to delegate to ClaudeCoder.
+
+THEN the Orchestrator sends an agent-to-agent request to ClaudeCoder via DDS.
+THEN ClaudeCoder receives the request.
+THEN ClaudeCoder spawns a "claude -p" subprocess.
+THEN ClaudeCoder returns the result to the Orchestrator.
+THEN the Orchestrator includes the coding result in its response to the user.
+
+
+;===============================================================
+; End-to-End: API Key Fallback
+;
+; When subscription auth is not available, the agent falls back
+; to API key auth with a warning, and the subprocess runs with
+; the API key in its environment.
+;===============================================================
+
+;---------------------------------------------------------------
+; Agent falls back to API key and still completes the task.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "claude".
+GIVEN the user has not completed "claude login".
+GIVEN "ANTHROPIC_API_KEY" is set in the environment.
+GIVEN the auth mode was set to "api_key" during startup.
+
+WHEN a request arrives with message "Hello world".
+
+THEN the subprocess environment contains "ANTHROPIC_API_KEY".
+THEN the subprocess completes successfully using API billing.
+THEN the response has status 0.
+THEN the response has a non-empty message.
+
+
+;===============================================================
+; End-to-End: No genesis_lib Changes Required
+;
+; The entire CodingAgent example must work using only the
+; public API of genesis_lib. This is a meta-acceptance test.
+;===============================================================
+
+;---------------------------------------------------------------
+; All imports come from genesis_lib public API.
+;---------------------------------------------------------------
+GIVEN the CodingGenesisAgent source code.
+
+WHEN listing all imports from genesis_lib.
+
+THEN the only imports are from genesis_lib.monitored_agent.
+THEN the only imports are from genesis_lib.graph_monitoring.
+THEN no private or internal genesis_lib modules are imported.
+THEN no genesis_lib source files are modified.
+
+;---------------------------------------------------------------
+; Example runs from the examples directory.
+;---------------------------------------------------------------
+GIVEN the CodingAgent example directory at examples/CodingAgent/.
+GIVEN the genesis_lib package is installed or on PYTHONPATH.
+
+WHEN the example launch script is executed.
+
+THEN the CodingGenesisAgent starts successfully.
+THEN the agent publishes DDS node events.
+THEN the agent is discoverable by other agents on the network.
