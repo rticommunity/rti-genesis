@@ -47,8 +47,10 @@ class ClaudeBackend(CodingBackend):
             "--verbose",
             "--permission-mode", "bypassPermissions",
         ]
-        if session_id:
-            cmd += ["--session-id", session_id]
+        # Note: --session-id is intentionally omitted. Claude Code's -p (print)
+        # mode does not release the session lock on exit, causing "Session ID
+        # already in use" errors on follow-up requests. Each request runs as a
+        # fresh session instead. Multi-turn context is handled by Codex backend.
         # cwd is handled by subprocess cwd= parameter, not a CLI flag
         return cmd
 

@@ -51,6 +51,8 @@ from .monitored_service import MonitoredService
 from .utils.openai_utils import convert_functions_to_openai_schema, generate_response_with_functions
 from .utils.function_utils import call_function_thread_safe, find_function_by_name, filter_functions_by_relevance
 from .utils import get_datamodel_path, load_datamodel
+from .stream_publisher import StreamPublisher
+from .stream_subscriber import StreamSubscriber
 
 __all__ = [
     'GenesisApp',
@@ -72,7 +74,9 @@ __all__ = [
     'find_function_by_name',
     'filter_functions_by_relevance',
     'get_datamodel_path',
-    'load_datamodel'
+    'load_datamodel',
+    'StreamPublisher',
+    'StreamSubscriber',
 ]
 
 # Add LocalGenesisAgent to __all__ only if ollama dependency is available
