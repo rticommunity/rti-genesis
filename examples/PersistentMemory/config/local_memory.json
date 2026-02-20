@@ -1,0 +1,20 @@
+{
+    "storage": {
+        "backend": "sqlite",
+        "path": "./genesis_memory.db"
+    },
+    "compaction": {
+        "soft_threshold_ratio": 0.6,
+        "hard_threshold_ratio": 0.85,
+        "model_context_window": 200000,
+        "recent_window_size": 20,
+        "chunk_size": 15
+    },
+    "retrieval": {
+        "default_policy": "windowed",
+        "default_k": 50
+    },
+    "tokenizer": {
+        "type": "word_estimate"
+    }
+}

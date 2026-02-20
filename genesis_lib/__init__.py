@@ -52,6 +52,13 @@ from .utils.openai_utils import convert_functions_to_openai_schema, generate_res
 from .utils.function_utils import call_function_thread_safe, find_function_by_name, filter_functions_by_relevance
 from .utils import get_datamodel_path, load_datamodel
 
+# PersistentMemoryAdapter — database-backed memory (SQLite has zero extra deps)
+try:
+    from .memory.persistent_adapter import PersistentMemoryAdapter
+    _HAS_PERSISTENT_MEMORY = True
+except ImportError:
+    _HAS_PERSISTENT_MEMORY = False
+
 __all__ = [
     'GenesisApp',
     'GenesisAgent',
@@ -77,4 +84,8 @@ __all__ = [
 
 # Add LocalGenesisAgent to __all__ only if ollama dependency is available
 if _HAS_LOCAL_GENESIS_AGENT:
-    __all__.append('LocalGenesisAgent') 
+    __all__.append('LocalGenesisAgent')
+
+# Add PersistentMemoryAdapter to __all__ if available
+if _HAS_PERSISTENT_MEMORY:
+    __all__.append('PersistentMemoryAdapter') 
