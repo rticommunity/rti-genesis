@@ -40,6 +40,9 @@ setup(
         "starlette>=0.50.0",
         "httpx>=0.27.0",
     ],
+    extras_require={
+        "database": ["sqlalchemy>=2.0"],
+    },
     entry_points={
         'console_scripts': [
             'genesis-monitor=genesis_lib.genesis_monitoring:main',
