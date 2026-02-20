@@ -288,6 +288,45 @@ def run_config_tests(tmpdir):
         and adapter_min._retrieval_config["default_k"] == 50,
     )
 
+    # ── from_config deterministic conversation_id for restart persistence ──
+    restart_db = os.path.join(tmpdir, "restart_from_config.db")
+    restart_config = {
+        "storage": {"backend": "sqlite", "path": restart_db},
+    }
+    restart_cfg_path = os.path.join(tmpdir, "restart_config.json")
+    with open(restart_cfg_path, "w") as f:
+        json.dump(restart_config, f)
+
+    # First run: store messages via from_config
+    a_run1 = PersistentMemoryAdapter.from_config(
+        restart_cfg_path, agent_id="restart-agent", agent_name="RestartAgent"
+    )
+    check(
+        "config: from_config derives deterministic conversation_id",
+        a_run1._conversation_id == "restart-agent-default",
+        f"got {a_run1._conversation_id}",
+    )
+    a_run1.store("I am Jason", metadata={"role": "user"})
+    a_run1.store("Hello Jason!", metadata={"role": "assistant"})
+    del a_run1
+
+    # Second run (simulated restart): from_config with same agent_id
+    a_run2 = PersistentMemoryAdapter.from_config(
+        restart_cfg_path, agent_id="restart-agent", agent_name="RestartAgent"
+    )
+    items = a_run2.retrieve(k=10)
+    check(
+        "config: from_config restart persistence",
+        len(items) == 2,
+        f"expected 2 items, got {len(items)}",
+    )
+    check(
+        "config: from_config restart content preserved",
+        items[0]["item"] == "I am Jason" and items[1]["item"] == "Hello Jason!",
+        f"got: {[i['item'] for i in items]}",
+    )
+    del a_run2
+
 
 # ── Main ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":

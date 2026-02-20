@@ -365,38 +365,42 @@ class PersistentMemoryAdapter(MemoryAdapter):
         pass
 
     @classmethod
-    def from_config(cls, config_path, agent_id=None, agent_name=None):
+    def from_config(cls, config_path, agent_id=None, agent_name=None, conversation_id=None):
         """Create a PersistentMemoryAdapter from a JSON config file.
 
         Args:
             config_path: Path to the JSON config file.
             agent_id: Optional agent ID override.
             agent_name: Optional agent name override.
+            conversation_id: Optional conversation ID. If None, derived from agent_id
+                for restart persistence.
 
         Returns:
             PersistentMemoryAdapter instance.
         """
         from .config import load_config
         config = load_config(config_path)
-        return cls._from_config_dict(config, agent_id, agent_name)
+        return cls._from_config_dict(config, agent_id, agent_name, conversation_id)
 
     @classmethod
-    def from_env(cls, agent_id=None, agent_name=None):
+    def from_env(cls, agent_id=None, agent_name=None, conversation_id=None):
         """Create a PersistentMemoryAdapter from GENESIS_MEMORY_CONFIG env var.
 
         Args:
             agent_id: Optional agent ID override.
             agent_name: Optional agent name override.
+            conversation_id: Optional conversation ID. If None, derived from agent_id
+                for restart persistence.
 
         Returns:
             PersistentMemoryAdapter instance.
         """
         from .config import load_config_from_env
         config = load_config_from_env()
-        return cls._from_config_dict(config, agent_id, agent_name)
+        return cls._from_config_dict(config, agent_id, agent_name, conversation_id)
 
     @classmethod
-    def _from_config_dict(cls, config, agent_id=None, agent_name=None):
+    def _from_config_dict(cls, config, agent_id=None, agent_name=None, conversation_id=None):
         """Create adapter from a parsed config dict."""
         storage_cfg = config.get("storage", {})
         backend_type = storage_cfg.get("backend", "sqlite")
@@ -414,10 +418,15 @@ class PersistentMemoryAdapter(MemoryAdapter):
 
         backend.initialize_schema()
 
+        # Derive a deterministic conversation_id from agent_id for restart persistence
+        if conversation_id is None and agent_id is not None:
+            conversation_id = f"{agent_id}-default"
+
         return cls(
             backend=backend,
             agent_id=agent_id,
             agent_name=agent_name,
+            conversation_id=conversation_id,
             tokenizer_config=config.get("tokenizer"),
             compaction_config=config.get("compaction"),
             retrieval_config=config.get("retrieval"),
