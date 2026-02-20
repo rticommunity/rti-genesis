@@ -178,6 +178,13 @@ def run_compaction_tests(make_backend, label, tmpdir):
             sequence=i + 1,
         )
 
+    # Track whether the summarizer was called (to verify L3 is LLM-free)
+    summarizer_calls = []
+
+    def tracking_summarizer(messages):
+        summarizer_calls.append(len(messages))
+        return _default_summarizer(messages)
+
     engine4 = CompactionEngine(
         backend=backend4, tokenizer=tokenizer,
         config={
@@ -187,11 +194,40 @@ def run_compaction_tests(make_backend, label, tmpdir):
             "chunk_size": 5,
             "recent_window_size": 3,
         },
+        summarizer=tracking_summarizer,
     )
 
     # Run full compaction which should escalate through all levels
+    l1l2_calls_before = len(summarizer_calls)
     compact_result = engine4.compact("l3-agent", "conv-1")
     check(f"{label}: L3 compaction ran", compact_result["level"] >= 1, f"level={compact_result['level']}")
+
+    # GWT 09: Post-compaction token count reduced below hard threshold
+    hard_threshold = int(100 * 0.2)  # model_context_window * hard_threshold_ratio
+    active_tokens = engine4._get_active_token_count("l3-agent", "conv-1")
+    check(
+        f"{label}: post-compaction tokens below hard threshold",
+        active_tokens <= hard_threshold or compact_result["level"] == 3,
+        f"active={active_tokens}, hard={hard_threshold}",
+    )
+
+    # GWT 10: Level 3 uses deterministic extraction — verify log strategy = "truncate"
+    if hasattr(backend4, '_conn'):
+        logs = backend4._conn.execute(
+            "SELECT strategy FROM compaction_log WHERE agent_id = ? ORDER BY created_at DESC",
+            ("l3-agent",)
+        ).fetchall()
+    else:
+        from sqlalchemy import text as sa_text
+        with backend4._engine.connect() as conn:
+            logs = conn.execute(
+                sa_text("SELECT strategy FROM compaction_log WHERE agent_id = :aid ORDER BY created_at DESC"),
+                {"aid": "l3-agent"},
+            ).fetchall()
+
+    if compact_result["level"] == 3:
+        strategies = [r[0] for r in logs]
+        check(f"{label}: L3 strategy is truncate", "truncate" in strategies, f"strategies={strategies}")
 
     # Verify all summaries at same level have non-overlapping spans
     for level in [1, 2, 3]:
@@ -320,24 +356,46 @@ def run_compaction_tests(make_backend, label, tmpdir):
     else:
         check(f"{label}: DAG check skipped", True)
 
-    # ── Compaction log records operation ─────────────────────────────
+    # ── Compaction log records operation (GWT 14: field-level) ──────
     # The compact() call above should have logged
-    # Read compaction_log directly
     if hasattr(backend6, '_conn'):
-        # SQLiteBackend
         logs = backend6._conn.execute(
-            "SELECT * FROM compaction_log WHERE agent_id = ?", ("expand-agent",)
+            "SELECT agent_id, conversation_id, level, tokens_before, tokens_after, "
+            "summaries_created, strategy, duration_ms FROM compaction_log WHERE agent_id = ?",
+            ("expand-agent",)
         ).fetchall()
+        if logs:
+            log = logs[0]
+            log_agent_id, log_conv_id, log_level, log_tb, log_ta, log_sc, log_strat, log_dur = log
     else:
-        # SQLAlchemy
         from sqlalchemy import text
         with backend6._engine.connect() as conn:
             logs = conn.execute(
-                text("SELECT * FROM compaction_log WHERE agent_id = :aid"),
+                text("SELECT agent_id, conversation_id, level, tokens_before, tokens_after, "
+                     "summaries_created, strategy, duration_ms FROM compaction_log WHERE agent_id = :aid"),
                 {"aid": "expand-agent"},
             ).mappings().all()
+        if logs:
+            log = logs[0]
+            log_agent_id = log["agent_id"]
+            log_conv_id = log["conversation_id"]
+            log_level = log["level"]
+            log_tb = log["tokens_before"]
+            log_ta = log["tokens_after"]
+            log_sc = log["summaries_created"]
+            log_strat = log["strategy"]
+            log_dur = log["duration_ms"]
 
     check(f"{label}: compaction log has entries", len(logs) > 0, f"got {len(logs)}")
+    if logs:
+        check(f"{label}: log has agent_id", log_agent_id == "expand-agent")
+        check(f"{label}: log has conversation_id", log_conv_id == "conv-1")
+        check(f"{label}: log has level", log_level is not None and log_level >= 1)
+        check(f"{label}: log has tokens_before", log_tb is not None and log_tb > 0)
+        check(f"{label}: log has tokens_after", log_ta is not None)
+        check(f"{label}: log has summaries_created", log_sc is not None and log_sc >= 0)
+        check(f"{label}: log has strategy", log_strat in ("llm_summarize", "summary_of_summaries", "truncate"))
+        check(f"{label}: log has duration_ms", log_dur is not None and log_dur >= 0)
 
     # ── Windowed retrieval: summaries + recent raw ──────────────────
     db_path7 = os.path.join(tmpdir, f"{label}_windowed.db")

@@ -129,6 +129,12 @@ class PersistentMemoryAdapter(MemoryAdapter):
             sequence=sequence,
         )
 
+        if self._monitoring_callback:
+            self._monitoring_callback("memory_store", {
+                "item": str(item), "metadata": metadata,
+                "agent_id": self._agent_id,
+            })
+
         # Check if compaction is needed (wired in Step 7)
         if self._compaction_engine:
             total_tokens = self._backend.get_token_count(
@@ -158,15 +164,24 @@ class PersistentMemoryAdapter(MemoryAdapter):
             policy = self._retrieval_config.get("default_policy", "last_k")
 
         if policy == "last_k":
-            return self._retrieve_last_k(k)
+            result = self._retrieve_last_k(k)
         elif policy == "windowed":
-            return self._retrieve_windowed(k)
+            result = self._retrieve_windowed(k)
         elif policy == "full_expand":
-            return self._retrieve_full_expand()
+            result = self._retrieve_full_expand()
         elif policy == "cross_agent":
-            return self._retrieve_cross_agent(k)
+            result = self._retrieve_cross_agent(k)
         else:
-            return self._retrieve_last_k(k)
+            result = self._retrieve_last_k(k)
+
+        if self._monitoring_callback:
+            self._monitoring_callback("memory_retrieve", {
+                "query": query, "k": k, "policy": policy,
+                "result_count": len(result) if result else 0,
+                "agent_id": self._agent_id,
+            })
+
+        return result
 
     def _retrieve_last_k(self, k):
         """Retrieve last k raw messages."""

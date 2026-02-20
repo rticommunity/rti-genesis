@@ -190,8 +190,73 @@ def run_backend_tests(backend, label):
     )
 
 
+def run_agent_registration_tests(backend, label):
+    """GWT Section 05: Agent registration field verification."""
+
+    print(f"\n{'='*60}")
+    print(f"  Agent registration tests: {label}")
+    print(f"{'='*60}")
+
+    import time
+
+    # Register a fresh agent
+    backend.register_agent("reg-test-01", "RegTestAgent", "general")
+
+    # Verify the agents table entry has name, type, and timestamps
+    if hasattr(backend, '_conn'):
+        # SQLiteBackend
+        row = backend._conn.execute(
+            "SELECT agent_id, agent_name, agent_type, created_at, last_seen_at "
+            "FROM agents WHERE agent_id = ?", ("reg-test-01",)
+        ).fetchone()
+        agent_name = row[1] if row else None
+        agent_type = row[2] if row else None
+        created_at = row[3] if row else None
+        last_seen_first = row[4] if row else None
+    else:
+        from sqlalchemy import text
+        with backend._engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT agent_id, agent_name, agent_type, created_at, last_seen_at "
+                     "FROM agents WHERE agent_id = :aid"),
+                {"aid": "reg-test-01"},
+            ).mappings().fetchone()
+        agent_name = row["agent_name"] if row else None
+        agent_type = row["agent_type"] if row else None
+        created_at = row["created_at"] if row else None
+        last_seen_first = row["last_seen_at"] if row else None
+
+    check(f"{label}: registration has agent_name", agent_name == "RegTestAgent")
+    check(f"{label}: registration has agent_type", agent_type == "general")
+    check(f"{label}: registration has created_at", created_at is not None)
+    check(f"{label}: registration has last_seen_at", last_seen_first is not None)
+
+    # Re-register (reconnection) and verify last_seen_at is updated
+    time.sleep(0.1)
+    backend.register_agent("reg-test-01", "RegTestAgent", "general")
+
+    if hasattr(backend, '_conn'):
+        row2 = backend._conn.execute(
+            "SELECT last_seen_at FROM agents WHERE agent_id = ?", ("reg-test-01",)
+        ).fetchone()
+        last_seen_second = row2[0] if row2 else None
+    else:
+        with backend._engine.connect() as conn:
+            row2 = conn.execute(
+                text("SELECT last_seen_at FROM agents WHERE agent_id = :aid"),
+                {"aid": "reg-test-01"},
+            ).mappings().fetchone()
+        last_seen_second = row2["last_seen_at"] if row2 else None
+
+    check(
+        f"{label}: last_seen_at updated on reconnection",
+        last_seen_second is not None and str(last_seen_second) >= str(last_seen_first),
+        f"first={last_seen_first}, second={last_seen_second}",
+    )
+
+
 def run_sqlite_specific_tests(db_path):
-    """Tests specific to SQLiteBackend (WAL mode, foreign keys)."""
+    """Tests specific to SQLiteBackend (WAL mode, foreign keys, synchronous)."""
     import sqlite3
 
     print(f"\n{'='*60}")
@@ -211,6 +276,11 @@ def run_sqlite_specific_tests(db_path):
     backend = SQLiteBackend(db_path)
     fk_val = backend._conn.execute("PRAGMA foreign_keys").fetchone()[0]
     check("sqlite: foreign_keys=ON", fk_val == 1, f"got {fk_val}")
+
+    # GWT 03: synchronous=NORMAL
+    sync_val = backend._conn.execute("PRAGMA synchronous").fetchone()[0]
+    # synchronous=NORMAL is 1
+    check("sqlite: synchronous=NORMAL", sync_val == 1, f"got {sync_val}")
     backend.close()
 
 
@@ -271,6 +341,9 @@ if __name__ == "__main__":
         sqlite_db = SQLiteBackend(db_path)
         sqlite_db.initialize_schema()
         run_backend_tests(sqlite_db, "sqlite")
+
+        # Agent registration tests (GWT 05)
+        run_agent_registration_tests(sqlite_db, "sqlite")
         sqlite_db.close()
 
         # SQLite-specific tests
@@ -283,6 +356,7 @@ if __name__ == "__main__":
             sa_db = SQLAlchemyBackend(f"sqlite:///{sa_db_path}")
             sa_db.initialize_schema()
             run_backend_tests(sa_db, "sqlalchemy")
+            run_agent_registration_tests(sa_db, "sqlalchemy")
             sa_db.close()
         except ImportError:
             print("\n  SKIP: SQLAlchemy not installed, skipping sqlalchemy backend tests")

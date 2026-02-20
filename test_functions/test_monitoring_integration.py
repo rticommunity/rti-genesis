@@ -69,6 +69,28 @@ if __name__ == "__main__":
             },
         )
 
+        # ── GWT 15: Store emits memory_store monitoring event ────────
+        events.clear()
+        adapter.store("test message for monitoring", metadata={"role": "user"})
+        store_events = [e for e in events if e["type"] == "memory_store"]
+        check("store emits monitoring event", len(store_events) == 1)
+        if store_events:
+            check(
+                "store event has content",
+                "test message for monitoring" in str(store_events[0]["metadata"]),
+            )
+
+        # ── GWT 15: Retrieve emits memory_retrieve monitoring event ──
+        events.clear()
+        adapter.retrieve(k=10)
+        retrieve_events = [e for e in events if e["type"] == "memory_retrieve"]
+        check("retrieve emits monitoring event", len(retrieve_events) == 1)
+        if retrieve_events:
+            check(
+                "retrieve event has result_count",
+                "result_count" in retrieve_events[0]["metadata"],
+            )
+
         # ── Share emits monitoring event ────────────────────────────
         events.clear()
         adapter.share("shared finding", namespace="project-x")
