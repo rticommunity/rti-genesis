@@ -1,0 +1,12 @@
+{
+    "slack": {
+        "bot_token": "",
+        "app_token": "",
+        "respond_in_threads": true
+    },
+    "genesis": {
+        "default_agent_service": null,
+        "request_timeout": 60.0,
+        "discovery_wait": 5.0
+    }
+}

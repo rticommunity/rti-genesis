@@ -1,0 +1,11 @@
+{
+    "telegram": {
+        "bot_token": "",
+        "allowed_chat_ids": null
+    },
+    "genesis": {
+        "default_agent_service": null,
+        "request_timeout": 60.0,
+        "discovery_wait": 5.0
+    }
+}
