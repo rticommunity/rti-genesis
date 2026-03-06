@@ -187,7 +187,7 @@ GENESIS requires RTI Connext DDS. RTI offers several free options:
 
 ```bash
 # Clone repository (or download release)
-cd Genesis_LIB
+cd rti-genesis
 
 # Automated setup (recommended)
 ./setup.sh
@@ -332,7 +332,7 @@ We welcome contributions! Here's how to get started:
 
 ```bash
 # Clone and setup (or download release)
-cd Genesis_LIB
+cd rti-genesis
 ./setup.sh
 
 # Activate environment
