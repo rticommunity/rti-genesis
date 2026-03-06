@@ -34,7 +34,7 @@ Before setting up Genesis LIB, ensure you have:
 If you have the Genesis_LIB repository cloned or downloaded locally:
 
 ```bash
-cd /path/to/Genesis_rc1/Genesis_LIB
+cd /path/to/rti-genesis/genesis_lib
 python3.10 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
