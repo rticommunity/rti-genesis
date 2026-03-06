@@ -207,6 +207,81 @@ async def run_tests():
 
 
 # ------------------------------------------------------------------
+# Conversation history tests (no DDS required)
+# ------------------------------------------------------------------
+
+def run_history_tests():
+    """Test _build_prompt_with_history logic using a lightweight mock."""
+    global passed
+
+    print("\n--- Conversation history (Genesis memory) ---")
+
+    from genesis_lib.memory import SimpleMemoryAdapter
+
+    # Create a minimal object that mimics the relevant CodingGenesisAgent attrs
+    class FakeAgent:
+        def __init__(self, backend_name):
+            self.memory = SimpleMemoryAdapter()
+            self._sessions = {}
+            self._backend = type("B", (), {"name": backend_name})()
+
+    # Import the method we want to test
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    from coding_genesis_agent import CodingGenesisAgent
+
+    # --- Test 1: No history returns raw message ---
+    agent = FakeAgent("claude")
+    result = CodingGenesisAgent._build_prompt_with_history(agent, "hello", None)
+    check("history: no history returns raw message", result == "hello")
+
+    # --- Test 2: History is prepended for Claude ---
+    agent = FakeAgent("claude")
+    agent.memory.store("Write a snake game", metadata={"role": "user"})
+    agent.memory.store("I created snake.py", metadata={"role": "assistant"})
+    result = CodingGenesisAgent._build_prompt_with_history(agent, "Add obstacles", "conv1")
+    check("history: contains prior user msg", "[User]: Write a snake game" in result)
+    check("history: contains prior assistant msg", "[Assistant]: I created snake.py" in result)
+    check("history: contains current request", "Add obstacles" in result)
+    check("history: current request at end", result.endswith("Add obstacles"))
+
+    # --- Test 3: Codex with active session skips history ---
+    agent = FakeAgent("codex")
+    agent._sessions["conv1"] = "sess-123"
+    agent.memory.store("Prior message", metadata={"role": "user"})
+    result = CodingGenesisAgent._build_prompt_with_history(agent, "Follow up", "conv1")
+    check("history: codex with session returns raw", result == "Follow up")
+
+    # --- Test 4: Codex without session includes history ---
+    agent = FakeAgent("codex")
+    agent.memory.store("First request", metadata={"role": "user"})
+    agent.memory.store("First response", metadata={"role": "assistant"})
+    result = CodingGenesisAgent._build_prompt_with_history(agent, "Second request", "conv2")
+    check("history: codex no session includes history", "[User]: First request" in result)
+    check("history: codex no session has current", "Second request" in result)
+
+    # --- Test 5: Long assistant responses are truncated ---
+    agent = FakeAgent("claude")
+    long_text = "x" * 5000
+    agent.memory.store("question", metadata={"role": "user"})
+    agent.memory.store(long_text, metadata={"role": "assistant"})
+    result = CodingGenesisAgent._build_prompt_with_history(agent, "next", "c1")
+    check("history: long response truncated", "... (truncated)" in result)
+    check("history: truncated to ~2000 chars", len(result) < 3000)
+
+    # --- Test 6: Multiple turns build up ---
+    agent = FakeAgent("claude")
+    for i in range(5):
+        agent.memory.store(f"Question {i}", metadata={"role": "user"})
+        agent.memory.store(f"Answer {i}", metadata={"role": "assistant"})
+    result = CodingGenesisAgent._build_prompt_with_history(agent, "Final question", "c1")
+    for i in range(5):
+        check(f"history: multi-turn has question {i}", f"Question {i}" in result)
+        check(f"history: multi-turn has answer {i}", f"Answer {i}" in result)
+
+
+run_history_tests()
+
+# ------------------------------------------------------------------
 # Run
 # ------------------------------------------------------------------
 

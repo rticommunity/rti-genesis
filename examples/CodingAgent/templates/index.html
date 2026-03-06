@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Genesis CodingAgent</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.1/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/javascript.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <span class="logo">Genesis</span>
+      <span class="logo-sub">CodingAgent</span>
+    </div>
+    <div class="header-center">
+      <select id="agent-select" class="agent-select" disabled>
+        <option value="">Discovering agents...</option>
+      </select>
+      <button id="connect-btn" class="btn btn-sm" disabled>Connect</button>
+      <button id="refresh-btn" class="btn btn-sm btn-ghost">Refresh</button>
+    </div>
+    <div class="header-right">
+      <span id="status-indicator" class="status-dot offline"></span>
+      <span id="status-text" class="status-text">Connecting...</span>
+    </div>
+  </header>
+
+  <!-- Main layout -->
+  <div class="main">
+    <!-- Left sidebar: File tree -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-title">FILES</span>
+        <button id="refresh-files-btn" class="btn btn-xs btn-ghost" title="Refresh file tree">&#x21bb;</button>
+      </div>
+      <div class="file-tree" id="file-tree">
+        <div class="empty-state">No workspace files</div>
+      </div>
+    </aside>
+
+    <!-- Resize handle: sidebar | conversation -->
+    <div class="resize-handle" id="resize-left" title="Drag to resize"></div>
+
+    <!-- Center: Conversation -->
+    <section class="conversation">
+      <div class="chat-area" id="chat-area">
+        <div class="welcome-msg" id="welcome-msg">
+          <div class="welcome-icon">&#9672;</div>
+          <div class="welcome-title">Genesis CodingAgent</div>
+          <div class="welcome-sub">Connect to an agent and describe a coding task.</div>
+        </div>
+      </div>
+      <div class="input-bar">
+        <form id="chat-form">
+          <input
+            type="text"
+            id="chat-input"
+            placeholder="Describe a coding task..."
+            autocomplete="off"
+            disabled
+          />
+          <button type="submit" id="send-btn" class="btn btn-primary" disabled>&#9654;</button>
+        </form>
+      </div>
+    </section>
+
+    <!-- Resize handle: conversation | graph -->
+    <div class="resize-handle" id="resize-right" title="Drag to resize"></div>
+
+    <!-- Right panel: Graph -->
+    <aside class="graph-panel" id="graph-panel">
+      <div class="graph-header">
+        <span class="sidebar-title">NETWORK</span>
+      </div>
+      <div id="graph" class="graph-container"></div>
+    </aside>
+  </div>
+
+  <script type="module">
+    import { initGraphViewer3D } from "/genesis-graph/static/orbital_viewer.js";
+    window.addEventListener('DOMContentLoaded', () => {
+      const el = document.getElementById('graph');
+      initGraphViewer3D(el, { socketUrl: `${location.protocol}//${location.host}` });
+    });
+  </script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
