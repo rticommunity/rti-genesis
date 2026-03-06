@@ -119,7 +119,7 @@ cleanup() {
     pkill -f "python.*simple_client" || true
     pkill -f "python.*openai_chat_agent" || true
     pkill -f "python.*interface_cli" || true
-    pkill -f "python.*test_agent" || true
+    pkill -f "python.*helpers/test_agent" || true
     pkill -f "python.*personal_assistant" || true
     pkill -f "python.*weather_agent" || true
     if [ "$DEBUG" = "true" ]; then
@@ -211,8 +211,8 @@ fi
 
 # LocalGenesisAgent test (Ollama) - Domain 18
 echo "  🤖 LocalGenesisAgent Test (Ollama)"
-# Check if ollama is available
-if command -v ollama &> /dev/null && curl -s --connect-timeout 2 --max-time 5 http://localhost:11434/api/tags > /dev/null 2>&1; then
+# Check if ollama server and Python package are available
+if command -v ollama &> /dev/null && curl -s --connect-timeout 2 --max-time 5 http://localhost:11434/api/tags > /dev/null 2>&1 && python -c "import ollama" 2>/dev/null; then
     launch_test "$(resolve_path run_test_local_agent_with_functions.sh)" 18 90
 else
     echo "  ⚠️  Skipping run_test_local_agent_with_functions.sh: Ollama not available (install from https://ollama.com)"
@@ -262,8 +262,10 @@ while [ $ALL_DONE -eq 0 ]; do
             ALL_DONE=0
         else
             # Process finished - capture exit code and mark as captured
-            wait "$pid" 2>/dev/null
-            echo "$?" > "$EXITCODE_TMPDIR/$pid"
+            # Note: use subshell to prevent set -e from exiting on non-zero wait
+            exit_code=0
+            wait "$pid" 2>/dev/null || exit_code=$?
+            echo "$exit_code" > "$EXITCODE_TMPDIR/$pid"
             CAPTURED_PIDS+=("$pid")
         fi
     done

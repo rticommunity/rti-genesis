@@ -609,7 +609,7 @@ class AgentToAgentTester:
             await asyncio.sleep(2)
             
             # Step 3: Start required services with output capture
-            calc_path = os.path.join(self.project_root, 'test_functions', 'calculator_service.py')
+            calc_path = os.path.join(self.project_root, 'test_functions', 'services', 'calculator_service.py')
             personal_path = os.path.join(self.project_root, 'test_functions', 'agents', 'personal_assistant_service.py')
             weather_path = os.path.join(self.project_root, 'test_functions', 'agents', 'weather_agent_service.py')
             
