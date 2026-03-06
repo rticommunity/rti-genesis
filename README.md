@@ -187,10 +187,15 @@ GENESIS requires RTI Connext DDS. RTI offers several free options:
 
 ```bash
 # Clone repository (or download release)
+git clone https://github.com/rticommunity/rti-genesis.git
+#cd into the directory
 cd rti-genesis
 
 # Automated setup (recommended)
 ./setup.sh
+#Activate the env (if it is not already)
+source ./venv/bin/activate
+
 
 # Manual setup alternative
 python3.10 -m venv venv
