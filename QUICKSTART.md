@@ -11,7 +11,7 @@ Before setting up Genesis LIB, ensure you have:
     ```bash
     export NDDSHOME=/path/to/rti_connext_dds-7.3.0/
     ```
-3. **API Keys**
+3. **API Keys (for cloud-based models)**
    - OpenAI API Key (for GPT models)
    - Anthropic API Key (for Claude models)
    - Set (at least one of) these in your environment:
@@ -19,6 +19,13 @@ Before setting up Genesis LIB, ensure you have:
      export OPENAI_API_KEY="your_openai_api_key"
      export ANTHROPIC_API_KEY="your_anthropic_api_key"
      ```
+   
+   **OR** use local inference with **Ollama** (no API key needed):
+   - Install Ollama from https://ollama.com
+   - Start Ollama server: `ollama serve` (may auto-start on some systems)
+   - Pull a model: `ollama pull nemotron-mini:latest`
+   - Verify it's running: `ollama list`
+   - No API costs, complete privacy
 
 ## Install Genesis
 
@@ -39,9 +46,11 @@ Verify installation:
 python -c "import genesis_lib; print('Genesis installed:', genesis_lib.__file__)"
 ```
 
-## Create a simple interactive agent (based on openai)
+## Create a simple interactive agent
 
-Create a file called `interactive.py` with this content:
+### Option 1: Using OpenAI (cloud-based)
+
+Create a file called `interactive_openai.py` with this content:
 
 ```py
 #!/usr/bin/env python3
@@ -114,11 +123,100 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
+### Option 2: Using Ollama (local inference)
+
+**Before running: Make sure Ollama is running**
+```bash
+# Start Ollama server (if not already running)
+ollama serve
+
+# In another terminal, verify models are available
+ollama list
+
+# Pull a model if needed
+ollama pull nemotron-mini:latest
+```
+
+Create a file called `interactive_local.py` with this content:
+
+```py
+#!/usr/bin/env python3
+
+"""
+HelloWorldAgent - Local version using Ollama for inference
+No API key required, no costs, complete privacy.
+"""
+
+import logging
+import asyncio
+import sys
+from genesis_lib.local_genesis_agent import LocalGenesisAgent
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("hello_world_local_agent")
+
+class HelloWorldLocalAgent(LocalGenesisAgent):
+    """A simple agent that uses local LLM inference via Ollama."""
+    
+    def __init__(self):
+        """Initialize the HelloWorldLocalAgent."""
+        super().__init__(
+            model_name="nemotron-mini:latest",  # Or any Ollama model you have
+            agent_name="HelloWorldLocalAgent",
+            description="A simple agent that can perform basic arithmetic operations",
+            enable_tracing=True
+        )
+        logger.info("HelloWorldLocalAgent initialized")
+
+async def main():
+    """Run the HelloWorldLocalAgent with interactive question handling."""
+    try:
+        # Create and start agent
+        agent = HelloWorldLocalAgent()
+        logger.info("Agent started successfully")
+        
+        # Give some time for initialization
+        await asyncio.sleep(2)
+        
+        print("Hello! You can ask me questions. Type 'exit' to quit.")
+        
+        while True:
+            # Prompt user for input
+            message = input("Your question: ")
+            
+            # Exit if the user types 'exit'
+            if message.lower() == "exit":
+                print("Goodbye!")
+                break
+            
+            # Process the message
+            try:
+                response = await agent.process_message(message)
+                print(f"Agent response: {response}")
+            except Exception as e:
+                logger.error(f"Error processing message: {str(e)}")
+                print("An error occurred. Please try again.")
+        
+    except Exception as e:
+        logger.error(f"Error in agent: {str(e)}")
+        raise
+    finally:
+        if 'agent' in locals():
+            await agent.close()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
 
 Run it:
 
-```
-python interactive.py
+```bash
+# Option 1 (OpenAI)
+python interactive_openai.py
+
+# Option 2 (Local with Ollama)
+python interactive_local.py
 ```
 
 You should see initialization output followed by:

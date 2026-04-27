@@ -37,12 +37,27 @@ from .function_classifier import FunctionClassifier
 from .llm import AnthropicChatAgent
 from .llm_factory import LLMFactory
 from .openai_genesis_agent import OpenAIGenesisAgent
+
+# LocalGenesisAgent requires optional ollama dependency
+try:
+    from .local_genesis_agent import LocalGenesisAgent
+    _HAS_LOCAL_GENESIS_AGENT = True
+except ImportError:
+    _HAS_LOCAL_GENESIS_AGENT = False
+
 from .function_requester import FunctionRequester
 from .genesis_service import GenesisService
 from .monitored_service import MonitoredService
 from .utils.openai_utils import convert_functions_to_openai_schema, generate_response_with_functions
 from .utils.function_utils import call_function_thread_safe, find_function_by_name, filter_functions_by_relevance
 from .utils import get_datamodel_path, load_datamodel
+
+# PersistentMemoryAdapter — database-backed memory (SQLite has zero extra deps)
+try:
+    from .memory.persistent_adapter import PersistentMemoryAdapter
+    _HAS_PERSISTENT_MEMORY = True
+except ImportError:
+    _HAS_PERSISTENT_MEMORY = False
 
 __all__ = [
     'GenesisApp',
@@ -65,4 +80,12 @@ __all__ = [
     'filter_functions_by_relevance',
     'get_datamodel_path',
     'load_datamodel'
-] 
+]
+
+# Add LocalGenesisAgent to __all__ only if ollama dependency is available
+if _HAS_LOCAL_GENESIS_AGENT:
+    __all__.append('LocalGenesisAgent')
+
+# Add PersistentMemoryAdapter to __all__ if available
+if _HAS_PERSISTENT_MEMORY:
+    __all__.append('PersistentMemoryAdapter') 

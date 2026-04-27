@@ -1,0 +1,169 @@
+;===============================================================
+; Auth Probing: CLI Detection
+;
+; The agent must verify that the backend CLI tool is installed
+; before attempting any auth or subprocess operations.
+;===============================================================
+
+;---------------------------------------------------------------
+; Claude CLI is installed and on PATH.
+;---------------------------------------------------------------
+GIVEN the "claude" backend is selected.
+GIVEN the "claude" CLI binary is available on PATH.
+
+WHEN the agent probes for CLI availability.
+
+THEN the probe reports the CLI as available.
+THEN no error is raised.
+
+;---------------------------------------------------------------
+; Claude CLI is not installed.
+;---------------------------------------------------------------
+GIVEN the "claude" backend is selected.
+GIVEN the "claude" CLI binary is not available on PATH.
+
+WHEN the agent probes for CLI availability.
+
+THEN the agent raises a fatal error.
+THEN the error message contains "Claude Code CLI not found".
+THEN the error message contains installation instructions.
+
+;---------------------------------------------------------------
+; Codex CLI is installed and on PATH.
+;---------------------------------------------------------------
+GIVEN the "codex" backend is selected.
+GIVEN the "codex" CLI binary is available on PATH.
+
+WHEN the agent probes for CLI availability.
+
+THEN the probe reports the CLI as available.
+THEN no error is raised.
+
+;---------------------------------------------------------------
+; Codex CLI is not installed.
+;---------------------------------------------------------------
+GIVEN the "codex" backend is selected.
+GIVEN the "codex" CLI binary is not available on PATH.
+
+WHEN the agent probes for CLI availability.
+
+THEN the agent raises a fatal error.
+THEN the error message contains "Codex CLI not found".
+THEN the error message contains installation instructions.
+
+
+;===============================================================
+; Auth Probing: Subscription Detection
+;
+; The agent runs a lightweight probe command at startup to
+; determine whether subscription auth is available. The probe
+; must strip API key env vars so the CLI attempts OAuth.
+;===============================================================
+
+;---------------------------------------------------------------
+; Claude subscription auth is available (user ran "claude login").
+;---------------------------------------------------------------
+GIVEN the "claude" backend is selected.
+GIVEN the user has completed "claude login" and OAuth credentials are cached.
+GIVEN "ANTHROPIC_API_KEY" is set in the environment.
+
+WHEN the agent probes subscription auth.
+
+THEN the probe subprocess is launched without "ANTHROPIC_API_KEY" in its environment.
+THEN the probe subprocess receives a valid response.
+THEN the auth mode is set to "subscription".
+THEN a log message confirms "subscription pricing".
+
+;---------------------------------------------------------------
+; Codex subscription auth is available (user ran "codex login").
+;---------------------------------------------------------------
+GIVEN the "codex" backend is selected.
+GIVEN the user has completed "codex login" and OAuth credentials are cached.
+GIVEN "OPENAI_API_KEY" is set in the environment.
+
+WHEN the agent probes subscription auth.
+
+THEN the probe subprocess is launched without "OPENAI_API_KEY" in its environment.
+THEN the probe subprocess is launched without "CODEX_API_KEY" in its environment.
+THEN the probe subprocess receives a valid response.
+THEN the auth mode is set to "subscription".
+THEN a log message confirms "subscription pricing".
+
+
+;===============================================================
+; Auth Probing: API Key Fallback
+;
+; When subscription auth is not available but an API key exists,
+; the agent falls back to API billing with a prominent warning.
+;===============================================================
+
+;---------------------------------------------------------------
+; No subscription, but ANTHROPIC_API_KEY is available.
+;---------------------------------------------------------------
+GIVEN the "claude" backend is selected.
+GIVEN the user has not completed "claude login".
+GIVEN "ANTHROPIC_API_KEY" is set in the environment.
+
+WHEN the agent probes subscription auth.
+
+THEN the probe subprocess fails or returns an auth error.
+THEN the auth mode is set to "api_key".
+THEN a colored warning is printed to stderr.
+THEN the warning contains "No subscription auth found".
+THEN the warning contains "Falling back to ANTHROPIC_API_KEY".
+THEN the warning contains "5-10x more".
+THEN the warning contains setup instructions for "claude login".
+THEN the warning contains setup instructions for "claude setup-token".
+
+;---------------------------------------------------------------
+; No subscription, but OPENAI_API_KEY is available.
+;---------------------------------------------------------------
+GIVEN the "codex" backend is selected.
+GIVEN the user has not completed "codex login".
+GIVEN "OPENAI_API_KEY" is set in the environment.
+
+WHEN the agent probes subscription auth.
+
+THEN the probe subprocess fails or returns an auth error.
+THEN the auth mode is set to "api_key".
+THEN a colored warning is printed to stderr.
+THEN the warning contains "No subscription auth found".
+THEN the warning contains "Falling back to OPENAI_API_KEY".
+THEN the warning contains setup instructions for "codex login".
+
+
+;===============================================================
+; Auth Probing: No Auth Available
+;
+; When neither subscription nor API key is available, the agent
+; must fail immediately with clear instructions.
+;===============================================================
+
+;---------------------------------------------------------------
+; No subscription, no API key at all.
+;---------------------------------------------------------------
+GIVEN the "claude" backend is selected.
+GIVEN the user has not completed "claude login".
+GIVEN "ANTHROPIC_API_KEY" is not set in the environment.
+GIVEN "CLAUDE_CODE_OAUTH_TOKEN" is not set in the environment.
+
+WHEN the agent probes subscription auth.
+
+THEN the agent raises a fatal error.
+THEN the error message contains "No auth available".
+THEN the error message contains "claude login".
+THEN the error message contains "ANTHROPIC_API_KEY".
+
+;---------------------------------------------------------------
+; No subscription, no API key for Codex.
+;---------------------------------------------------------------
+GIVEN the "codex" backend is selected.
+GIVEN the user has not completed "codex login".
+GIVEN "OPENAI_API_KEY" is not set in the environment.
+GIVEN "CODEX_API_KEY" is not set in the environment.
+
+WHEN the agent probes subscription auth.
+
+THEN the agent raises a fatal error.
+THEN the error message contains "No auth available".
+THEN the error message contains "codex login".

@@ -1,0 +1,70 @@
+;===============================================================
+; Agent Discovery: CodingAgent is Discoverable
+;
+; The CodingGenesisAgent publishes capabilities to the DDS
+; AgentCapability topic. Other agents (e.g., PersonalAssistant)
+; automatically discover it and convert it to an LLM tool.
+;===============================================================
+
+;---------------------------------------------------------------
+; CodingAgent appears in another agent's discovered_agents.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "claude" and agent_name "ClaudeCoder".
+GIVEN an OpenAIGenesisAgent with agent_name "Orchestrator" and enable_agent_communication true.
+GIVEN both agents are running on the same DDS domain.
+
+WHEN the Orchestrator's AgentCapabilityListener receives the ClaudeCoder announcement.
+
+THEN the Orchestrator's discovered_agents contains an entry for ClaudeCoder.
+THEN the entry has agent_type "SPECIALIZED_AGENT".
+THEN the entry has specializations containing "claude-code".
+THEN the entry has capabilities containing "code-generation".
+
+;---------------------------------------------------------------
+; CodingAgent is converted to an OpenAI tool schema.
+;---------------------------------------------------------------
+GIVEN the Orchestrator has discovered ClaudeCoder.
+
+WHEN the Orchestrator calls _convert_agents_to_tools.
+
+THEN the resulting tool list contains a tool for ClaudeCoder.
+THEN the tool has type "function".
+THEN the tool function has a parameters schema with a "message" property of type "string".
+
+;---------------------------------------------------------------
+; Orchestrator can delegate a coding task to CodingAgent.
+;---------------------------------------------------------------
+GIVEN the Orchestrator has discovered ClaudeCoder.
+GIVEN the Orchestrator's LLM selects the ClaudeCoder tool.
+
+WHEN the Orchestrator sends an agent-to-agent request with message "Write unit tests for auth.py".
+
+THEN ClaudeCoder receives the request via DDS RPC.
+THEN ClaudeCoder spawns a "claude -p" subprocess with the message.
+THEN ClaudeCoder returns the result via DDS RPC.
+THEN the Orchestrator receives the coding result.
+
+;---------------------------------------------------------------
+; Two coding agents with different backends are both discovered.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "claude" and agent_name "ClaudeCoder".
+GIVEN a CodingGenesisAgent with backend "codex" and agent_name "CodexCoder".
+GIVEN an OpenAIGenesisAgent with agent_name "Orchestrator".
+GIVEN all three agents are running on the same DDS domain.
+
+WHEN the Orchestrator discovers both coding agents.
+
+THEN the Orchestrator's discovered_agents contains entries for both.
+THEN ClaudeCoder has specialization "claude-code".
+THEN CodexCoder has specialization "codex-code".
+THEN the Orchestrator's tool list contains tools for both agents.
+
+;---------------------------------------------------------------
+; CodingAgent does not discover itself.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "claude" and agent_name "ClaudeCoder".
+
+WHEN ClaudeCoder receives its own AgentCapability announcement.
+
+THEN the announcement is ignored.
+THEN ClaudeCoder's discovered_agents does not contain itself.

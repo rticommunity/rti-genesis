@@ -1,0 +1,42 @@
+sequenceDiagram
+    participant User
+    participant OpenAIAgent as OpenAI Agent (Primary)
+    participant LLM as LLM with Unified Tools
+    participant SpecialistAgent as Specialist Agent
+    participant Function as Function/Service
+
+    Note over User,Function: Automatic Discovery & Tool Generation
+    OpenAIAgent->>OpenAIAgent: _ensure_agents_discovered()
+    OpenAIAgent->>OpenAIAgent: _ensure_functions_discovered()
+    OpenAIAgent->>OpenAIAgent: _ensure_internal_tools_discovered()
+    
+    User->>OpenAIAgent: Request
+    
+    Note over OpenAIAgent,LLM: Single Unified LLM Call
+    OpenAIAgent->>OpenAIAgent: _get_all_tool_schemas_for_openai()
+    Note over OpenAIAgent: Functions: add, multiply, etc.<br/>Agents: get_weather_info, use_financial_service<br/>Internal: @genesis_tool methods
+    
+    OpenAIAgent->>LLM: Single Call with ALL Tools
+    
+    alt Agent Tool Call
+        LLM->>OpenAIAgent: Agent Tool Call
+        Note over LLM: Tool: get_weather_info<br/>Args: {message: "Denver weather"}
+        
+        OpenAIAgent->>SpecialistAgent: Agent-to-Agent Request
+        Note over OpenAIAgent,SpecialistAgent: DDS AgentAgentRequest/Reply<br/>Context preserved via conversation_id
+        
+        SpecialistAgent->>Function: Function Call (if needed)
+        Function->>SpecialistAgent: Result
+        SpecialistAgent->>OpenAIAgent: Agent Response
+        
+    else Function Tool Call
+        LLM->>OpenAIAgent: Function Tool Call
+        OpenAIAgent->>Function: DDS Function Execution
+        Function->>OpenAIAgent: Result
+        
+    else Internal Tool Call
+        LLM->>OpenAIAgent: Internal Tool Call
+        OpenAIAgent->>OpenAIAgent: Execute @genesis_tool method
+    end
+    
+    OpenAIAgent->>User: Unified Response

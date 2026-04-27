@@ -1,0 +1,158 @@
+;===============================================================
+; Error Handling: Subprocess Timeout
+;
+; Coding tasks can take minutes. The agent enforces a
+; configurable timeout and terminates the subprocess gracefully
+; if exceeded.
+;===============================================================
+
+;---------------------------------------------------------------
+; Subprocess exceeds timeout.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with timeout 10.0 seconds.
+GIVEN the subprocess runs for longer than 10 seconds without completing.
+
+WHEN the timeout is reached.
+
+THEN the subprocess is terminated via SIGTERM.
+THEN the subprocess is waited on to prevent zombie processes.
+THEN the response contains key "status" with a non-zero value.
+THEN the response contains key "message" with text containing "timed out".
+THEN the agent transitions to "READY" state, not "DEGRADED".
+
+;---------------------------------------------------------------
+; Default timeout is 300 seconds (5 minutes).
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent created with default parameters.
+
+WHEN checking the timeout value.
+
+THEN the timeout is 300.0 seconds.
+
+;---------------------------------------------------------------
+; Custom timeout is respected.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent created with timeout 60.0.
+
+WHEN checking the timeout value.
+
+THEN the timeout is 60.0 seconds.
+
+
+;===============================================================
+; Error Handling: Subprocess Crash
+;
+; If the subprocess exits with a non-zero return code, the agent
+; must report the error and return to READY state.
+;===============================================================
+
+;---------------------------------------------------------------
+; Subprocess exits with non-zero return code.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "claude".
+GIVEN the subprocess exits with return code 1.
+GIVEN stderr contains "Error: authentication failed".
+
+WHEN the agent processes the request.
+
+THEN the response contains key "status" with a non-zero value.
+THEN the response contains error information.
+THEN the agent transitions to "READY" state.
+
+;---------------------------------------------------------------
+; Subprocess is killed externally (SIGKILL).
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "claude".
+GIVEN the subprocess is killed by an external signal.
+
+WHEN the agent processes the request.
+
+THEN the response contains key "status" with a non-zero value.
+THEN the agent transitions to "READY" state.
+THEN no zombie process remains.
+
+
+;===============================================================
+; Error Handling: Parse Errors
+;
+; Malformed JSON lines from the subprocess must be silently
+; skipped. The agent must not crash on unexpected output.
+;===============================================================
+
+;---------------------------------------------------------------
+; Malformed JSON line in stdout is skipped.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "claude".
+GIVEN the subprocess emits "not-json-line" on stdout.
+GIVEN the subprocess then emits a valid result event.
+
+WHEN the agent processes the request.
+
+THEN the malformed line is silently skipped.
+THEN the valid result event is processed normally.
+THEN the response contains the result text.
+THEN the response contains key "status" with value 0.
+
+;---------------------------------------------------------------
+; Mixed valid and invalid lines are handled.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "codex".
+GIVEN the subprocess emits: valid init, invalid line, valid text, invalid line, valid done.
+
+WHEN the agent processes the request.
+
+THEN the session_id is extracted from the init event.
+THEN the text is extracted from the text event.
+THEN the 2 invalid lines are silently skipped.
+THEN the response is successful.
+
+
+;===============================================================
+; Error Handling: Empty Response
+;
+; If the subprocess produces no parseable events, the agent
+; must return an error rather than an empty success.
+;===============================================================
+
+;---------------------------------------------------------------
+; Subprocess produces no output.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "claude".
+GIVEN the subprocess exits with return code 0.
+GIVEN the subprocess produced no stdout output.
+
+WHEN the agent processes the request.
+
+THEN the response contains key "message" with an empty string or error message.
+THEN the response contains key "status" with value 0.
+THEN the response contains key "tool_calls" with value 0.
+
+
+;===============================================================
+; Error Handling: State Recovery
+;
+; After any error, the agent must return to READY state so it
+; can accept subsequent requests. It must not get stuck in
+; BUSY or DEGRADED state.
+;===============================================================
+
+;---------------------------------------------------------------
+; Agent recovers to READY after timeout error.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent in "BUSY" state due to a timed-out request.
+
+WHEN the timeout error is handled.
+
+THEN the agent state is "READY".
+THEN a graph node event is published with state "READY".
+THEN the agent can accept new requests.
+
+;---------------------------------------------------------------
+; Agent recovers to READY after subprocess crash.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent in "BUSY" state due to a crashed subprocess.
+
+WHEN the crash error is handled.
+
+THEN the agent state is "READY".
+THEN the agent can accept new requests.

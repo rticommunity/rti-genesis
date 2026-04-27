@@ -113,11 +113,11 @@
       This type will be deprecated in a future release.
     -->
     <struct name= "genesis_agent_registration_announce">
-      <member name="message" type="string" stringMaxLength="2048" />
-      <member name="prefered_name" type="string" stringMaxLength="256" />
+      <member name="message" type="string" />
+      <member name="prefered_name" type="string" />
       <member name="default_capable" type="int32"/>
-      <member name="instance_id" type="string" key="true" stringMaxLength="128"/>
-      <member name="service_name" type="string" stringMaxLength="256"/>
+      <member name="instance_id" type="string" key="true"/>
+      <member name="service_name" type="string"/>
     </struct>
 
     <!--
@@ -219,7 +219,7 @@
         wrappers (function-name/params envelope, standardized result handling).
       -->
       <!-- Unique request ID for correlation and debugging -->
-      <member name="request_id" type="string" stringMaxLength="128"/>
+      <member name="request_id" type="string"/>
       
       <!-- 
         Main message content (use case dependent):
@@ -230,7 +230,7 @@
       <member name="message" type="string"/>
       
       <!-- Conversation/chain ID for multi-turn interactions and distributed tracing -->
-      <member name="conversation_id" type="string" stringMaxLength="128"/>
+      <member name="conversation_id" type="string"/>
       
       <!-- 
         GUID-Based Targeting for Content Filtering:
@@ -241,7 +241,7 @@
         - First request: target_service_guid = "" (discover any service)
         - Subsequent: target_service_guid = "service-guid-12345" (locked)
       -->
-      <member name="target_service_guid" type="string" stringMaxLength="128"/>
+      <member name="target_service_guid" type="string"/>
       
       <!-- 
         Service Instance Tag for Blue/Green Deployments:
@@ -249,7 +249,7 @@
         - Example: "production", "staging", "canary", "v2.1"
         - Uses content filtering (not topic names) for flexibility
       -->
-      <member name="service_instance_tag" type="string" stringMaxLength="64"/>
+      <member name="service_instance_tag" type="string"/>
       
       <!--
         JSON metadata for path-specific extensions and context:
@@ -279,12 +279,12 @@
           "timestamp": 1234567890
         }
       -->
-      <member name="metadata" type="string" stringMaxLength="2048"/>
+      <member name="metadata" type="string"/>
     </struct>
 
     <struct name="GenesisRPCReply">
       <!-- Echo back request_id for correlation -->
-      <member name="request_id" type="string" stringMaxLength="128"/>
+      <member name="request_id" type="string"/>
       
       <!-- 
         Response message (use case dependent):
@@ -298,7 +298,7 @@
       <member name="status" type="int32"/>
       
       <!-- Echo back conversation_id from request -->
-      <member name="conversation_id" type="string" stringMaxLength="128"/>
+      <member name="conversation_id" type="string"/>
       
       <!-- 
         Replier's Service GUID for Subsequent Targeting:
@@ -306,10 +306,10 @@
         - Requester captures this for target_service_guid in future requests
         - Implements broadcast→target pattern
       -->
-      <member name="replier_service_guid" type="string" stringMaxLength="128"/>
+      <member name="replier_service_guid" type="string"/>
       
       <!-- Echo back service_instance_tag from request -->
-      <member name="service_instance_tag" type="string" stringMaxLength="64"/>
+      <member name="service_instance_tag" type="string"/>
       
       <!--
         JSON metadata for path-specific extensions and context:
@@ -337,7 +337,7 @@
           "error_message": ""
         }
       -->
-      <member name="metadata" type="string" stringMaxLength="2048"/>
+      <member name="metadata" type="string"/>
     </struct>
 
     <!--
@@ -358,19 +358,19 @@
       requiring centralized log aggregation (e.g., distributed debugging, analytics).
     -->
     <struct name="LogMessage">
-      <member name="log_id" type="string" stringMaxLength="128"/>
+      <member name="log_id" type="string"/>
       <member name="timestamp" type="int64"/>
-      <member name="source_id" type="string" stringMaxLength="128"/>
-      <member name="source_name" type="string" stringMaxLength="256"/>
+      <member name="source_id" type="string"/>
+      <member name="source_name" type="string"/>
       <member name="level" type="int32"/>
-      <member name="level_name" type="string" stringMaxLength="32"/>
-      <member name="message" type="string" stringMaxLength="8192"/>
-      <member name="logger_name" type="string" stringMaxLength="256"/>
-      <member name="thread_id" type="string" stringMaxLength="128"/>
-      <member name="thread_name" type="string" stringMaxLength="256"/>
-      <member name="file_name" type="string" stringMaxLength="256"/>
+      <member name="level_name" type="string"/>
+      <member name="message" type="string"/>
+      <member name="logger_name" type="string"/>
+      <member name="thread_id" type="string"/>
+      <member name="thread_name" type="string"/>
+      <member name="file_name" type="string"/>
       <member name="line_number" type="int32"/>
-      <member name="function_name" type="string" stringMaxLength="256"/>
+      <member name="function_name" type="string"/>
     </struct>
 
     <!--
@@ -431,22 +431,22 @@
 
     <struct name="GenesisAdvertisement">
       <!-- Unique ID: function_id for FUNCTION, agent_id for AGENT -->
-      <member name="advertisement_id" type="string" key="true" stringMaxLength="128"/>
+      <member name="advertisement_id" type="string" key="true"/>
       
       <!-- Advertisement type (FUNCTION, AGENT, REGISTRATION) -->
       <member name="kind" type="nonBasic" nonBasicTypeName="AdvertisementKind"/>
       
       <!-- Human-readable name: function name or agent name -->
-      <member name="name" type="string" stringMaxLength="256"/>
+      <member name="name" type="string"/>
       
       <!-- Description of capabilities/purpose -->
-      <member name="description" type="string" stringMaxLength="2048"/>
+      <member name="description" type="string"/>
       
       <!-- Service or agent name (e.g., "MathService", "OpenAIChatService") -->
-      <member name="service_name" type="string" stringMaxLength="256"/>
+      <member name="service_name" type="string"/>
       
       <!-- DDS GUID of the publisher (service or agent participant) -->
-      <member name="provider_id" type="string" stringMaxLength="128"/>
+      <member name="provider_id" type="string"/>
       
       <!-- Timestamp of last advertisement update (milliseconds since epoch) -->
       <member name="last_seen" type="int64"/>
@@ -490,11 +490,11 @@
       - Reply: "rti/connext/genesis/rpc/TestService_Reply"
     -->
     <struct name="TestRequest">
-      <member name="message" type="string" stringMaxLength="8192"/>
+      <member name="message" type="string"/>
     </struct>
 
     <struct name="TestReply">
-      <member name="message" type="string" stringMaxLength="8192"/>
+      <member name="message" type="string"/>
       <member name="status" type="int32"/>
     </struct>
 
@@ -514,14 +514,14 @@
       in a future release.
     -->
     <struct name="LLMFunctionSchema">
-      <member name="function_id" type="string" key="true" stringMaxLength="128"/>
-      <member name="name" type="string" stringMaxLength="256"/>
-      <member name="description" type="string" stringMaxLength="2048"/>
-      <member name="parameters_schema" type="string" stringMaxLength="8192"/>
-      <member name="returns_schema" type="string" stringMaxLength="2048"/>
-      <member name="provider_id" type="string" stringMaxLength="128"/>
-      <member name="version" type="string" stringMaxLength="64"/>
-      <member name="tags" type="string" stringMaxLength="1024"/>
+      <member name="function_id" type="string" key="true"/>
+      <member name="name" type="string"/>
+      <member name="description" type="string"/>
+      <member name="parameters_schema" type="string"/>
+      <member name="returns_schema" type="string"/>
+      <member name="provider_id" type="string"/>
+      <member name="version" type="string"/>
+      <member name="tags" type="string"/>
     </struct>
 
     <!--
@@ -568,15 +568,15 @@
 
     <!-- Legacy general monitoring event -->
     <struct name="MonitoringEvent">
-      <member name="event_id" type="string" key="true" stringMaxLength="128"/>
+      <member name="event_id" type="string" key="true"/>
       <member name="timestamp" type="int64"/>
       <member name="event_type" type="nonBasic" nonBasicTypeName="EventType"/>
       <member name="entity_type" type="nonBasic" nonBasicTypeName="EntityType"/>
-      <member name="entity_id" type="string" stringMaxLength="128"/>
-      <member name="metadata" type="string" stringMaxLength="2048"/>
-      <member name="call_data" type="string" stringMaxLength="8192"/>
-      <member name="result_data" type="string" stringMaxLength="8192"/>
-      <member name="status_data" type="string" stringMaxLength="2048"/>
+      <member name="entity_id" type="string"/>
+      <member name="metadata" type="string"/>
+      <member name="call_data" type="string"/>
+      <member name="result_data" type="string"/>
+      <member name="status_data" type="string"/>
     </struct>
 
     <!--
@@ -614,63 +614,63 @@
 
     <!-- Legacy: Component lifecycle event (replaced by MonitoringEventUnified) -->
     <struct name="ComponentLifecycleEvent">
-      <member name="component_id" type="string" key="true" stringMaxLength="128"/>
+      <member name="component_id" type="string" key="true"/>
       <member name="component_type" type="nonBasic" nonBasicTypeName="ComponentType"/>
       <member name="previous_state" type="nonBasic" nonBasicTypeName="ComponentState"/>
       <member name="new_state" type="nonBasic" nonBasicTypeName="ComponentState"/>
       <member name="timestamp" type="int64"/>
-      <member name="reason" type="string" stringMaxLength="1024"/>
-      <member name="capabilities" type="string" stringMaxLength="2048"/>
-      <member name="chain_id" type="string" stringMaxLength="128"/>
-      <member name="call_id" type="string" stringMaxLength="128"/>
+      <member name="reason" type="string"/>
+      <member name="capabilities" type="string"/>
+      <member name="chain_id" type="string"/>
+      <member name="call_id" type="string"/>
       <member name="event_category" type="nonBasic" nonBasicTypeName="EventCategory"/>
-      <member name="source_id" type="string" stringMaxLength="128"/>
-      <member name="target_id" type="string" stringMaxLength="128"/>
-      <member name="connection_type" type="string" stringMaxLength="128"/>
+      <member name="source_id" type="string"/>
+      <member name="target_id" type="string"/>
+      <member name="connection_type" type="string"/>
     </struct>
 
     <!-- Legacy: Chain event for distributed tracing (replaced by MonitoringEventUnified) -->
     <struct name="ChainEvent">
-      <member name="chain_id" type="string" key="true" stringMaxLength="128"/>
-      <member name="call_id" type="string" stringMaxLength="128"/>
-      <member name="interface_id" type="string" stringMaxLength="128"/>
-      <member name="primary_agent_id" type="string" stringMaxLength="128"/>
-      <member name="specialized_agent_ids" type="string" stringMaxLength="2048"/>
-      <member name="function_id" type="string" stringMaxLength="128"/>
-      <member name="query_id" type="string" stringMaxLength="128"/>
+      <member name="chain_id" type="string" key="true"/>
+      <member name="call_id" type="string"/>
+      <member name="interface_id" type="string"/>
+      <member name="primary_agent_id" type="string"/>
+      <member name="specialized_agent_ids" type="string"/>
+      <member name="function_id" type="string"/>
+      <member name="query_id" type="string"/>
       <member name="timestamp" type="int64"/>
-      <member name="event_type" type="string" stringMaxLength="128"/>
-      <member name="source_id" type="string" stringMaxLength="128"/>
-      <member name="target_id" type="string" stringMaxLength="128"/>
+      <member name="event_type" type="string"/>
+      <member name="source_id" type="string"/>
+      <member name="target_id" type="string"/>
       <member name="status" type="int32"/>
     </struct>
 
     <!-- Legacy: Graph node (replaced by GraphTopology with kind=NODE) -->
     <struct name="GenesisGraphNode">
-      <member name="node_id" type="string" key="true" stringMaxLength="128"/>
-      <member name="node_type" type="string" stringMaxLength="32"/>
-      <member name="node_state" type="string" stringMaxLength="32"/>
-      <member name="node_name" type="string" stringMaxLength="256"/>
-      <member name="metadata" type="string" stringMaxLength="8192"/>
+      <member name="node_id" type="string" key="true"/>
+      <member name="node_type" type="string"/>
+      <member name="node_state" type="string"/>
+      <member name="node_name" type="string"/>
+      <member name="metadata" type="string"/>
       <member name="timestamp" type="int64"/>
     </struct>
 
     <!-- Legacy: Graph edge (replaced by GraphTopology with kind=EDGE) -->
     <struct name="GenesisGraphEdge">
-      <member name="source_id" type="string" key="true" stringMaxLength="128"/>
-      <member name="target_id" type="string" key="true" stringMaxLength="128"/>
-      <member name="edge_type" type="string" key="true" stringMaxLength="64"/>
-      <member name="metadata" type="string" stringMaxLength="4096"/>
+      <member name="source_id" type="string" key="true"/>
+      <member name="target_id" type="string" key="true"/>
+      <member name="edge_type" type="string" key="true"/>
+      <member name="metadata" type="string"/>
       <member name="timestamp" type="int64"/>
     </struct>
 
     <!-- Legacy: Liveliness update (not widely used, candidate for removal) -->
     <struct name="LivelinessUpdate">
-      <member name="component_id" type="string" key="true" stringMaxLength="128"/>
+      <member name="component_id" type="string" key="true"/>
       <member name="component_type" type="nonBasic" nonBasicTypeName="ComponentType"/>
       <member name="state" type="nonBasic" nonBasicTypeName="ComponentState"/>
       <member name="last_active" type="int64"/>
-      <member name="health_metrics" type="string" stringMaxLength="1024"/>
+      <member name="health_metrics" type="string"/>
     </struct>
 
     <!--
@@ -733,7 +733,7 @@
         - NODE kind: component_id (e.g., agent GUID, function ID)
         - EDGE kind: "{source_id}_{target_id}_{edge_type}" for uniqueness
       -->
-      <member name="element_id" type="string" key="true" stringMaxLength="256"/>
+      <member name="element_id" type="string" key="true"/>
       
       <!-- Element type: NODE or EDGE -->
       <member name="kind" type="nonBasic" nonBasicTypeName="GraphElementKind"/>
@@ -742,13 +742,13 @@
       <member name="timestamp" type="int64"/>
       
       <!-- Component name (human-readable, e.g., "MathAgent", "WeatherService") -->
-      <member name="component_name" type="string" stringMaxLength="256"/>
+      <member name="component_name" type="string"/>
       
       <!-- Component type (e.g., "AGENT", "INTERFACE", "SERVICE", "FUNCTION") -->
-      <member name="component_type" type="string" stringMaxLength="128"/>
+      <member name="component_type" type="string"/>
       
       <!-- Component state (e.g., "READY", "BUSY", "DISCOVERING", "OFFLINE") -->
-      <member name="state" type="string" stringMaxLength="64"/>
+      <member name="state" type="string"/>
       
       <!-- 
         JSON payload with kind-specific data for extensibility:
@@ -773,7 +773,7 @@
           "reason": "Edge creation reason"
         }
       -->
-      <member name="metadata" type="string" stringMaxLength="8192"/>
+      <member name="metadata" type="string"/>
     </struct>
 
     <!-- MonitoringEventUnified: Unified event type (consolidates chain, lifecycle, general) -->
@@ -785,7 +785,7 @@
 
     <struct name="MonitoringEventUnified">
       <!-- Unique event ID (correlation ID for distributed tracing) -->
-      <member name="event_id" type="string" stringMaxLength="128"/>
+      <member name="event_id" type="string"/>
       
       <!-- Event kind: CHAIN, LIFECYCLE, or GENERAL -->
       <member name="kind" type="nonBasic" nonBasicTypeName="EventKind"/>
@@ -794,13 +794,13 @@
       <member name="timestamp" type="int64"/>
       
       <!-- Component that published this event (e.g., agent GUID, interface ID) -->
-      <member name="component_id" type="string" stringMaxLength="256"/>
+      <member name="component_id" type="string"/>
       
       <!-- Event severity: "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL" -->
-      <member name="severity" type="string" stringMaxLength="32"/>
+      <member name="severity" type="string"/>
       
       <!-- Human-readable event message (e.g., "INTERFACE_REQUEST_START", "State transition READY→BUSY") -->
-      <member name="message" type="string" stringMaxLength="2048"/>
+      <member name="message" type="string"/>
       
       <!-- 
         JSON payload with kind-specific data:
@@ -840,7 +840,7 @@
           "result_data": {...}
         }
       -->
-      <member name="payload" type="string" stringMaxLength="8192"/>
+      <member name="payload" type="string"/>
     </struct>
 
   </type_library>

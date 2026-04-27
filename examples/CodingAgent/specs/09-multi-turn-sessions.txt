@@ -1,0 +1,74 @@
+;===============================================================
+; Multi-Turn Sessions: Session Storage
+;
+; The agent maps Genesis conversation_ids to backend session_ids
+; so subsequent requests in the same conversation resume the
+; harness session (preserving file context, edits, etc.).
+;===============================================================
+
+;---------------------------------------------------------------
+; First request stores session_id for conversation.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "claude".
+GIVEN no prior sessions exist.
+
+WHEN the agent receives a request with conversation_id "conv-001" and message "Read the README".
+GIVEN the subprocess returns session_id "sess-aaa".
+
+THEN the internal session map contains "conv-001" mapped to "sess-aaa".
+
+;---------------------------------------------------------------
+; Second request in same conversation resumes session.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "claude".
+GIVEN the internal session map contains "conv-001" mapped to "sess-aaa".
+
+WHEN the agent receives a request with conversation_id "conv-001" and message "Now fix the bug in main.py".
+
+THEN the subprocess command includes "--session-id" with value "sess-aaa".
+THEN the harness resumes with context from the previous request.
+
+;---------------------------------------------------------------
+; Different conversation starts a new session.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "claude".
+GIVEN the internal session map contains "conv-001" mapped to "sess-aaa".
+
+WHEN the agent receives a request with conversation_id "conv-002" and message "Start a new project".
+
+THEN the subprocess command does not include "--session-id".
+THEN a new session_id is returned in the response.
+THEN the internal session map contains both "conv-001" and "conv-002".
+
+;---------------------------------------------------------------
+; Codex session resume uses "codex exec resume" syntax.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "codex".
+GIVEN the internal session map contains "conv-001" mapped to "019c7199-abcd".
+
+WHEN the agent receives a request with conversation_id "conv-001" and message "Continue".
+
+THEN the subprocess command contains "resume".
+THEN the subprocess command contains "019c7199-abcd".
+
+;---------------------------------------------------------------
+; Request without conversation_id does not store session.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "claude".
+GIVEN no prior sessions exist.
+
+WHEN the agent receives a request with no conversation_id and message "Quick question".
+
+THEN the response contains a session_id.
+THEN the internal session map remains empty.
+
+;---------------------------------------------------------------
+; Session_id updates if backend returns a different one.
+;---------------------------------------------------------------
+GIVEN a CodingGenesisAgent with backend "claude".
+GIVEN the internal session map contains "conv-001" mapped to "sess-old".
+
+WHEN the agent receives a request with conversation_id "conv-001".
+GIVEN the subprocess returns a new session_id "sess-new".
+
+THEN the internal session map contains "conv-001" mapped to "sess-new".
