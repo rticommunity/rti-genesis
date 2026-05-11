@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RTI GENESIS — Distributed AI Agent Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    /* ── Design tokens ────────────────────────────────────── */
+    :root {
+      --orange:       #f7921e;
+      --orange-dark:  #d97a10;
+      --orange-light: #fef0dc;
+      --navy:         #1c2b3a;
+      --navy-mid:     #243447;
+      --navy-light:   #2e4460;
+      --white:        #ffffff;
+      --gray-50:      #f7f8fa;
+      --gray-100:     #eef0f3;
+      --gray-200:     #d8dce4;
+      --gray-500:     #6b7280;
+      --gray-700:     #374151;
+      --gray-900:     #111827;
+      --code-bg:      #0f1923;
+      --code-border:  #1e3248;
+      --radius:       8px;
+      --radius-lg:    12px;
+      --shadow:       0 2px 12px rgba(0,0,0,.08);
+      --shadow-md:    0 4px 24px rgba(0,0,0,.12);
+      --font:         'Inter', system-ui, -apple-system, sans-serif;
+      --mono:         'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+    }
+
+    /* ── Reset / base ─────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: var(--font);
+      font-size: 16px;
+      line-height: 1.65;
+      color: var(--gray-900);
+      background: var(--white);
+    }
+    a { color: var(--orange); text-decoration: none; }
+    a:hover { text-decoration: underline; color: var(--orange-dark); }
+    img { max-width: 100%; display: block; }
+
+    /* ── Layout helpers ───────────────────────────────────── */
+    .container { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+    .section    { padding: 80px 0; }
+    .section--dark {
+      background: var(--navy);
+      color: var(--white);
+    }
+    .section--gray { background: var(--gray-50); }
+
+    /* ── Navigation ───────────────────────────────────────── */
+    .nav {
+      background: var(--navy);
+      position: sticky; top: 0; z-index: 100;
+      border-bottom: 3px solid var(--orange);
+    }
+    .nav__inner {
+      display: flex; align-items: center; justify-content: space-between;
+      height: 64px;
+      max-width: 1120px; margin: 0 auto; padding: 0 24px;
+    }
+    .nav__logo {
+      display: flex; align-items: center; gap: 12px;
+      color: var(--white); font-size: 20px; font-weight: 700;
+      text-decoration: none;
+    }
+    .nav__logo-dot {
+      width: 32px; height: 32px; border-radius: 50%;
+      background: var(--orange);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 800; color: var(--white);
+      flex-shrink: 0;
+    }
+    .nav__logo span { color: var(--orange); }
+    .nav__links { display: flex; gap: 32px; }
+    .nav__links a {
+      color: rgba(255,255,255,.75); font-size: 14px; font-weight: 500;
+      text-decoration: none; transition: color .2s;
+    }
+    .nav__links a:hover { color: var(--white); }
+    .nav__cta {
+      background: var(--orange); color: var(--white) !important;
+      padding: 8px 20px; border-radius: var(--radius);
+      font-weight: 600; font-size: 14px;
+      transition: background .2s;
+    }
+    .nav__cta:hover { background: var(--orange-dark) !important; text-decoration: none !important; }
+
+    /* ── Breadcrumb ───────────────────────────────────────── */
+    .breadcrumb {
+      background: var(--gray-50);
+      border-bottom: 1px solid var(--gray-200);
+      padding: 10px 0;
+    }
+    .breadcrumb__inner {
+      max-width: 1120px; margin: 0 auto; padding: 0 24px;
+      font-size: 13px; color: var(--gray-500);
+    }
+    .breadcrumb__inner a { color: var(--gray-500); }
+    .breadcrumb__inner a:hover { color: var(--orange); }
+
+    /* ── Hero ─────────────────────────────────────────────── */
+    .hero {
+      background: var(--navy);
+      padding: 96px 0 80px;
+      position: relative; overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute; top: 0; right: 0;
+      width: 600px; height: 100%;
+      background: radial-gradient(ellipse at 80% 50%, rgba(247,146,30,.12) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .hero__inner { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+    .hero__badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: rgba(247,146,30,.15); border: 1px solid rgba(247,146,30,.3);
+      color: var(--orange); border-radius: 100px;
+      padding: 4px 14px; font-size: 13px; font-weight: 600;
+      margin-bottom: 24px; letter-spacing: .02em;
+    }
+    .hero__badge-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--orange); flex-shrink: 0;
+    }
+    .hero__title {
+      font-size: clamp(36px, 5vw, 56px);
+      font-weight: 800; line-height: 1.1;
+      color: var(--white); margin-bottom: 24px;
+      max-width: 760px;
+    }
+    .hero__title span { color: var(--orange); }
+    .hero__sub {
+      font-size: 18px; color: rgba(255,255,255,.70);
+      max-width: 640px; line-height: 1.7; margin-bottom: 40px;
+    }
+    .hero__actions { display: flex; gap: 16px; flex-wrap: wrap; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 12px 24px; border-radius: var(--radius);
+      font-size: 15px; font-weight: 600; cursor: pointer;
+      transition: all .2s; text-decoration: none;
+    }
+    .btn--primary {
+      background: var(--orange); color: var(--white);
+    }
+    .btn--primary:hover { background: var(--orange-dark); color: var(--white); text-decoration: none; }
+    .btn--outline {
+      background: transparent;
+      border: 1.5px solid rgba(255,255,255,.35);
+      color: var(--white);
+    }
+    .btn--outline:hover {
+      border-color: var(--white); background: rgba(255,255,255,.08);
+      color: var(--white); text-decoration: none;
+    }
+    .btn__icon { font-size: 18px; }
+    .hero__stats {
+      display: flex; gap: 48px; margin-top: 56px;
+      padding-top: 40px; border-top: 1px solid rgba(255,255,255,.12);
+      flex-wrap: wrap;
+    }
+    .hero__stat-value {
+      font-size: 28px; font-weight: 700; color: var(--orange);
+    }
+    .hero__stat-label {
+      font-size: 13px; color: rgba(255,255,255,.55); margin-top: 2px;
+    }
+
+    /* ── Section headings ─────────────────────────────────── */
+    .section-label {
+      font-size: 12px; font-weight: 700; letter-spacing: .1em;
+      text-transform: uppercase; color: var(--orange);
+      margin-bottom: 12px;
+    }
+    .section-title {
+      font-size: clamp(26px, 3.5vw, 38px);
+      font-weight: 800; line-height: 1.2;
+      color: var(--gray-900); margin-bottom: 16px;
+    }
+    .section--dark .section-title { color: var(--white); }
+    .section-lead {
+      font-size: 17px; color: var(--gray-500);
+      max-width: 600px; line-height: 1.7;
+    }
+    .section--dark .section-lead { color: rgba(255,255,255,.65); }
+    .section--dark .section-lead a { color: var(--orange); text-decoration: underline; }
+    .section--dark .section-lead a:hover { color: #fff; }
+    .section__header { margin-bottom: 56px; }
+    .divider {
+      width: 48px; height: 4px;
+      background: var(--orange); border-radius: 2px;
+      margin-top: 20px;
+    }
+
+    /* ── How it works (tabs-style feature grid) ───────────── */
+    .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+    @media (max-width: 900px) { .features { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 580px) { .features { grid-template-columns: 1fr; } }
+    .feature-card {
+      background: var(--white);
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius-lg);
+      padding: 32px;
+      position: relative;
+      transition: box-shadow .2s, transform .2s;
+    }
+    .feature-card:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); }
+    .feature-card::before {
+      content: '';
+      position: absolute; top: 0; left: 0; right: 0;
+      height: 3px; border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+      background: var(--orange);
+    }
+    .feature-icon {
+      width: 48px; height: 48px; border-radius: var(--radius);
+      background: var(--orange-light);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; margin-bottom: 20px;
+    }
+    .feature-card h3 {
+      font-size: 18px; font-weight: 700;
+      color: var(--gray-900); margin-bottom: 10px;
+    }
+    .feature-card p { font-size: 14px; color: var(--gray-500); line-height: 1.65; }
+
+    /* ── Deep-dive sections ───────────────────────────────── */
+    .deep { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: center; }
+    @media (max-width: 780px) { .deep { grid-template-columns: 1fr; } }
+    .deep--flip { direction: rtl; }
+    .deep--flip > * { direction: ltr; }
+    .deep__text h2 {
+      font-size: 28px; font-weight: 700;
+      color: var(--gray-900); margin-bottom: 16px;
+    }
+    .section--dark .deep__text h2 { color: var(--white); }
+    .deep__text p { color: var(--gray-500); margin-bottom: 16px; line-height: 1.7; }
+    .section--dark .deep__text p { color: rgba(255,255,255,.65); }
+    .deep__accent {
+      color: var(--orange); font-weight: 700;
+    }
+
+    /* ── Code blocks ──────────────────────────────────────── */
+    .code-wrap {
+      background: var(--code-bg);
+      border: 1px solid var(--code-border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+    .code-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 16px;
+      background: rgba(255,255,255,.04);
+      border-bottom: 1px solid var(--code-border);
+    }
+    .code-header__dots { display: flex; gap: 6px; }
+    .code-header__dots span {
+      width: 10px; height: 10px; border-radius: 50%;
+    }
+    .code-header__dots span:nth-child(1) { background: #ff5f57; }
+    .code-header__dots span:nth-child(2) { background: #febc2e; }
+    .code-header__dots span:nth-child(3) { background: #28c840; }
+    .code-header__lang {
+      font-size: 11px; font-weight: 600; color: rgba(255,255,255,.4);
+      letter-spacing: .08em; text-transform: uppercase;
+    }
+    pre {
+      padding: 24px;
+      overflow-x: auto;
+      font-family: var(--mono);
+      font-size: 13.5px;
+      line-height: 1.7;
+    }
+    pre code { color: #e2e8f0; }
+    .tok-kw    { color: #7dd3fc; }   /* keyword: blue */
+    .tok-fn    { color: #86efac; }   /* function name: green */
+    .tok-dec   { color: #f9a8d4; }   /* decorator: pink */
+    .tok-str   { color: #fde68a; }   /* string: yellow */
+    .tok-cm    { color: #64748b; }   /* comment: gray */
+    .tok-tp    { color: #c4b5fd; }   /* type: purple */
+    .tok-num   { color: #fb923c; }   /* number: orange */
+
+    /* ── Architecture diagram ─────────────────────────────── */
+    .arch {
+      background: var(--code-bg);
+      border: 1px solid var(--code-border);
+      border-radius: var(--radius-lg);
+      padding: 40px;
+      overflow-x: auto;
+    }
+    .arch pre {
+      padding: 0;
+      color: #94a3b8;
+      font-size: 13px;
+      line-height: 1.8;
+    }
+    .arch .a-orange { color: var(--orange); font-weight: 600; }
+    .arch .a-green  { color: #86efac; }
+    .arch .a-blue   { color: #7dd3fc; }
+    .arch .a-gray   { color: #475569; }
+
+    /* ── Comparison table ─────────────────────────────────── */
+    .table-wrap { overflow-x: auto; }
+    table {
+      width: 100%; border-collapse: collapse;
+      font-size: 14px;
+    }
+    thead tr { background: var(--navy); color: var(--white); }
+    thead th {
+      padding: 14px 20px; text-align: left;
+      font-weight: 600; font-size: 13px; letter-spacing: .03em;
+    }
+    thead th:first-child { border-radius: var(--radius) 0 0 0; }
+    thead th:last-child  { border-radius: 0 var(--radius) 0 0; }
+    tbody tr:nth-child(even) { background: var(--gray-50); }
+    tbody tr:nth-child(odd) { background: var(--navy-mid); }
+    tbody tr:nth-child(odd) td { color: var(--white); }
+    tbody tr:nth-child(odd) td:first-child { color: var(--white); }
+    tbody td { padding: 12px 20px; border-bottom: 1px solid rgba(255,255,255,.06); color: var(--gray-900); }
+    tbody td:first-child { font-weight: 600; color: var(--gray-900); }
+    .badge-win {
+      display: inline-block;
+      background: rgba(247,146,30,.12); color: var(--orange);
+      border: 1px solid rgba(247,146,30,.3);
+      padding: 2px 10px; border-radius: 100px;
+      font-size: 12px; font-weight: 700;
+    }
+
+    /* ── Examples grid ────────────────────────────────────── */
+    .examples { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+    @media (max-width: 780px) { .examples { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 480px) { .examples { grid-template-columns: 1fr; } }
+    .example-card {
+      background: rgba(255,255,255,.05);
+      border: 1px solid rgba(255,255,255,.1);
+      border-radius: var(--radius-lg); padding: 24px;
+      transition: background .2s, border-color .2s;
+    }
+    .example-card:hover {
+      background: rgba(255,255,255,.08);
+      border-color: rgba(247,146,30,.4);
+    }
+    .example-card__icon {
+      font-size: 28px; margin-bottom: 14px;
+    }
+    .example-card h4 {
+      font-size: 15px; font-weight: 700; color: var(--white); margin-bottom: 8px;
+    }
+    .example-card p { font-size: 13px; color: rgba(255,255,255,.55); line-height: 1.55; }
+
+    /* ── Use cases ────────────────────────────────────────── */
+    .usecases { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    @media (max-width: 680px) { .usecases { grid-template-columns: 1fr; } }
+    .usecase-card {
+      background: var(--white);
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius-lg); padding: 28px;
+      display: flex; gap: 16px;
+    }
+    .usecase-card__icon {
+      font-size: 32px; flex-shrink: 0;
+    }
+    .usecase-card h4 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+    .usecase-card p { font-size: 14px; color: var(--gray-500); line-height: 1.6; }
+
+    /* ── Install / CTA strip ──────────────────────────────── */
+    .install {
+      background: var(--navy);
+      border-radius: var(--radius-lg);
+      padding: 48px 40px;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: center;
+    }
+    @media (max-width: 680px) { .install { grid-template-columns: 1fr; } }
+    .install h3 {
+      font-size: 24px; font-weight: 700; color: var(--white); margin-bottom: 12px;
+    }
+    .install p { color: rgba(255,255,255,.6); font-size: 15px; line-height: 1.65; }
+    .install__reqs {
+      list-style: none; display: flex; flex-direction: column; gap: 8px;
+    }
+    .install__reqs li {
+      display: flex; align-items: flex-start; gap: 10px;
+      font-size: 14px; color: rgba(255,255,255,.7);
+    }
+    .install__reqs li::before {
+      content: '→'; color: var(--orange); font-weight: 700; flex-shrink: 0;
+    }
+
+    /* ── Footer ───────────────────────────────────────────── */
+    .footer {
+      background: var(--navy); color: rgba(255,255,255,.5);
+      padding: 40px 0;
+      border-top: 1px solid rgba(255,255,255,.08);
+    }
+    .footer__inner {
+      max-width: 1120px; margin: 0 auto; padding: 0 24px;
+      display: flex; justify-content: space-between; align-items: center;
+      flex-wrap: wrap; gap: 16px;
+    }
+    .footer__brand {
+      display: flex; align-items: center; gap: 10px;
+      font-weight: 700; font-size: 15px; color: var(--white);
+    }
+    .footer__brand .dot {
+      width: 24px; height: 24px; border-radius: 50%;
+      background: var(--orange);
+    }
+    .footer__links { display: flex; gap: 24px; }
+    .footer__links a { font-size: 13px; color: rgba(255,255,255,.45); }
+    .footer__links a:hover { color: var(--white); }
+    .footer__copy { font-size: 12px; width: 100%; margin-top: 16px; }
+
+    /* ── Misc ─────────────────────────────────────────────── */
+    .tag {
+      display: inline-block;
+      background: var(--orange-light); color: var(--orange-dark);
+      border-radius: 4px; padding: 2px 8px;
+      font-size: 12px; font-weight: 600;
+    }
+    .highlight-box {
+      background: var(--orange-light);
+      border-left: 4px solid var(--orange);
+      border-radius: 0 var(--radius) var(--radius) 0;
+      padding: 16px 20px;
+      font-size: 14px; color: var(--gray-700);
+      margin: 24px 0;
+    }
+    .highlight-box strong { color: var(--orange-dark); }
+  </style>
+</head>
+<body>
+
+<!-- ── Navigation ─────────────────────────────────────────── -->
+<nav class="nav">
+  <div class="nav__inner">
+    <a href="https://www.rti.com" class="nav__logo">
+      <div class="nav__logo-dot">RTI</div>
+      <span>GENESIS</span>
+    </a>
+    <div class="nav__links">
+      <a href="#how-it-works">How It Works</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#examples">Examples</a>
+      <a href="#use-cases">Use Cases</a>
+      <a href="https://github.com/rticommunity/rti-genesis" class="nav__cta">GitHub ↗</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ── Breadcrumb ──────────────────────────────────────────── -->
+<div class="breadcrumb">
+  <div class="breadcrumb__inner">
+    <a href="https://www.rti.com">rti.com</a> &rsaquo;
+    <a href="https://www.rti.com/developers">Developers</a> &rsaquo;
+    GENESIS
+  </div>
+</div>
+
+<!-- ── Hero ───────────────────────────────────────────────── -->
+<section class="hero">
+  <div class="hero__inner">
+    <div class="hero__badge">
+      <span class="hero__badge-dot"></span>
+      Open Source &mdash; RC1 Now Available
+    </div>
+    <h1 class="hero__title">
+      Build AI Agents That<br />
+      <span>Grow Smarter Together</span>
+    </h1>
+    <p class="hero__sub">
+      GENESIS is a framework for building AI agents that discover each other automatically
+      and collaborate — so the intelligence of your system grows as you add more agents.
+      No configuration files. No rewiring. No broker.
+    </p>
+    <div class="hero__actions">
+      <a href="https://github.com/rticommunity/rti-genesis" class="btn btn--primary">
+        <span class="btn__icon">⬡</span> Get GENESIS Free
+      </a>
+      <a href="#how-it-works" class="btn btn--outline">
+        How It Works ↓
+      </a>
+      <a href="#use-cases" class="btn btn--outline">
+        Use Cases ↓
+      </a>
+    </div>
+    <div class="hero__stats">
+      <div>
+        <div class="hero__stat-value">Start &amp; discover</div>
+        <div class="hero__stat-label">New agents join — no config needed</div>
+      </div>
+      <div>
+        <div class="hero__stat-value">Real-time delivery</div>
+        <div class="hero__stat-label">Peer-to-peer, no broker</div>
+      </div>
+      <div>
+        <div class="hero__stat-value">3 providers</div>
+        <div class="hero__stat-label">OpenAI · Anthropic · Nemotron</div>
+      </div>
+      <div>
+        <div class="hero__stat-value">Any LLM</div>
+        <div class="hero__stat-label">Any provider, minimal effort</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── How It Works: feature cards ───────────────────────── -->
+<section class="section" id="how-it-works">
+  <div class="container">
+    <div class="section__header">
+      <p class="section-label">How It Works</p>
+      <h2 class="section-title">You don't configure your agent network — you grow it</h2>
+      <p class="section-lead" style="max-width: 100%;">
+        Most frameworks require you to define your agent topology upfront: which agents exist,
+        who can talk to whom, and in what order. In GENESIS, you write a new agent, start it,
+        and the rest of the network discovers it automatically. The system adapts.
+      </p>
+      <div class="divider"></div>
+    </div>
+    <div class="highlight-box" style="margin-bottom: 40px;">
+      <strong>Under the hood:</strong> GENESIS replaces brittle HTTP wiring and manual service registries
+      with RTI Connext DDS — the same peer-to-peer middleware trusted in surgical robots, flight control systems,
+      and autonomous vehicles. Every agent gets industrial-grade reliability for free.
+    </div>
+    <div class="features">
+      <div class="feature-card">
+        <div class="feature-icon">🔍</div>
+        <h3>Zero-Config Discovery</h3>
+        <p>Agents publish capabilities to durable DDS topics at startup. Any component joining the network instantly reads the full catalog — no configuration files, no IP lists, no restart required.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🤖</div>
+        <h3>Agent-as-Tool Pattern</h3>
+        <p>Every discovered agent is automatically converted to a tool schema and injected into the primary LLM's call. Natural language routes to the right agent transparently.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">⚡</div>
+        <h3>Decorator-First Development</h3>
+        <p><code>@genesis_function</code> and <code>@genesis_tool</code> auto-generate JSON schemas from Python type hints, advertise over DDS, and register tools — with zero boilerplate.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🛡️</div>
+        <h3>Industrial Reliability</h3>
+        <p>Configurable QoS guarantees: reliable delivery, durable topics (late joiners catch up), liveliness heartbeats, and TRANSIENT_LOCAL history — all inherited from Connext DDS.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📊</div>
+        <h3>Live Topology Visualization</h3>
+        <p>GraphInterface serves a real-time web graph of every agent, service, and chain event in the running network. State colors update as components transition READY → BUSY → DEGRADED.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔗</div>
+        <h3>MCP Interoperability</h3>
+        <p><code>agent.enable_mcp(port=8000)</code> exposes any GENESIS agent as a FastMCP server — callable from Claude Code, Cursor, NVIDIA NeMo Agent Toolkit, or any MCP-compatible client.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Deep dive 1: Agent-as-Tool ─────────────────────────── -->
+<section class="section section--gray">
+  <div class="container">
+    <div class="deep">
+      <div class="deep__text">
+        <p class="section-label">Core Innovation</p>
+        <h2>The Agent-as-Tool Pattern</h2>
+        <p>
+          In most multi-agent frameworks, orchestration is hand-written: a coordinator decides which agent to call, formats the request, and stitches results back together. This logic breaks every time the network changes.
+        </p>
+        <p>
+          GENESIS eliminates the orchestration layer. Every agent discovered on the DDS network is
+          <span class="deep__accent">automatically converted to a tool schema</span>
+          and injected into the primary LLM's call alongside local tools and service functions.
+          The LLM decides what to call — in natural language. Routing happens invisibly over DDS RPC.
+        </p>
+        <div class="highlight-box">
+          <strong>Result:</strong> Adding a new specialist agent to a running network requires zero changes to any existing agent. It appears as a new tool on the next LLM call automatically — the system's intelligence grows with every agent you start.
+        </div>
+      </div>
+      <div class="code-wrap">
+        <div class="code-header">
+          <div class="code-header__dots">
+            <span></span><span></span><span></span>
+          </div>
+          <span class="code-header__lang">Python</span>
+        </div>
+        <pre><code><span class="tok-cm"># The primary agent — no wiring required</span>
+<span class="tok-kw">class</span> <span class="tok-tp">PrimaryAgent</span>(OpenAIGenesisAgent):
+    <span class="tok-kw">def</span> <span class="tok-fn">__init__</span>(self):
+        <span class="tok-fn">super()</span>.__init__(
+            model_name=<span class="tok-str">"gpt-4o"</span>,
+            agent_name=<span class="tok-str">"PrimaryAgent"</span>,
+            <span class="tok-cm"># auto-discovers all agents on network:</span>
+            enable_agent_communication=<span class="tok-kw">True</span>
+        )
+
+<span class="tok-cm"># A specialist on any machine — auto-discovered</span>
+<span class="tok-kw">class</span> <span class="tok-tp">WeatherAgent</span>(OpenAIGenesisAgent):
+    <span class="tok-dec">@genesis_tool</span>(description=<span class="tok-str">"Get weather for a city"</span>)
+    <span class="tok-kw">async def</span> <span class="tok-fn">get_weather</span>(self, city: <span class="tok-tp">str</span>) -> <span class="tok-tp">dict</span>:
+        ...</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Deep dive 2: Development ───────────────────────────── -->
+<section class="section">
+  <div class="container">
+    <div class="deep deep--flip">
+      <div class="deep__text">
+        <p class="section-label">Developer Experience</p>
+        <h2>Zero boilerplate. Pure Python.</h2>
+        <p>
+          Two decorators cover the entire integration surface. GENESIS infers the JSON schema
+          from your Python type hints and docstrings, advertises the capability over DDS,
+          and makes it callable from any other agent on the network — all at import time.
+        </p>
+        <p>
+          <span class="deep__accent">@genesis_function</span> exposes a method on a service as a distributed RPC call.<br />
+          <span class="deep__accent">@genesis_tool</span> adds an agent method to the LLM's tool list directly.
+        </p>
+        <p>
+          Adding a new LLM provider requires implementing 7 abstract methods (~150 lines).
+          Currently supported: <strong>OpenAI</strong>, <strong>Anthropic (Claude)</strong>,
+          and <strong>Nemotron (via Ollama)</strong> for fully local, air-gapped inference.
+        </p>
+      </div>
+      <div class="code-wrap">
+        <div class="code-header">
+          <div class="code-header__dots">
+            <span></span><span></span><span></span>
+          </div>
+          <span class="code-header__lang">Python</span>
+        </div>
+        <pre><code><span class="tok-cm"># Service: expose a function over DDS</span>
+<span class="tok-kw">from</span> genesis_lib <span class="tok-kw">import</span> EnhancedServiceBase
+<span class="tok-kw">from</span> genesis_lib.decorators <span class="tok-kw">import</span> genesis_function
+
+<span class="tok-kw">class</span> <span class="tok-tp">DataService</span>(EnhancedServiceBase):
+    <span class="tok-dec">@genesis_function</span>()
+    <span class="tok-kw">async def</span> <span class="tok-fn">query</span>(self, sql: <span class="tok-tp">str</span>) -> <span class="tok-tp">dict</span>:
+        <span class="tok-str">"""Run a SQL query and return results."""</span>
+        ...
+
+<span class="tok-cm"># Agent: add a tool to the LLM's toolset</span>
+<span class="tok-kw">from</span> genesis_lib.decorators <span class="tok-kw">import</span> genesis_tool
+
+<span class="tok-kw">class</span> <span class="tok-tp">AnalysisAgent</span>(OpenAIGenesisAgent):
+    <span class="tok-dec">@genesis_tool</span>(description=<span class="tok-str">"Summarize a dataset"</span>)
+    <span class="tok-kw">async def</span> <span class="tok-fn">summarize</span>(self, data: <span class="tok-tp">str</span>) -> <span class="tok-tp">dict</span>:
+        <span class="tok-str">"""Return key statistics for the given data."""</span>
+        ...</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Deep dive 3: Reliability ───────────────────────────── -->
+<section class="section section--dark">
+  <div class="container">
+    <div class="section__header">
+      <p class="section-label">Reliability</p>
+      <h2 class="section-title">Built on the middleware that runs many critical systems</h2>
+      <p class="section-lead" style="max-width: 100%;">
+        RTI Connext DDS is deployed in
+        <a href="https://www.rti.com/industries/healthcare" target="_blank">FDA-cleared surgical robots</a>,
+        <a href="https://www.rti.com/industries/aerospace-defense" target="_blank">U.S. Navy and defense systems</a>,
+        and <a href="https://www.rti.com/industries/automotive" target="_blank">autonomous vehicle platforms</a>.
+        GENESIS inherits those guarantees — giving every AI agent network the same reliability model.
+      </p>
+      <div class="divider"></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Capability</th>
+            <th>GENESIS (DDS)</th>
+            <th>HTTP-based frameworks</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Delivery guarantee</td>
+            <td><span class="badge-win">Configurable per topic</span> — best-effort or reliable</td>
+            <td>Retry logic only</td>
+          </tr>
+          <tr>
+            <td>Late-joiner catch-up</td>
+            <td><span class="badge-win">TRANSIENT_LOCAL</span> — new agents see full history immediately</td>
+            <td>Must re-request or miss data</td>
+          </tr>
+          <tr>
+            <td>Dead agent detection</td>
+            <td><span class="badge-win">Heartbeat-based</span> liveliness; automatic</td>
+            <td>Timeout polling</td>
+          </tr>
+          <tr>
+            <td>Transport</td>
+            <td><span class="badge-win">UDP, TCP, shared memory</span> — sub-ms on same host</td>
+            <td>HTTP/TCP only</td>
+          </tr>
+          <tr>
+            <td>Broker dependency</td>
+            <td><span class="badge-win">None</span> — true peer-to-peer</td>
+            <td>Central broker or service mesh</td>
+          </tr>
+          <tr>
+            <td>Air-gapped networks</td>
+            <td><span class="badge-win">Native</span> — no internet required</td>
+            <td>Requires HTTPS / cloud</td>
+          </tr>
+          <tr>
+            <td>Security</td>
+            <td><span class="badge-win">Available</span> via <a href="https://www.rti.com/products/add-on-products/rti-security-extensions" target="_blank" style="color:var(--orange);">RTI Security Extensions</a></td>
+            <td>Requires HTTPS</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ── Architecture ────────────────────────────────────────── -->
+<section class="section section--gray" id="architecture">
+  <div class="container">
+    <div class="section__header">
+      <p class="section-label">Architecture</p>
+      <h2 class="section-title">Three layers. One DDS fabric.</h2>
+      <p class="section-lead" style="max-width: 100%;">
+        GENESIS separates transport, observability, and provider logic into discrete layers —
+        so swapping an LLM provider never touches routing or monitoring code.
+      </p>
+      <div class="divider"></div>
+    </div>
+    <div class="arch">
+      <pre>
+<span class="a-orange">┌─────────────────────────────────────────────────────────────────┐</span>
+<span class="a-orange">│                       User / Interface                          │</span>
+<span class="a-orange">│              GenesisInterface · MonitoredInterface              │</span>
+<span class="a-orange">└──────────────────────────┬──────────────────────────────────────┘</span>
+                           <span class="a-gray">│  DDS RPC  (InterfaceAgentRequest/Reply)</span>
+<span class="a-blue">┌──────────────────────────▼──────────────────────────────────────┐</span>
+<span class="a-blue">│                       Primary Agent                             │</span>
+<span class="a-blue">│         OpenAIGenesisAgent · LocalGenesisAgent · ...            │</span>
+<span class="a-blue">│                                                                 │</span>
+<span class="a-blue">│   Single LLM call  ──  unified toolset:                         │</span>
+<span class="a-blue">│   ┌──────────────┬──────────────────┬──────────────────────┐    │</span>
+<span class="a-blue">│   │ @genesis_    │  Service funcs   │  Discovered agents   │    │</span>
+<span class="a-blue">│   │ tool methods │  (DDS RPC)       │  (Agent-as-Tool)     │    │</span>
+<span class="a-blue">│   └──────────────┴──────────────────┴──────────────────────┘    │</span>
+<span class="a-blue">└──────┬───────────────────┬──────────────────────┬───────────────┘</span>
+       <span class="a-gray">│ direct</span>            <span class="a-gray">│ DDS RPC</span>              <span class="a-gray">│ DDS RPC</span>
+       <span class="a-gray">│</span>                   <span class="a-gray">│ FunctionRequest</span>      <span class="a-gray">│ AgentAgentRequest</span>
+<span class="a-green">┌──────▼──────┐   ┌────────▼────────┐   ┌────────▼────────────────┐</span>
+<span class="a-green">│  Internal   │   │    Service      │   │    Specialist Agent     │</span>
+<span class="a-green">│  Tool       │   │  EnhancedService│   │  (own LLM + tools + DDS)│</span>
+<span class="a-green">│ (@genesis_  │   │    Base         │   │                         │</span>
+<span class="a-green">│   tool)     │   │  @genesis_func  │   │  enable_mcp() → FastMCP │</span>
+<span class="a-green">└─────────────┘   └─────────────────┘   └─────────────────────────┘</span>
+
+<span class="a-gray">All components publish to three core DDS topics:</span>
+  <span class="a-orange">rti/connext/genesis/Advertisement</span>          <span class="a-gray">← durable discovery</span>
+  <span class="a-orange">rti/connext/genesis/monitoring/GraphTopology</span><span class="a-gray">← durable visualization</span>
+  <span class="a-orange">rti/connext/genesis/monitoring/Event</span>        <span class="a-gray">← lifecycle &amp; chain events</span></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ── Examples ────────────────────────────────────────────── -->
+<section class="section section--dark" id="examples">
+  <div class="container">
+    <div class="section__header">
+      <p class="section-label">See GENESIS in Action</p>
+      <h2 class="section-title">Start from a working example</h2>
+      <p class="section-lead" style="max-width: 100%;">Six production-ready examples ship in the repository. Each runs with a single shell command.</p>
+      <div class="divider"></div>
+    </div>
+    <div class="examples">
+      <a href="https://github.com/rticommunity/rti-genesis/tree/main/examples/HelloWorld" target="_blank" class="example-card" style="text-decoration:none;">
+        <div class="example-card__icon">👋</div>
+        <h4>Hello World ↗</h4>
+        <p>Minimal agent + service + CLI. Function calling over DDS in under 50 lines of Python.</p>
+      </a>
+      <a href="https://github.com/rticommunity/rti-genesis/blob/main/examples/MultiAgent/README.md" target="_blank" class="example-card" style="text-decoration:none;">
+        <div class="example-card__icon">🌐</div>
+        <h4>Multi-Agent ↗</h4>
+        <p>Agent-as-Tool in action: PrimaryAgent auto-discovers WeatherAgent and delegates in natural language.</p>
+      </a>
+      <a href="https://github.com/rticommunity/rti-genesis/blob/main/examples/GraphInterface/README.md" target="_blank" class="example-card" style="text-decoration:none;">
+        <div class="example-card__icon">📡</div>
+        <h4>GraphInterface ↗</h4>
+        <p>Live web graph of the running network — nodes, edges, and chain traces update in real time.</p>
+      </a>
+      <a href="https://github.com/rticommunity/rti-genesis/blob/main/examples/CodingAgent/README.md" target="_blank" class="example-card" style="text-decoration:none;">
+        <div class="example-card__icon">💻</div>
+        <h4>CodingAgent ↗</h4>
+        <p>Agent that writes and executes Python code as a tool, with sandboxed output returned to the LLM.</p>
+      </a>
+      <a href="https://github.com/rticommunity/rti-genesis/blob/main/examples/SlackInterface/README.md" target="_blank" class="example-card" style="text-decoration:none;">
+        <div class="example-card__icon">💬</div>
+        <h4>Slack Interface ↗</h4>
+        <p>Connect any GENESIS agent network to Slack — drop-in messaging interface in minutes.</p>
+      </a>
+      <a href="https://github.com/rticommunity/rti-genesis/blob/main/examples/TelegramInterface/README.md" target="_blank" class="example-card" style="text-decoration:none;">
+        <div class="example-card__icon">📱</div>
+        <h4>Telegram Interface ↗</h4>
+        <p>Connect any GENESIS agent network to Telegram — drop-in messaging interface in minutes.</p>
+      </a>
+      <a href="https://github.com/rticommunity/rti-genesis/blob/main/examples/PersistentMemory/README.md" target="_blank" class="example-card" style="text-decoration:none;">
+        <div class="example-card__icon">🗃️</div>
+        <h4>Persistent Memory ↗</h4>
+        <p>Context preservation across sessions — agents remember prior conversation state on restart.</p>
+      </a>
+    </div>
+
+    <div style="margin-top: 48px;">
+      <div class="code-wrap">
+        <div class="code-header">
+          <div class="code-header__dots"><span></span><span></span><span></span></div>
+          <span class="code-header__lang">bash — Quick Start</span>
+        </div>
+        <pre><code><span class="tok-cm"># Clone and set up</span>
+git clone https://github.com/rticommunity/rti-genesis
+cd rti-genesis && ./setup.sh
+source venv/bin/activate && source .env
+
+<span class="tok-cm"># Verify DDS</span>
+python -c <span class="tok-str">"import rti.connextdds as dds; print('RTI Connext DDS available')"</span>
+
+<span class="tok-cm"># Run the multi-agent demo</span>
+cd examples/MultiAgent && ./run_interactive_demo.sh</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Use cases ───────────────────────────────────────────── -->
+<section class="section" id="use-cases">
+  <div class="container">
+    <div class="section__header">
+      <p class="section-label">Use Cases</p>
+      <h2 class="section-title">Where GENESIS wins</h2>
+      <p class="section-lead" style="max-width: 100%;">
+        GENESIS is purpose-built for environments where HTTP latency, central brokers, and cloud dependencies are not acceptable.
+      </p>
+      <div class="divider"></div>
+    </div>
+    <div class="usecases">
+      <div class="usecase-card">
+        <div class="usecase-card__icon">✈️</div>
+        <div>
+          <h4><a href="https://www.rti.com/industries/aerospace-defense" target="_blank" style="color: var(--gray-900);">Defense &amp; Aerospace ↗</a></h4>
+          <p>GENESIS originated from a SBIR contract. DDS is DoD-familiar middleware across many DoD Programs. Air-gapped operation and DDS Security align with defense requirements.</p>
+        </div>
+      </div>
+      <div class="usecase-card">
+        <div class="usecase-card__icon">🤖</div>
+        <div>
+          <h4>Robotics &amp; Autonomous Systems</h4>
+          <p>Sub-millisecond DDS transport and peer-to-peer topology suit robot fleet coordination, UAV swarm management, and AV systems where HTTP latency is unacceptable.</p>
+        </div>
+      </div>
+      <div class="usecase-card">
+        <div class="usecase-card__icon">⚙️</div>
+        <div>
+          <h4>Industrial Control &amp; Edge AI</h4>
+          <p>DDS QoS guarantees — reliable delivery, liveliness, durability — bring the same reliability model used in power grid control and process automation to LLM-driven agent networks.</p>
+        </div>
+      </div>
+      <div class="usecase-card">
+        <div class="usecase-card__icon">🔬</div>
+        <div>
+          <h4>Simulation &amp; Digital Twins</h4>
+          <p>The original SBIR use case: LLM agents interacting with DDS-based simulation environments (Simulink, RTI Connext-based systems) over the same DDS fabric.</p>
+        </div>
+      </div>
+      <div class="usecase-card">
+        <div class="usecase-card__icon">🏥</div>
+        <div>
+          <h4>Healthcare Workflow</h4>
+          <p>Siloed EMR, imaging, and insurance APIs unified under LLM orchestration — with the guaranteed delivery and liveliness detection needed in clinical environments.</p>
+        </div>
+      </div>
+      <div class="usecase-card">
+        <div class="usecase-card__icon">☁️</div>
+        <div>
+          <h4>Enterprise AI Pipelines</h4>
+          <p>Chain agents and services across machines and cloud regions. Bridge to the NVIDIA NeMo ecosystem via <code>enable_mcp()</code> — no changes to GENESIS transport code required.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Install strip ───────────────────────────────────────── -->
+<section class="section section--gray">
+  <div class="container">
+    <div class="install">
+      <div>
+        <h3>Get started in minutes</h3>
+        <p>GENESIS is free and open source. A 60-day RTI Connext DDS evaluation license is included — no credit card required.</p>
+        <div style="display:flex; gap:12px; margin-top: 24px; flex-wrap:wrap;">
+          <a href="https://github.com/rticommunity/rti-genesis" class="btn btn--primary">Download GENESIS</a>
+        </div>
+      </div>
+      <ul class="install__reqs">
+        <li><strong>Python 3.10</strong> &mdash; required</li>
+        <li><strong>RTI Connext DDS 7.3.0+</strong> &mdash; free 60-day eval, Connext Express, or University Program</li>
+        <li><strong>LLM key</strong> &mdash; OpenAI, Anthropic, or local Ollama (no key needed)</li>
+        <li><strong>OS</strong> &mdash; macOS, Linux, Windows</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ── FAQ ─────────────────────────────────────────────────── -->
+<section class="section section--gray" id="faq">
+  <div class="container">
+    <div class="section__header">
+      <p class="section-label">FAQ</p>
+      <h2 class="section-title">Frequently asked questions</h2>
+      <div class="divider"></div>
+    </div>
+    <div class="faq-list">
+
+      <details class="faq-item">
+        <summary class="faq-question">
+          <span>Can't I just use MCP?</span>
+          <span class="faq-icon"></span>
+        </summary>
+        <div class="faq-answer">
+          <p>MCP (Model Context Protocol) solves a different problem. It standardizes how a single LLM accesses <strong>tools and data</strong> — think file systems, databases, web search. The LLM calls a tool, gets a result, moves on. MCP servers are typically stateless and synchronous.</p>
+          <p>GENESIS solves how <strong>agents communicate with other agents</strong> across a distributed network. A GENESIS agent is a full stateful actor with its own LLM, memory, and tools. It discovers peer agents automatically, delegates goals to them, and coordinates across machines in real time — with guaranteed delivery and sub-millisecond latency that HTTP-based protocols cannot match.</p>
+          <p>The two are complementary: any GENESIS agent can expose itself as an MCP server via <code>agent.enable_mcp()</code>, making it callable from Claude Code, Cursor, or any MCP client. MCP handles the tool layer; GENESIS handles the agent network layer.</p>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary class="faq-question">
+          <span>What about A2A?</span>
+          <span class="faq-icon"></span>
+        </summary>
+        <div class="faq-answer">
+          <p>A2A (Agent2Agent Protocol) is an HTTP-based standard for agents built on different frameworks to delegate tasks to each other over the internet. It is a useful interoperability standard for cloud-native, cross-organization agent communication.</p>
+          <p>GENESIS operates at a different level. Rather than a communication protocol layered over HTTPS, it uses <strong>RTI Connext DDS</strong> — a peer-to-peer, broker-free transport with configurable QoS, sub-millisecond latency, and guaranteed delivery. Discovery is automatic and zero-configuration; no Agent Card lookup, no known URL required. Agents find each other the moment they start.</p>
+          <p>A2A is well suited for loosely coupled cloud agents across organizational boundaries. GENESIS is built for tightly integrated, real-time, distributed systems — robotics, defense, industrial control — where HTTP latency and cloud dependency are not acceptable. The two serve different environments and are not in direct competition.</p>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary class="faq-question">
+          <span>Other frameworks also connect agents over HTTP — what's different here?</span>
+          <span class="faq-icon"></span>
+        </summary>
+        <div class="faq-answer">
+          <p>HTTP is convenient but carries structural limitations for distributed agent systems: it requires a broker or service registry, has no built-in delivery guarantees, and relies on timeout-based failure detection. If a component goes offline mid-request, the caller has no reliable way to know.</p>
+          <p>GENESIS is built on <strong>RTI Connext DDS</strong> — the OMG-standard middleware deployed in FDA-cleared medical devices, NATO programs, and autonomous vehicle platforms. Every connection in a GENESIS network gets:</p>
+          <ul>
+            <li><strong>Configurable delivery guarantees</strong> — best-effort or fully reliable, per topic</li>
+            <li><strong>Liveliness heartbeats</strong> — dead agents are detected automatically, not by timeout</li>
+            <li><strong>TRANSIENT_LOCAL durability</strong> — a late-joining agent instantly receives the full history of what it missed</li>
+            <li><strong>Sub-millisecond latency</strong> — via shared memory on the same host or UDP across a LAN</li>
+            <li><strong>No broker</strong> — true peer-to-peer; no single point of failure</li>
+          </ul>
+          <p>For enterprise web applications, HTTP is fine. For systems where reliability, latency, and resilience are non-negotiable, DDS is the right foundation.</p>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary class="faq-question">
+          <span>Do I need to reconfigure my system when I add a new agent?</span>
+          <span class="faq-icon"></span>
+        </summary>
+        <div class="faq-answer">
+          <p>No — that's the core design principle of GENESIS. Write a new agent, start it, and every other agent on the network discovers it automatically via DDS. The primary agent's LLM sees the new capability on its next call and can start using it immediately, without any changes to existing agents or configuration files.</p>
+          <p>This is fundamentally different from frameworks where you define your agent topology upfront in a config file or YAML. In GENESIS, the topology is <strong>emergent</strong> — the network reorganizes itself as agents join and leave. Your system's intelligence grows with every agent you start.</p>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary class="faq-question">
+          <span>What LLMs does GENESIS support?</span>
+          <span class="faq-icon"></span>
+        </summary>
+        <div class="faq-answer">
+          <p>GENESIS currently ships with three providers:</p>
+          <ul>
+            <li><strong>OpenAI</strong> — GPT-4o and any OpenAI chat completions model</li>
+            <li><strong>Anthropic</strong> — Claude models via the Anthropic API</li>
+            <li><strong>Nemotron (via Ollama)</strong> — fully local inference, no API key, no internet connection required</li>
+          </ul>
+          <p>Adding a new provider requires implementing 7 abstract methods — roughly 150 lines of Python. The provider layer is cleanly separated from the transport and monitoring layers, so swapping or extending LLM support never touches your agent's communication or observability code.</p>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary class="faq-question">
+          <span>Do I need an internet connection or cloud to run GENESIS?</span>
+          <span class="faq-icon"></span>
+        </summary>
+        <div class="faq-answer">
+          <p>No. GENESIS runs entirely on-premise or on disconnected edge hardware. RTI Connext DDS is a peer-to-peer protocol — it requires no cloud service, no broker, and no internet connectivity. Agents discover each other automatically on a local network.</p>
+          <p>For LLM inference, <strong>Ollama</strong> provides fully local model execution with no API key or external calls. Combined with DDS transport, a GENESIS deployment can operate in a fully air-gapped environment — which is a hard requirement in defense, classified, and certain industrial deployments.</p>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary class="faq-question">
+          <span>Is GENESIS only for defense and aerospace?</span>
+          <span class="faq-icon"></span>
+        </summary>
+        <div class="faq-answer">
+          <p>No — GENESIS originated from a U.S. SBIR contract, which is why defense and aerospace are a natural fit. But the underlying capabilities are valuable wherever you need distributed, reliable, real-time agent communication:</p>
+          <ul>
+            <li><strong>Robotics and autonomous systems</strong> — drone fleets, industrial robots, autonomous vehicles</li>
+            <li><strong>Industrial control and edge AI</strong> — process automation, smart manufacturing, power grid monitoring</li>
+            <li><strong>Healthcare</strong> — clinical workflow agents that connect siloed EMR, imaging, and insurance systems</li>
+            <li><strong>Simulation and digital twins</strong> — LLM agents interacting with DDS-based simulation environments</li>
+            <li><strong>Enterprise AI pipelines</strong> — any organization that needs agents running across multiple machines with guaranteed communication</li>
+          </ul>
+          <p>If your use case requires agents on separate machines to find each other automatically, communicate reliably, and scale without reconfiguration — GENESIS is built for it.</p>
+        </div>
+      </details>
+
+    </div>
+  </div>
+</section>
+
+<style>
+  .faq-list { display: flex; flex-direction: column; gap: 12px; }
+  .faq-item {
+    background: var(--white);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    transition: box-shadow .2s;
+  }
+  .faq-item[open] { box-shadow: var(--shadow-md); border-color: var(--orange); }
+  .faq-question {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 22px 28px;
+    font-size: 16px; font-weight: 600; color: var(--gray-900);
+    cursor: pointer; list-style: none; gap: 16px;
+    transition: background .15s;
+  }
+  .faq-question::-webkit-details-marker { display: none; }
+  .faq-item[open] .faq-question { background: var(--orange-light); color: var(--orange-dark); }
+  .faq-icon {
+    flex-shrink: 0;
+    width: 24px; height: 24px; border-radius: 50%;
+    background: var(--gray-100);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; line-height: 1; color: var(--orange);
+    transition: background .15s, transform .25s;
+  }
+  .faq-icon::after { content: '+'; }
+  .faq-item[open] .faq-icon { background: var(--orange); transform: rotate(45deg); }
+  .faq-item[open] .faq-icon::after { content: '+'; color: var(--white); }
+  .faq-answer {
+    padding: 0 28px 24px;
+    border-top: 1px solid var(--gray-100);
+  }
+  .faq-answer p { font-size: 15px; color: var(--gray-500); line-height: 1.7; margin-top: 16px; }
+  .faq-answer ul {
+    margin: 12px 0 12px 20px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .faq-answer ul li { font-size: 15px; color: var(--gray-500); line-height: 1.6; }
+  .faq-answer code {
+    background: var(--gray-100); color: var(--orange-dark);
+    padding: 1px 6px; border-radius: 4px;
+    font-family: var(--mono); font-size: 13px;
+  }
+</style>
+
+<!-- ── Footer ──────────────────────────────────────────────── -->
+<footer class="footer">
+  <div class="footer__inner">
+    <div class="footer__brand">
+      <div class="dot"></div>
+      RTI GENESIS
+    </div>
+    <div class="footer__links">
+      <a href="https://www.rti.com">rti.com</a>
+      <a href="https://github.com/rticommunity/rti-genesis">GitHub</a>
+      <a href="https://community.rti.com">Community</a>
+    </div>
+    <p class="footer__copy">
+      &copy; 2026 Real-Time Innovations, Inc. (RTI). All rights reserved. &nbsp;|&nbsp;
+      Developed by the <a href="https://www.rti.com/developers/research-programs" target="_blank" style="color: rgba(255,255,255,.5);">RTI Research Group</a>. &nbsp;|&nbsp;
+      Authors: Dr. Jason Upchurch &middot; Dr. Paul Pazandak &middot; Gianpiero Napoli
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>
