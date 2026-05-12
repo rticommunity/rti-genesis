@@ -562,6 +562,11 @@
         <h3>MCP Interoperability</h3>
         <p><code>agent.enable_mcp(port=8000)</code> exposes any GENESIS agent as a FastMCP server — callable from Claude Code, Cursor, NVIDIA NeMo Agent Toolkit, or any MCP-compatible client.</p>
       </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔎</div>
+        <h3>Tool Winnowing</h3>
+        <p>As your network grows, so does the tool catalog. A lightweight classifier pre-filters the full list down to the 5–10 most relevant tools per query — reducing token usage by 90%+ and keeping LLM accuracy high regardless of network size.</p>
+      </div>
     </div>
   </div>
 </section>
@@ -582,8 +587,11 @@
           and injected into the primary LLM's call alongside local tools and service functions.
           The LLM decides what to call — in natural language. Routing happens invisibly over DDS RPC.
         </p>
+        <p>
+          No orchestration code. No wiring. No configuration. Adding a new agent is as simple as starting it. GENESIS handles the rest.
+        </p>
         <div class="highlight-box">
-          <strong>Result:</strong> Adding a new specialist agent to a running network requires zero changes to any existing agent. It appears as a new tool on the next LLM call automatically — the system's intelligence grows with every agent you start.
+          <strong>Result:</strong> Adding a new specialist agent to a running network requires zero changes to any existing agent. It appears as a new tool on the next LLM call automatically — the system's intelligence grows with every agent you start. It really is that simple.
         </div>
       </div>
       <div class="code-wrap">
