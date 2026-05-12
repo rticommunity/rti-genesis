@@ -1,0 +1,19 @@
+include:
+  - genesis_developer_page.html
+
+exclude:
+  - "**/*.md"
+  - agents/
+  - architecture/
+  - business/
+  - design/
+  - guides/
+  - images/
+  - notes/
+  - papers/
+  - planning/
+  - reference/
+  - reports/
+  - setup/
+  - tools/
+  - user-guides/
