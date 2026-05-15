@@ -447,7 +447,7 @@
       <span>GENESIS</span>
     </a>
     <div class="nav__links">
-      <a href="#how-it-works">How It Works</a>
+      <a href="#how-it-works">RTI Genesis</a>
       <a href="#architecture">Architecture</a>
       <a href="#examples">Examples</a>
       <a href="#use-cases">Use Cases</a>
@@ -482,14 +482,14 @@
       No configuration files. No rewiring. No broker.
     </p>
     <div class="hero__actions">
-      <a href="https://github.com/rticommunity/rti-genesis" class="btn btn--primary">
-        <span class="btn__icon">⬡</span> Get GENESIS Free
-      </a>
       <a href="#how-it-works" class="btn btn--outline">
-        How It Works ↓
+        RTI Genesis ↓
       </a>
       <a href="#use-cases" class="btn btn--outline">
         Use Cases ↓
+      </a>
+      <a href="https://github.com/rticommunity/rti-genesis" class="btn btn--primary">
+        <span class="btn__icon">⬡</span> Get it for free
       </a>
     </div>
     <div class="hero__stats">
@@ -517,7 +517,7 @@
 <section class="section" id="how-it-works">
   <div class="container">
     <div class="section__header">
-      <p class="section-label">How It Works</p>
+      <p class="section-label">RTI Genesis</p>
       <h2 class="section-title">You don't configure your agent network — you grow it</h2>
       <p class="section-lead" style="max-width: 100%;">
         Most frameworks require you to define your agent topology upfront: which agents exist,
@@ -529,7 +529,7 @@
     <div class="highlight-box" style="margin-bottom: 40px;">
       <strong>Under the hood:</strong> GENESIS replaces brittle HTTP wiring and manual service registries
       with RTI Connext DDS — the same peer-to-peer middleware trusted in surgical robots, flight control systems,
-      and autonomous vehicles. Every agent gets industrial-grade reliability for free.
+      and autonomous vehicles. Every agent gets industrial-grade reliability without writing any code to handle communication and discovery.
     </div>
     <div class="features">
       <div class="feature-card">
@@ -858,7 +858,7 @@ cd examples/MultiAgent && ./run_interactive_demo.sh</code></pre>
   <div class="container">
     <div class="section__header">
       <p class="section-label">Use Cases</p>
-      <h2 class="section-title">Where GENESIS wins</h2>
+      <h2 class="section-title">Benefit from using RTI Genesis</h2>
       <p class="section-lead" style="max-width: 100%;">
         GENESIS is purpose-built for environments where HTTP latency, central brokers, and cloud dependencies are not acceptable.
       </p>
@@ -924,7 +924,7 @@ cd examples/MultiAgent && ./run_interactive_demo.sh</code></pre>
       </div>
       <ul class="install__reqs">
         <li><strong>Python 3.10</strong> &mdash; required</li>
-        <li><strong>RTI Connext DDS 7.3.0+</strong> &mdash; free 60-day eval, Connext Express, or University Program</li>
+        <li><strong>RTI Connext DDS</strong> &mdash; free 60-day eval, Connext Express, or University Program</li>
         <li><strong>LLM key</strong> &mdash; OpenAI, Anthropic, or local Ollama (no key needed)</li>
         <li><strong>OS</strong> &mdash; macOS, Linux, Windows</li>
       </ul>
@@ -961,8 +961,9 @@ cd examples/MultiAgent && ./run_interactive_demo.sh</code></pre>
         </summary>
         <div class="faq-answer">
           <p>A2A (Agent2Agent Protocol) is an HTTP-based standard for agents built on different frameworks to delegate tasks to each other over the internet. It is a useful interoperability standard for cloud-native, cross-organization agent communication.</p>
-          <p>GENESIS operates at a different level. Rather than a communication protocol layered over HTTPS, it uses <strong>RTI Connext DDS</strong> — a peer-to-peer, broker-free transport with configurable QoS, sub-millisecond latency, and guaranteed delivery. Discovery is automatic and zero-configuration; no Agent Card lookup, no known URL required. Agents find each other the moment they start.</p>
-          <p>A2A is well suited for loosely coupled cloud agents across organizational boundaries. GENESIS is built for tightly integrated, real-time, distributed systems — robotics, defense, industrial control — where HTTP latency and cloud dependency are not acceptable. The two serve different environments and are not in direct competition.</p>
+          <p>A2A is better suited for cloud environments where agents and services are statically defined and their availability can be assumed.</p>
+          <p>GENESIS targets a different kind of system — one where the number of agents and their location may change over time. Agents may migrate, join, or leave the network dynamically. GENESIS is designed for these fluid, real-time environments where static configuration is not an option.</p>
+          <p>In essence, both address agent-to-agent communication, but for different deployment models: A2A for cloud-based, relatively static deployments; GENESIS for dynamic, distributed systems with real-time requirements.</p>
         </div>
       </details>
 
@@ -972,8 +973,8 @@ cd examples/MultiAgent && ./run_interactive_demo.sh</code></pre>
           <span class="faq-icon"></span>
         </summary>
         <div class="faq-answer">
-          <p>HTTP is convenient but carries structural limitations for distributed agent systems: it requires a broker or service registry, has no built-in delivery guarantees, and relies on timeout-based failure detection. If a component goes offline mid-request, the caller has no reliable way to know.</p>
-          <p>GENESIS is built on <strong>RTI Connext DDS</strong> — the OMG-standard middleware deployed in FDA-cleared medical devices, NATO programs, and autonomous vehicle platforms. Every connection in a GENESIS network gets:</p>
+          <p>HTTP is convenient but carries structural limitations for distributed agent systems: it requires a centralized registry, only offers session-level delivery guarantees, and relies on timeout-based failure detection. If a component goes offline mid-request, the caller has no reliable way to know.</p>
+          <p>GENESIS is built on <strong>RTI Connext DDS</strong> — the OMG-standard middleware deployed in FDA-cleared medical devices, several Aerospace and Defence programs, and autonomous vehicle platforms. Every connection in a GENESIS network gets:</p>
           <ul>
             <li><strong>Configurable delivery guarantees</strong> — best-effort or fully reliable, per topic</li>
             <li><strong>Liveliness heartbeats</strong> — dead agents are detected automatically, not by timeout</li>
@@ -981,7 +982,7 @@ cd examples/MultiAgent && ./run_interactive_demo.sh</code></pre>
             <li><strong>Sub-millisecond latency</strong> — via shared memory on the same host or UDP across a LAN</li>
             <li><strong>No broker</strong> — true peer-to-peer; no single point of failure</li>
           </ul>
-          <p>For enterprise web applications, HTTP is fine. For systems where reliability, latency, and resilience are non-negotiable, DDS is the right foundation.</p>
+          <p>For static systems, HTTP may be fine. For systems that are more dynamic and where reliability, latency, and resilience are non-negotiable, DDS is the right foundation.</p>
         </div>
       </details>
 
@@ -1018,28 +1019,11 @@ cd examples/MultiAgent && ./run_interactive_demo.sh</code></pre>
           <span class="faq-icon"></span>
         </summary>
         <div class="faq-answer">
-          <p>No. GENESIS runs entirely on-premise or on disconnected edge hardware. RTI Connext DDS is a peer-to-peer protocol — it requires no cloud service, no broker, and no internet connectivity. Agents discover each other automatically on a local network.</p>
-          <p>For LLM inference, <strong>Ollama</strong> provides fully local model execution with no API key or external calls. Combined with DDS transport, a GENESIS deployment can operate in a fully air-gapped environment — which is a hard requirement in defense, classified, and certain industrial deployments.</p>
+          <p>Not necessarily. GENESIS can run entirely on-premise or on disconnected edge hardware. RTI Connext DDS is a peer-to-peer protocol — it requires no cloud service, no broker, and no internet connectivity. Agents discover each other automatically on a local network.</p>
+          <p>If you choose to use a local model — for example <a href="https://github.com/rticommunity/rti-genesis/blob/main/QUICKSTART.md#option-2-using-ollama-local-inference" target="_blank">Nemotron via Ollama</a> — no API key or external calls are required. Combined with DDS transport, a GENESIS deployment can operate in a fully air-gapped environment — which is a hard requirement in defense, classified, and certain industrial deployments.</p>
         </div>
       </details>
 
-      <details class="faq-item">
-        <summary class="faq-question">
-          <span>Is GENESIS only for defense and aerospace?</span>
-          <span class="faq-icon"></span>
-        </summary>
-        <div class="faq-answer">
-          <p>No — GENESIS originated from a U.S. SBIR contract, which is why defense and aerospace are a natural fit. But the underlying capabilities are valuable wherever you need distributed, reliable, real-time agent communication:</p>
-          <ul>
-            <li><strong>Robotics and autonomous systems</strong> — drone fleets, industrial robots, autonomous vehicles</li>
-            <li><strong>Industrial control and edge AI</strong> — process automation, smart manufacturing, power grid monitoring</li>
-            <li><strong>Healthcare</strong> — clinical workflow agents that connect siloed EMR, imaging, and insurance systems</li>
-            <li><strong>Simulation and digital twins</strong> — LLM agents interacting with DDS-based simulation environments</li>
-            <li><strong>Enterprise AI pipelines</strong> — any organization that needs agents running across multiple machines with guaranteed communication</li>
-          </ul>
-          <p>If your use case requires agents on separate machines to find each other automatically, communicate reliably, and scale without reconfiguration — GENESIS is built for it.</p>
-        </div>
-      </details>
 
     </div>
   </div>
