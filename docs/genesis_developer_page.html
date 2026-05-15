@@ -443,7 +443,7 @@
 <nav class="nav">
   <div class="nav__inner">
     <a href="https://www.rti.com" class="nav__logo">
-      <div class="nav__logo-dot">RTI</div>
+      <img src="https://www.rti.com/hubfs/Master%20Graphics%20Folder/Logos/RTI/RTI-Logo-rev.svg" alt="RTI" style="height: 32px; width: auto;" />
       <span>GENESIS</span>
     </a>
     <div class="nav__links">
@@ -1024,6 +1024,32 @@ cd examples/MultiAgent && ./run_interactive_demo.sh</code></pre>
         </div>
       </details>
 
+      <details class="faq-item">
+        <summary class="faq-question">
+          <span>How is GENESIS different from LangChain?</span>
+          <span class="faq-icon"></span>
+        </summary>
+        <div class="faq-answer">
+          <p>LangChain is a framework for building LLM-powered applications — it provides abstractions for chains, memory, retrievers, agents, and a large ecosystem of integrations. It is primarily designed for single-process applications communicating over HTTP.</p>
+          <p>GENESIS is focused on a different problem: how do agents running on <strong>separate machines</strong> find each other and communicate reliably in real time. It does not try to replace LangChain's application-building abstractions.</p>
+          <p><strong>LangChain brings:</strong></p>
+          <ul>
+            <li><strong>LLM-level observability</strong> — LangSmith provides deep tracing, evaluation, and debugging of LLM calls</li>
+            <li><strong>Mature RAG and memory</strong> — production-ready backends (Redis, Pinecone, Chroma) and conversation memory</li>
+            <li><strong>Ecosystem breadth</strong> — hundreds of integrations (tools, loaders, embeddings, chains)</li>
+            <li><strong>Human-in-the-loop</strong> — built-in patterns for approval and intervention flows</li>
+          </ul>
+          <p><strong>GENESIS brings:</strong></p>
+          <ul>
+            <li><strong>True distributed multi-agent</strong> — agents on separate machines discover each other automatically, no configuration</li>
+            <li><strong>Network-level observability</strong> — live topology, state transitions, and chain tracing across distributed hops via MonitoredAgent</li>
+            <li><strong>Industrial-grade transport</strong> — DDS QoS, guaranteed delivery, liveliness detection, sub-millisecond latency</li>
+            <li><strong>Air-gapped deployment</strong> — no internet or cloud dependency</li>
+            <li><strong>Dynamic scaling</strong> — add an agent to the network and every other agent sees it instantly</li>
+          </ul>
+          <p>The two are largely complementary: LangChain is strong at building a single capable agent; GENESIS is strong at connecting multiple agents reliably across a distributed system.</p>
+        </div>
+      </details>
 
     </div>
   </div>
