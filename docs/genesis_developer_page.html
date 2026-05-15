@@ -550,7 +550,7 @@
       <div class="feature-card">
         <div class="feature-icon">🛡️</div>
         <h3>Industrial Reliability</h3>
-        <p>Configurable QoS guarantees: reliable delivery, durable topics (late joiners catch up), liveliness heartbeats, and TRANSIENT_LOCAL history — all inherited from Connext DDS.</p>
+        <p>Configurable QoS guarantees: reliable delivery, durable topics, liveliness heartbeats, and late-joiner catch-up (TRANSIENT_LOCAL) — new agents instantly receive the full history of what happened before they joined. All inherited from Connext DDS.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">📊</div>
@@ -579,13 +579,13 @@
         <p class="section-label">Core Innovation</p>
         <h2>The Agent-as-Tool Pattern</h2>
         <p>
-          In most multi-agent frameworks, orchestration is hand-written: a coordinator decides which agent to call, formats the request, and stitches results back together. This logic breaks every time the network changes.
+          In traditional multi-agent frameworks, orchestration is hand-written as a separate component — a coordinator that decides which agent to call, formats the request, and stitches results together. This logic breaks every time the network changes.
         </p>
         <p>
-          GENESIS eliminates the orchestration layer. Every agent discovered on the DDS network is
+          GENESIS takes a different approach. One agent acts as the primary — it has its own LLM, and that LLM is the orchestrator. Every other agent discovered on the DDS network is
           <span class="deep__accent">automatically converted to a tool schema</span>
-          and injected into the primary LLM's call alongside local tools and service functions.
-          The LLM decides what to call — in natural language. Routing happens invisibly over DDS RPC.
+          and injected into its tool list, alongside local tools and service functions.
+          The LLM decides what to call, in natural language. No separate coordinator. No hand-written routing logic.
         </p>
         <p>
           No orchestration code. No wiring. No configuration. Adding a new agent is as simple as starting it. GENESIS handles the rest.
