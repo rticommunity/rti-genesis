@@ -24,7 +24,7 @@ INTERFACE_NAME = "SimpleStaticInterface-001"
 MATH_QUESTION = "What is 123 plus 456?" # Predefined question
 # EXPECTED_ANSWER_SUBSTRING = "579" # We'll check for this in the shell script via logs
 
-async def main(verbose: bool = False, question: str = MATH_QUESTION, domain_id: int = 0):
+async def main(verbose: bool = False, question: str = MATH_QUESTION, domain_id: int = 0, target_service: str = None):
     log_level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
         level=log_level,
@@ -74,8 +74,16 @@ async def main(verbose: bool = False, question: str = MATH_QUESTION, domain_id: 
             await interface.close()
             return exit_code
 
-        # Automatically select the first agent
-        selected_agent = agent_list[0]
+        # Select agent by service name if specified, otherwise take first
+        if target_service:
+            matching = [a for a in agent_list if a.get('service_name') == target_service]
+            if not matching:
+                logger.error(f"No agent found offering service '{target_service}'. Available: {[a.get('service_name') for a in agent_list]}")
+                await interface.close()
+                return exit_code
+            selected_agent = matching[0]
+        else:
+            selected_agent = agent_list[0]
         target_agent_id = selected_agent.get('instance_id')
         target_agent_service_name = selected_agent.get('service_name')
         connected_agent_name = selected_agent.get('prefered_name', target_agent_id)
@@ -154,6 +162,12 @@ if __name__ == "__main__":
         default=None,
         help="DDS domain ID (default: 0 or GENESIS_DOMAIN_ID env var)"
     )
+    parser.add_argument(
+        "--service",
+        type=str,
+        default=None,
+        help="Connect to the agent offering this specific service name (e.g. 'OpenAIChat')"
+    )
     args = parser.parse_args()
     
     # Priority: command line arg > env var > default (0)
@@ -163,7 +177,7 @@ if __name__ == "__main__":
     # This is important for the calling shell script to determine test pass/fail.
     script_result_code = 1 # Default to failure
     try:
-        script_result_code = asyncio.run(main(verbose=args.verbose, question=args.question, domain_id=domain_id))
+        script_result_code = asyncio.run(main(verbose=args.verbose, question=args.question, domain_id=domain_id, target_service=args.service))
     except KeyboardInterrupt:
         logger.info("Script terminated by user.")
     except Exception as e:

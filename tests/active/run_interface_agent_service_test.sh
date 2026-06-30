@@ -144,7 +144,7 @@ QUESTION_TO_ASK="What is 123 plus 456?"
 EXPECTED_SUM=579
 
 echo "Running SimpleGenesisInterfaceStatic with question: '$QUESTION_TO_ASK'..."
-if python "$SCRIPT_DIR/../helpers/simpleGenesisInterfaceStatic.py" --question "$QUESTION_TO_ASK" --verbose $DOMAIN_ARG > "$STATIC_INTERFACE_LOG" 2>&1; then
+if python "$SCRIPT_DIR/../helpers/simpleGenesisInterfaceStatic.py" --question "$QUESTION_TO_ASK" --service "OpenAIChat" --verbose $DOMAIN_ARG > "$STATIC_INTERFACE_LOG" 2>&1; then
     echo "SimpleGenesisInterfaceStatic completed successfully (exit code 0)."
 else
     echo "ERROR: SimpleGenesisInterfaceStatic failed (exit code $?)."
