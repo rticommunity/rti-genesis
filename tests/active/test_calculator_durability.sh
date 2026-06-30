@@ -30,18 +30,18 @@ mkdir -p "$LOG_DIR"
 
 # Define script and log file names
 SERVICE_SCRIPT="$PROJECT_ROOT/test_functions/services/calculator_service.py"
-SERVICE_LOG="$LOG_DIR/serviceside_service_durability.log"
-REGISTRATION_SPY_LOG="$LOG_DIR/serviceside_rtiddsspy_durability.log"
-SERVICE_SPY_LOG="$LOG_DIR/serviceside_rtiddsspy_durability.log"
+SERVICE_LOG="$LOG_DIR/serviceside_service_durability_domain${DOMAIN_ID}.log"
+REGISTRATION_SPY_LOG="$LOG_DIR/serviceside_rtiddsspy_durability_domain${DOMAIN_ID}.log"
+SERVICE_SPY_LOG="$LOG_DIR/serviceside_rtiddsspy_durability_domain${DOMAIN_ID}.log"
 AGENT_SCRIPT="$PROJECT_ROOT/tests/helpers/math_test_agent.py"
-AGENT_LOG="$LOG_DIR/serviceside_agent_durability.log"
+AGENT_LOG="$LOG_DIR/serviceside_agent_durability_domain${DOMAIN_ID}.log"
 
 # Function to check for and clean up DDS processes
 check_and_cleanup_dds() {
     echo "🔍 TRACE: Checking for existing DDS processes..."
     
     # Start spy to check for DDS activity
-    SPY_LOG="$LOG_DIR/dds_check.log"
+    SPY_LOG="$LOG_DIR/dds_check_domain${DOMAIN_ID}.log"
     "$NDDSHOME/bin/rtiddsspy" -domainId $DOMAIN_ID -printSample -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable > "$SPY_LOG" 2>&1 &
     SPY_PID=$!
     
@@ -229,9 +229,8 @@ check_log "$AGENT_LOG" "MathTestAgent listening for requests" "Agent listening s
 # Check DDS Spy logs for function registration via GraphTopology (modern durable discovery)
 check_log "$SERVICE_SPY_LOG" 'New data.*topic=.*rti/connext/genesis/monitoring/GraphTopology' "Spy received durable GraphTopology data" true
 check_log "$SERVICE_SPY_LOG" 'New writer.*topic=.*rpc/CalculatorServiceReply.*type="GenesisRPCReply".*name="Replier"' "Service reply writer" true
-# With lifecycle events now VOLATILE, the durable graph node metadata carries the reason
-# Accept either lifecycle 'reason:' line or durable GraphNode 'metadata:' containing the reason
-check_log "$SERVICE_SPY_LOG" "reason: .*Function 'add' available.*|metadata:.*Function 'add' available.*" "Function discovery" true
+# Function discovery is logged by the agent's DDSFunctionDiscovery when it receives the service advertisement
+check_log "$AGENT_LOG" "Updated/Added discovered function: add" "Function discovery" true
 
 # Clean up Test 2
 echo "🧹 TRACE: Cleaning up Test 2..."
