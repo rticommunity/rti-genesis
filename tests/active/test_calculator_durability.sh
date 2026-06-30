@@ -68,13 +68,13 @@ check_and_cleanup_dds() {
         # Check if DDS activity is still present - again, check for LIVE writers/readers only
         if grep -E "New (writer|reader).*CalculatorService" "$SPY_LOG"; then
             echo "❌ ERROR: Failed to clean up CalculatorService DDS processes. Please manually check and kill any running processes."
-            kill $SPY_PID 2>/dev/null || true
+            pkill -P $SPY_PID 2>/dev/null; kill $SPY_PID 2>/dev/null || true
             return 1
         fi
     fi
     
     # Clean up spy
-    kill $SPY_PID 2>/dev/null || true
+    pkill -P $SPY_PID 2>/dev/null; kill $SPY_PID 2>/dev/null || true
     echo "✅ TRACE: No DDS processes detected or successfully cleaned up"
     return 0
 }
@@ -88,8 +88,9 @@ kill_process() {
     if [ "$is_spy" = "true" ]; then
         echo "🔫 TRACE: Stopping $name process $pid..."
         # PARALLEL-SAFE: Kill by PID, not by pattern
+        # Kill children first (7.7.0+ rtiddsspy is a shell wrapper; pkill -P kills the actual binary)
         if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-            kill -KILL "$pid" 2>/dev/null || true
+            pkill -P "$pid" 2>/dev/null; kill -KILL "$pid" 2>/dev/null || true
         fi
         sleep 1
     else

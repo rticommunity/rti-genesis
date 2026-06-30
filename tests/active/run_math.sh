@@ -42,6 +42,9 @@ cleanup() {
     echo "Cleaning up processes..."
     for pid in "${pids[@]}"; do
         if ps -p "$pid" > /dev/null; then
+            # Kill children first (7.7.0+ rtiddsspy is a shell wrapper; pkill -P
+            # kills the actual binary so the wrapper can exit and wait unblocks)
+            pkill -P "$pid" 2>/dev/null
             kill "$pid" 2>/dev/null
             wait "$pid" 2>/dev/null || true
         fi

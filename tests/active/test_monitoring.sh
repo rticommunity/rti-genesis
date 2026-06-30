@@ -166,9 +166,11 @@ if [ -n "$RTIDDSSPY_BIN" ]; then
     QOS_ARGS=( -qosFile "$PROJECT_ROOT/spy_transient.xml" -qosProfile SpyLib::TransientReliable )
   fi
   # Run in background (no -duration flag), stop after a short window
+  # Note: In RTI 7.7.0+, rtiddsspy is a shell script wrapper. We must kill its
+  # child processes first (pkill -P) so the wrapper exits cleanly and wait unblocks.
   "$RTIDDSSPY_BIN" -printSample "${QOS_ARGS[@]}" $(printf -- " -topic %q" "${TOPICS[@]}") > "$SPY_LOG" 2>&1 &
   SPY_PID=$!
-  ( sleep 6; kill $SPY_PID 2>/dev/null || true ) &
+  ( sleep 6; pkill -P $SPY_PID 2>/dev/null; kill $SPY_PID 2>/dev/null || true ) &
   wait $SPY_PID 2>/dev/null || true
   if grep -E "New writer|SAMPLE for topic" "$SPY_LOG" >/dev/null 2>&1; then
     echo "DDS sweep: activity detected (see $SPY_LOG)."

@@ -68,7 +68,7 @@ cleanup() {
     [ "$DEBUG" = "true" ] && echo "Cleaning up processes..."
     # Kill spy if running
     if [ -n "$SPY_PID" ] && kill -0 "$SPY_PID" 2>/dev/null; then
-        kill "$SPY_PID" 2>/dev/null || true
+        pkill -P "$SPY_PID" 2>/dev/null; kill "$SPY_PID" 2>/dev/null || true
     fi
     for pid in "${pids[@]}"; do
         if ps -p "$pid" > /dev/null; then

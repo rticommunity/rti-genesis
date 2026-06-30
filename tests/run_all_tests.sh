@@ -193,13 +193,13 @@ check_and_cleanup_dds() {
         # Use extended regex (-E) to match specific topics
         if grep -E '(New writer|New data).*topic="(Advertisement|rti/connext/genesis/rpc/)"' "$SPY_LOG"; then
             echo "❌ ERROR: Detected lingering DDS activity on test topics (Advertisement or Service Requests) after cleanup attempt."
-            kill $SPY_PID 2>/dev/null || true
+            pkill -P $SPY_PID 2>/dev/null; kill $SPY_PID 2>/dev/null || true
             return 1
         fi
     fi
     
     # Clean up spy
-    kill $SPY_PID 2>/dev/null || true
+    pkill -P $SPY_PID 2>/dev/null; kill $SPY_PID 2>/dev/null || true
     echo "✅ TRACE: DDS process cleanup attempted."
     return 0
 }

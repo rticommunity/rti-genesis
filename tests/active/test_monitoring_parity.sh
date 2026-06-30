@@ -143,7 +143,7 @@ sleep 3
 
 # Stop spy
 echo "Stopping rtiddsspy..."
-kill "$SPY_PID" 2>/dev/null || true
+pkill -P "$SPY_PID" 2>/dev/null; kill "$SPY_PID" 2>/dev/null || true
 wait "$SPY_PID" 2>/dev/null || true
 
 echo ""

@@ -61,7 +61,7 @@ sleep 5
 echo "===== Cleaning Up ====="
 # Kill spy if running
 if [ -n "$SPY_PID" ] && kill -0 "$SPY_PID" 2>/dev/null; then
-    kill "$SPY_PID" 2>/dev/null || true
+    pkill -P "$SPY_PID" 2>/dev/null; kill "$SPY_PID" 2>/dev/null || true
 fi
 kill $CALCULATOR_PID 2>/dev/null || true
 kill $LETTER_COUNTER_PID 2>/dev/null || true

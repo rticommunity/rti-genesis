@@ -44,7 +44,8 @@ kill_process() {
 
     if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
         echo "🔫 TRACE: Stopping $name process $pid..."
-        # Use direct signals for precise control; avoid broad pkill patterns
+        # Kill children first (7.7.0+ rtiddsspy is a shell wrapper; pkill -P kills the actual binary)
+        pkill -P "$pid" 2>/dev/null || true
         kill -TERM "$pid" 2>/dev/null || true
         sleep 1
         if kill -0 "$pid" 2>/dev/null; then
