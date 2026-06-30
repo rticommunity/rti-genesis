@@ -33,7 +33,7 @@
 #
 # Prerequisites:
 # - Python 3.10 or higher
-# - RTI Connext DDS 7.3.0 or higher
+# - RTI Connext DDS 7.7.0 or higher
 # - Required API keys (OpenAI, Anthropic) in environment
 # - All dependencies installed via setup.sh
 #
@@ -113,7 +113,7 @@ fi
 # Require NDDSHOME to be set explicitly by the user for DDS-based tests
 if [ -z "${NDDSHOME:-}" ]; then
     echo "Error: NDDSHOME is not set. Export NDDSHOME to your RTI Connext DDS installation before running tests." >&2
-    echo "Example: export NDDSHOME=/Applications/rti_connext_dds-7.3.0" >&2
+    echo "Example: export NDDSHOME=/Applications/rti_connext_dds-7.7.0" >&2
     exit 2
 fi
 
@@ -134,7 +134,7 @@ if [ ! -x "$CANDIDATE_RTIDDSSPY" ]; then
     echo "Error: Could not find an executable 'rtiddsspy'." >&2
     echo "Checked: RTIDDSSPY_BIN='$RTIDDSSPY_BIN', RTI_BIN_DIR='$RTI_BIN_DIR', NDDSHOME='$NDDSHOME'" >&2
     echo "Tips:" >&2
-    echo "  - Ensure NDDSHOME is set correctly (e.g., /Applications/rti_connext_dds-7.3.0)" >&2
+    echo "  - Ensure NDDSHOME is set correctly (e.g., /Applications/rti_connext_dds-7.7.0)" >&2
     echo "  - Or copy the binary locally: mkdir -p \"$PROJECT_ROOT/bin\" && cp \"$NDDSHOME/bin/rtiddsspy\" \"$PROJECT_ROOT/bin/\"" >&2
     echo "    then run: export RTI_BIN_DIR=\"$PROJECT_ROOT/bin\"" >&2
     exit 2

@@ -26,7 +26,7 @@
 #
 # Prerequisites:
 # - Python 3.10 or higher
-# - RTI Connext DDS 7.3.0 or higher  
+# - RTI Connext DDS 7.7.0 or higher  
 # - Required API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY) in environment
 # - All dependencies installed via setup.sh
 #

@@ -14,7 +14,7 @@ This README documents what the top-level test runner executes today, the order a
 ## Prerequisites
 
 - Python: 3.10.x
-- DDS: RTI Connext DDS 7.3.0+ installed and configured
+- DDS: RTI Connext DDS 7.7.0+ installed and configured
   - `NDDSHOME` set, `rtiddsspy` available
   - Optionally: `RTIDDSSPY_BIN` or `RTI_BIN_DIR` overrides
 - API keys (where used): `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`

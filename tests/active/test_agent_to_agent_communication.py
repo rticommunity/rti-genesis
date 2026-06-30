@@ -99,7 +99,7 @@ class AgentToAgentTester:
             
             # Enhanced DDS spy command for better structured output
             spy_cmd = [
-                f"{os.environ.get('NDDSHOME', '/opt/rti_connext_dds-7.3.0')}/bin/rtiddsspy",
+                f"{os.environ.get('NDDSHOME', '/opt/rti_connext_dds-7.7.0')}/bin/rtiddsspy",
                 "-printSample",           # Print sample data
                 "-printTimestamp",        # Include timestamps
                 "-verbosity", "2"         # Increased verbosity for more detail
