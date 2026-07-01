@@ -1,111 +1,53 @@
-# GENESIS - Distributed AI Agent Framework
+# GENESIS — Distributed AI Agent Framework
 
 [![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)](https://www.python.org/downloads/)
-[![RTI Connext DDS](https://img.shields.io/badge/RTI%20Connext%20DDS-7.3.0+-green.svg)](https://www.rti.com/)
+[![RTI Connext DDS](https://img.shields.io/badge/RTI%20Connext%20DDS-7.7.0+-green.svg)](https://www.rti.com/)
 [![License](https://img.shields.io/badge/license-RTI-blue.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-RC1-orange.svg)]()
-[![Wiki](https://img.shields.io/badge/wiki-documentation-blue.svg)](https://github.com/rticommunity/rti-genesis/wiki)
 
-**GENESIS** (Generative Networked System for Intelligent Services) is a Python framework for building distributed AI agent networks with the robustness and reliability required for production deployments.
-
----
-
-## 📑 Table of Contents
-
-- [What You Get](#-what-you-get)
-- [Quick Example](#-quick-example)
-- [Installation](#-installation)
-- [Try the Demo](#-try-the-demo)
-- [Key Features](#-key-features)
-- [Architecture](#️-architecture)
-- [Examples](#-examples)
-- [Documentation](#-documentation)
-- [Use Cases](#-use-cases)
-- [Technical Requirements](#️-technical-requirements)
-- [Contributing](#-contributing)
-- [Support](#-support)
-- [License](#-license)
+**GENESIS** (Generative Networked System for Intelligent Services) is a Python framework for building distributed AI agent networks. Agents and services discover each other automatically — no IP addresses, no ports, no configuration files — using RTI Connext DDS as the communication backbone.
 
 ---
 
-## 🎯 What You Get
+## Install
 
-### **Zero-Configuration Discovery**
-Agents and services find each other automatically—**no IP addresses, no ports, no configuration files**:
-
-```python
-# Terminal 1: Start a service
-service = CalculatorService()
-await service.run()
-
-# Terminal 2: Start an agent (on any machine)
-agent = MathAgent()
-# Agent instantly discovers Calculator—no config needed
+```bash
+pip install genesis-lib
 ```
 
-Works across machines, networks, and even cloud regions. Just start your components and they find each other.
+This pulls the full RTI Connext DDS runtime automatically (bundled in the package). The only RTI-specific step is a free license file.
 
-### **Production-Grade Reliability**
-Built on **RTI Connext DDS**—the same middleware powering:
+### Get an RTI License
 
-- ✈️ Flight control systems and unmanned vehicles
-- 🏥 FDA-cleared surgical robots
-- 🚗 Autonomous vehicle sensor fusion
-- ⚡ Power grid SCADA systems
-- 🏭 Factory automation at scale
+Genesis requires a license to activate the DDS runtime:
 
-When your AI system needs to work every time, GENESIS inherits battle-tested infrastructure from domains where failure is not an option.
+1. Fill out the form at [rti.com/get-connext](https://www.rti.com/get-connext) — select **Free 60-day evaluation**
+2. A file named `rti_license.dat` will arrive by email within a few minutes
+3. Point Genesis to it:
 
-### **Intelligent Function Windowing**
-Don't overwhelm your LLM with 200 functions—**classifiers automatically select the 5-10 relevant ones**:
-
-```python
-# System discovers 200+ functions
-# Classifier windows to relevant subset
-classifier.classify_functions(
-    query="calculate compound interest",
-    functions=all_discovered_functions
-)
-# LLM sees only: [calculate_interest, compound_rate, ...]
+```bash
+export RTI_LICENSE_FILE="/path/to/rti_license.dat"
 ```
 
-**Result**: 90%+ reduction in LLM tokens, faster responses, better accuracy.
+Add this to your `~/.zshrc` or `~/.bashrc` to make it permanent.
 
-### **Fine-Grained Control**
-Configure exactly how your data flows:
+### Set an API Key
 
-- **Reliability**: Best-effort (fast) or guaranteed delivery
-- **Durability**: Volatile or persistent data (survives restarts)
-- **Content Filtering**: Subscribers get only what they need
-- **Security**: Authentication, encryption, access control (via DDS Security plugins—planned)
-
-### **True Peer-to-Peer**
-No central broker to become a bottleneck or single point of failure. Agents communicate directly with sub-millisecond latency.
+```bash
+export OPENAI_API_KEY="your_openai_key"
+# or
+export ANTHROPIC_API_KEY="your_anthropic_key"
+# or use local inference with Ollama (no API key needed — see docs/guides/local-inference.md)
+```
 
 ---
 
-## ✨ Key Features
+## Your First Service (30 seconds)
 
-| Feature | Description |
-|---------|-------------|
-| 🔍 **DDS-Based Discovery** | Automatic discovery inherited from DDS—no configuration |
-| 📊 **Intelligent Windowing** | Classifiers reduce LLM token usage by 90%+ |
-| 💾 **Memory Management** | Context preservation with token limit awareness |
-| 🤖 **Multi-LLM Support** | OpenAI, Anthropic—add new providers in ~150 lines |
-| 🔗 **Agent-as-Tool Pattern** | Agents call other agents via LLM tool interface |
-| 🛠️ **Decorator-Based Development** | `@genesis_tool` and `@genesis_function` decorators |
-| ⚡ **Real-Time Performance** | Sub-millisecond DDS communication |
-| 🌐 **Peer-to-Peer Architecture** | No central broker—DDS handles routing |
-| 🔐 **Security-Ready** | DDS Security plugin support (planned) |
-| 📡 **Pub/Sub Control** | Content filtering and QoS policies via DDS |
-
----
-
-## 🎯 Quick Example
-
-### Create a Service (30 seconds)
+Create `calc_service.py`:
 
 ```python
+import asyncio
 from genesis_lib.monitored_service import MonitoredService
 from genesis_lib.decorators import genesis_function
 
@@ -113,21 +55,34 @@ class CalculatorService(MonitoredService):
     def __init__(self):
         super().__init__("Calculator", capabilities=["math"])
         self._advertise_functions()
-    
+
     @genesis_function()
     async def add(self, x: float, y: float) -> dict:
         """Add two numbers."""
         return {"result": x + y}
 
-# Run it—DDS handles discovery
-service = CalculatorService()
-await service.run()
+    @genesis_function()
+    async def multiply(self, x: float, y: float) -> dict:
+        """Multiply two numbers."""
+        return {"result": x * y}
+
+asyncio.run(CalculatorService().run())
 ```
 
-### Create an Agent (30 seconds)
+Run it:
 
-**Option 1: Cloud-based (OpenAI)**
+```bash
+python calc_service.py
+```
+
+---
+
+## Your First Agent (30 seconds)
+
+In a second terminal, create `agent.py`:
+
 ```python
+import asyncio
 from genesis_lib.openai_genesis_agent import OpenAIGenesisAgent
 
 class MathAgent(OpenAIGenesisAgent):
@@ -137,261 +92,139 @@ class MathAgent(OpenAIGenesisAgent):
             agent_name="MathAssistant"
         )
 
-# Run it—agent discovers services, classifiers window relevant functions
-agent = MathAgent()
-response = await agent.process_message("What is 2 + 2?")
-# Classifier determines Calculator.add is relevant
-# Agent calls function via DDS
+async def main():
+    agent = MathAgent()
+    await asyncio.sleep(2)  # let DDS discovery settle
+
+    response = await agent.process_message("What is 127 + 384?")
+    print(response)
+
+asyncio.run(main())
 ```
 
-**Option 2: Local inference (Ollama)**
+**Option: local inference with Ollama (no API costs)**
+
 ```python
 from genesis_lib.local_genesis_agent import LocalGenesisAgent
 
-class LocalMathAgent(LocalGenesisAgent):
+class MathAgent(LocalGenesisAgent):
     def __init__(self):
-        super().__init__(
-            model_name="llama3.2:3b",  # Or any Ollama model
-            agent_name="LocalMathAssistant"
-        )
-
-# Run it—completely local, no API costs, full privacy
-agent = LocalMathAgent()
-response = await agent.process_message("What is 2 + 2?")
-# Works identically to OpenAI version, but runs locally
+        super().__init__(model_name="nemotron-mini:latest", agent_name="MathAssistant")
 ```
 
----
-
-## 📦 Installation
-
-### Prerequisites
-
-1. **Python 3.10** (required)
-2. **RTI Connext DDS 7.3.0+** (see below)
-3. **API Keys** (OpenAI or Anthropic)
-
-### Getting RTI Connext DDS
-
-GENESIS requires RTI Connext DDS. RTI offers several free options:
-
-| License Type | Best For | Limits |
-|--------------|----------|--------|
-| **[60-Day Evaluation](https://www.rti.com/get-connext)** | Exploring GENESIS, building prototypes | Unlimited scale, time-limited |
-| **[Connext Express](https://www.rti.com/get-connext)** | Small deployments, getting started | Free forever, participant-limited |
-| **[University Program](https://www.rti.com/developers/university-program)** | Researchers, academics, classrooms | Perpetual research licenses |
-
-> 💡 **Recommendation**: Start with the **60-day evaluation** for full functionality. If you're building networks with multiple agents/services, avoid the Express license (participant-limited). Researchers should apply for the University Program for perpetual access.
-
-### Quick Install
+Run it (keep the service running in the other terminal):
 
 ```bash
-# Clone repository (or download release)
-git clone https://github.com/rticommunity/rti-genesis.git
-#cd into the directory
-cd rti-genesis
-
-# Automated setup (recommended)
-./setup.sh
-#Activate the env (if it is not already)
-source ./venv/bin/activate
-
-
-# Manual setup alternative
-python3.10 -m venv venv
-source venv/bin/activate
-pip install -e .
+python agent.py
 ```
 
-### Environment Setup
-
-```bash
-# RTI Connext DDS
-export NDDSHOME="/path/to/rti_connext_dds-7.3.0"
-
-# API Keys
-export OPENAI_API_KEY="your_openai_key"
-export ANTHROPIC_API_KEY="your_anthropic_key"
-```
-
-📖 **Detailed instructions**: See [INSTALL.md](INSTALL.md) and [QUICKSTART.md](QUICKSTART.md)
+Within 2–3 seconds the agent discovers the calculator service via DDS and routes your question to it automatically.
 
 ---
 
-## 🎬 Try the Demo
+## What's Happening
 
-Experience GENESIS capabilities with a multi-agent example:
-
-```bash
-# Run the MultiAgent demo
-cd examples/MultiAgent
-./run_interactive_demo.sh
+```
+agent.py                           calc_service.py
+    │                                    │
+    │── DDS discovery ──────────────────>│ (finds Calculator on the network)
+    │                                    │
+    │── "What is 127 + 384?" ──> LLM    │
+    │                              │     │
+    │               classifies as math   │
+    │                              │     │
+    │── RPC call: add(127, 384) ────────>│
+    │<─ {"result": 511} ─────────────────│
+    │                                    │
+    "127 + 384 = 511"
 ```
 
-**What you'll see:**
-- ✅ DDS-based automatic discovery
-- ✅ Agent-to-agent delegation (PersonalAssistant → WeatherAgent)
-- ✅ Function classification and windowing
-- ✅ Real API integration (OpenWeatherMap)
-- ✅ Real-time monitoring via DDS topics
+No broker. No configuration. Components on different machines work the same way.
 
 ---
 
-## 🏗️ Architecture
+## Key Features
 
-GENESIS uses a three-layer architecture that separates concerns and enables multi-provider support:
-
-![Genesis Architecture](docs/images/genesis_architecture.png)
-
-```
-┌─────────────────────────────────────────────────────────┐
-│ ProviderAgent (OpenAI, Anthropic, etc.)                │
-│ - Provider-specific API calls                          │
-│ - Message format conversion                            │
-└─────────────────────────────────────────────────────────┘
-                          ▲
-                          │ inherits
-┌─────────────────────────────────────────────────────────┐
-│ MonitoredAgent                                          │
-│ - State management (DISCOVERING → READY → BUSY)        │
-│ - Graph topology publishing                            │
-│ - Event tracking and monitoring                        │
-└─────────────────────────────────────────────────────────┘
-                          ▲
-                          │ inherits
-┌─────────────────────────────────────────────────────────┐
-│ GenesisAgent                                            │
-│ - Provider-agnostic discovery                          │
-│ - Tool routing and execution                           │
-│ - Multi-turn orchestration                             │
-└─────────────────────────────────────────────────────────┘
-```
-
-**DDS Communication Layer** provides:
-- Automatic discovery via `Advertisement` topic
-- Request/Reply for RPC calls
-- Pub/Sub for monitoring and events
-- QoS-configurable reliability and performance
-
-📖 **Full documentation**: [docs/](docs/)
+| Feature | Description |
+|---------|-------------|
+| Zero-config discovery | Agents and services find each other via DDS — no IP addresses or ports |
+| Intelligent windowing | Classifiers select 5–10 relevant functions from 200+, reducing LLM tokens by 90%+ |
+| Agent-as-Tool pattern | Agents automatically become callable tools for other agents |
+| Multi-LLM support | OpenAI, Anthropic, Ollama — swap with one line |
+| Real-time performance | Sub-millisecond DDS communication, peer-to-peer (no broker) |
+| Production-grade transport | Same middleware used in surgical robots and flight control systems |
+| Monitoring built-in | Real-time network graph, chain tracing, lifecycle events |
 
 ---
 
-## 📚 Documentation
+## Architecture
 
-| Document | Description |
-|----------|-------------|
-| [**Wiki**](https://github.com/rticommunity/rti-genesis/wiki) | Comprehensive guides, API reference, and FAQ |
-| [QUICKSTART.md](QUICKSTART.md) | Get up and running in 5 minutes |
-| [INSTALL.md](INSTALL.md) | Detailed installation instructions |
-| [docs/](docs/) | Technical documentation (architecture, internals) |
-
-📖 **Start here**: [Wiki Home](https://github.com/rticommunity/rti-genesis/wiki) for guides and tutorials
+```
+┌────────────────────────────────────────┐
+│ ProviderAgent (OpenAI / Anthropic / …) │  provider-specific API calls
+└────────────────────┬───────────────────┘
+                     │ inherits
+┌────────────────────▼───────────────────┐
+│ MonitoredAgent                          │  state, graph topology, event tracking
+└────────────────────┬───────────────────┘
+                     │ inherits
+┌────────────────────▼───────────────────┐
+│ GenesisAgent                            │  discovery, tool routing, orchestration
+└────────────────────────────────────────┘
+          │ communicates via DDS
+┌─────────▼──────────────────────────────┐
+│ Services / Other Agents                 │  @genesis_function, @genesis_tool
+└────────────────────────────────────────┘
+```
 
 ---
 
-## 🎓 Examples
+## Examples
 
-| Example | Description | Location |
-|---------|-------------|----------|
+| Example | What it shows | Location |
+|---------|--------------|----------|
 | **Hello World** | Minimal agent + service + interface | `examples/HelloWorld/` |
-| **MultiAgent** | Agent-as-tool pattern with real APIs | `examples/MultiAgent/` |
-| **Graph Interface** | Chat + real-time network visualization | `examples/GraphInterface/` |
-| **Standalone Graph Viewer** | Pure network visualization server | `examples/StandaloneGraphViewer/` |
-| **Example Interface** | Basic interface patterns | `examples/ExampleInterface/` |
+| **MultiAgent** | Agent-as-tool with real APIs | `examples/MultiAgent/` |
+| **Graph Interface** | Chat + live network visualization | `examples/GraphInterface/` |
+| **Standalone Graph Viewer** | Network topology server | `examples/StandaloneGraphViewer/` |
+| **Persistent Memory** | Agent with cross-session memory | `examples/PersistentMemory/` |
 
----
-
-## 🌟 Use Cases
-
-### **Critical Infrastructure AI**
-Leverage DDS's proven reliability for AI systems requiring high availability and determinism.
-
-### **Distributed AI Pipelines**
-Chain agents and services across machines using DDS's scalable pub/sub architecture.
-
-### **Real-Time AI Applications**
-Sub-millisecond DDS communication for robotics, IoT, and edge AI requiring low latency.
-
-### **Enterprise AI Integration**
-Connect legacy systems with AI agents using DDS's platform-independent middleware.
-
-### **Large-Scale Agent Networks**
-Deploy hundreds of agents with DDS's proven scalability (tested in systems with thousands of nodes).
-
----
-
-## 🤝 Contributing
-
-We welcome contributions! Here's how to get started:
-
-1. **Fork the repository**
-2. **Create a feature branch**: `git checkout -b feature/my-feature`
-3. **Make your changes**
-4. **Run tests**: `./tests/run_all_tests.sh`
-5. **Submit a pull request**
-
-📖 **Testing guide**: [tests/README.md](tests/README.md)
-
-### **Development Setup**
+Run the MultiAgent demo:
 
 ```bash
-# Clone and setup (or download release)
-cd rti-genesis
-./setup.sh
-
-# Activate environment
-source venv/bin/activate
-
-# Install in editable mode
-pip install -e .
-
-# Run tests
-cd tests && ./run_all_tests.sh
+cd examples/MultiAgent && ./run_interactive_demo.sh
 ```
 
 ---
 
-## 🛠️ Technical Requirements
+## Documentation
 
-| Component | Requirement |
-|-----------|-------------|
-| **Python** | 3.10 (required) |
-| **RTI Connext DDS** | 7.3.0 or greater |
-| **Operating System** | macOS, Linux, Windows |
-| **LLM APIs** | OpenAI and/or Anthropic |
-
----
-
-## 📞 Support
-
-Need help? We're here for you.
-
-**Email**: [genesis@rti.com](mailto:genesis@rti.com?subject=Genesis%20Support%20Request)
-
-When contacting support, please include:
-- **Subject line**: "Genesis: [brief description]"
-- **Environment**: OS, Python version, RTI Connext version
-- **Description**: What you're trying to do and what's happening
-- **Logs/errors**: Any relevant error messages or stack traces
-
-For bug reports, you can also [open a GitHub Issue](../../issues).
+| Doc | What's in it |
+|-----|-------------|
+| [Guides](docs/guides/) | How to build services, agents, interfaces, monitoring |
+| [Reference](docs/reference/) | DDS topics, function RPC, configuration |
+| [Architecture](docs/architecture/) | Internals for contributors |
 
 ---
 
-## 📄 License
+## Use Cases
 
-GENESIS is released under the RTI License. See [LICENSE](LICENSE) for details.
+- **Critical infrastructure AI** — leverage DDS reliability for high-availability AI pipelines
+- **Distributed AI pipelines** — chain agents and services across machines
+- **Real-time AI** — sub-millisecond latency for robotics, IoT, edge AI
+- **Large-scale agent networks** — DDS tested to thousands of nodes
 
 ---
 
-<div align="center">
+## Support
 
-**Built with ❤️ by the GENESIS Team**
+Email: [genesis@rti.com](mailto:genesis@rti.com?subject=Genesis%20Support%20Request)
 
-[Wiki](https://github.com/rticommunity/rti-genesis/wiki) • [Documentation](docs/) • [Examples](examples/) • [Report Issues](../../issues)
+Include your OS, Python version, RTI Connext version, and any error output.
 
-</div>
+For bugs: [open a GitHub issue](../../issues).
+
+For contributors and developers: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
