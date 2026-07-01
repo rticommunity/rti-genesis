@@ -843,6 +843,38 @@
       <member name="payload" type="string"/>
     </struct>
 
+    <!--
+      ==================================================================================
+      SECTION 11: STREAMING CHUNKS (Real-time Event Delivery)
+      ==================================================================================
+
+      Pub/sub streaming type for real-time event delivery alongside RPC.
+      Mirrors how LLM providers handle streaming (SSE chunks) vs complete responses.
+
+      USAGE:
+      - Published by: CodingGenesisAgent (during subprocess execution)
+      - Consumed by: Web interfaces, monitoring dashboards
+      - Topic: "rti/connext/genesis/streaming/StreamChunk"
+      - QoS: Volatile, reliable
+
+      DESIGN RATIONALE:
+      The existing RPC model is request/reply only. For real-time UX (web interfaces,
+      dashboards), consumers need streaming events as they happen. StreamChunk provides
+      pub/sub delivery of incremental events keyed by request_id, so subscribers can
+      filter for events belonging to their specific request.
+
+      chunk_type values: "init", "text", "tool_start", "tool_result", "done", "error"
+      Maps 1:1 to CodingEvent.kind from the coding backends.
+    -->
+    <struct name="StreamChunk">
+      <member name="request_id" type="string" key="true"/>
+      <member name="sequence" type="int32"/>
+      <member name="chunk_type" type="string"/>
+      <member name="content" type="string"/>
+      <member name="metadata" type="string"/>
+      <member name="timestamp" type="int64"/>
+    </struct>
+
   </type_library>
 
 </dds>
