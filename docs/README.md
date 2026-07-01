@@ -1,77 +1,66 @@
-# Genesis Framework Documentation
+# Genesis Documentation
 
-## User Guides
+Start at [README.md](../README.md) for installation and your first agent.
 
-Essential documentation for using the Genesis framework:
+---
 
-### Configuration & Setup
-- **[DDS Configuration](user-guides/DDS_CONFIGURATION.md)** - Configure RTI Connext DDS for Genesis
-- **[Genesis Topics Reference](user-guides/GENESIS_TOPICS.md)** - DDS topics and data types reference
+## Guides
 
-### Core Concepts
-- **[Genesis API Overview](user-guides/genesis_api_overview.md)** - High-level API and architectural overview
-- **[Genesis LIB Explorer](user-guides/Genesis_LIB_Explorer.md)** - Fast reference for contributors and agents
+Task-oriented how-tos for building with Genesis.
 
-### Function System
-- **[Function Service Guide](user-guides/function_service_guide.md)** - Creating and using function services
-- **[Genesis Function RPC](user-guides/genesis_function_rpc.md)** - Detailed RPC system explanation
-- **[Function Call Flow](user-guides/function_call_flow.md)** - Agent-as-Tool pattern and call flows
+- [Creating an Agent](guides/creating-an-agent.md) — agents, interfaces, internal tools, agent-to-agent
+- [Creating a Service](guides/creating-a-service.md) — expose functions via `@genesis_function`
+- [Agent Capabilities](guides/capabilities.md) — configure what your agent advertises
+- [Monitoring](guides/monitoring.md) — enable and use the unified monitoring system
+- [Local Inference](guides/local-inference.md) — run agents with Ollama (no API costs)
 
-### Monitoring & Capabilities
-- **[Monitoring Guide](user-guides/V2_MONITORING_USAGE.md)** - Using the monitoring system
-- **[User Capabilities Guide](user-guides/USER_CAPABILITIES_GUIDE.md)** - Configuring agent capabilities
+---
 
-## Architecture Documentation
+## Reference
 
-Internal architecture documentation for contributors and advanced developers:
+Stable lookup material.
 
-### Core Architecture
-- **[Architecture Overview](architecture/architecture.md)** - High-level system architecture
-- **[Architecture Detailed](architecture/architecture_detailed.md)** - Detailed architectural deep-dive
-- **[Monitoring System](architecture/monitoring_system.md)** - Monitoring system design and implementation
+- [DDS Topics](reference/topics.md) — all topics, QoS, and field definitions
+- [Function RPC](reference/function-rpc.md) — detailed RPC protocol and flow
+- [Function Call Flow](reference/function-call-flow.md) — agent-as-tool sequence diagram
+- [DDS Configuration](reference/dds-configuration.md) — QoS tuning and macOS troubleshooting
+- [Known Issues](reference/known-issues.md) — current known issues and workarounds
+- [RTI RPC API](reference/rti-rpc-api.md) — RTI Connext RPC API reference
+- [DDS GUID Identification](reference/dds-guid.md) — client and provider ID identification
 
-### Agent System
-- **[Agent Architecture Quick Reference](architecture/AGENT_ARCHITECTURE_QUICK_REFERENCE.md)** - Agent class hierarchy and design patterns
-- **[Capability System Architecture](architecture/CAPABILITY_SYSTEM_ARCHITECTURE.md)** - Agent capability system design
+---
 
-### Function & Discovery
-- **[Function Discovery](architecture/FUNCTION_DISCOVERY.md)** - Function discovery and registration architecture
+## Architecture
 
-### LLM Integration
-- **[Multi-Provider Architecture](architecture/MULTI_PROVIDER_ARCHITECTURE.md)** - LLM provider abstraction design
-- **[New Provider Guide](architecture/NEW_PROVIDER_GUIDE.md)** - Adding new LLM providers
+Contributor-facing internals. Start here if you're extending Genesis.
 
-### Advanced Topics
-- **[Memory Architecture](architecture/memory_architecture.md)** - External memory systems for LLM agents
+- [Overview](architecture/overview.md) — component model, communication patterns, file layout
+- [Agent Hierarchy](architecture/agent-hierarchy.md) — class hierarchy and abstract method contracts
+- [Capability System](architecture/capability-system.md) — three-tier capability resolution
+- [Function Discovery](architecture/function-discovery.md) — how `@genesis_function` services are discovered
+- [Agent-as-Tool](architecture/agent-as-tool.md) — how agents are discovered and exposed as LLM tools
+- [Monitoring System](architecture/monitoring-system.md) — GraphMonitor, GraphState, event types
+- [Multi-Provider Architecture](architecture/multi-provider.md) — LLM provider abstraction design
+- [Add a Provider](architecture/add-provider.md) — add a new LLM provider in ~150 lines
+- [Code Explorer](architecture/explorer.md) — fast file/class navigation for contributors
 
-## Reference Documentation
-
-Technical references for RTI DDS and Genesis internals:
-
-- **[RTI 7.3 RPC API](reference/RTI_7.3_RPC.md)** - RTI Connext RPC API documentation
-- **[DDS GUID Identification](reference/dds_guid_identification.md)** - Client and provider ID identification
-- **[Sequence Diagram](reference/sequenceDiagram.mmd)** - Flow diagram (also embedded in guides)
-
-## Getting Started
-
-- **[README](../README.md)** - Overview and introduction
-- **[Quick Start](../QUICKSTART.md)** - Get up and running quickly
-- **[Installation](../INSTALL.md)** - Installation instructions
+---
 
 ## Examples
 
-See the `examples/` directory for practical examples:
-- `HelloWorld/` - Minimal agent example
-- `ExampleInterface/` - Basic interface usage
-- `MultiAgent/` - Multi-agent system with routing
-- `GraphInterface/` - Combined chat + visualization
-- `StandaloneGraphViewer/` - Pure network visualization
+Each example has its own README:
+
+- `examples/HelloWorld/` — minimal agent + service + interface
+- `examples/MultiAgent/` — agent-as-tool with real APIs
+- `examples/GraphInterface/` — chat + live network visualization
+- `examples/StandaloneGraphViewer/` — pure network topology server
+- `examples/PersistentMemory/` — agent with cross-session memory
+
+---
 
 ## Testing
 
-See the `tests/` directory for test suites and stress testing tools:
-- `tests/active/` - Active test suite
-- `tests/stress/` - Stress testing and topology tools
+See [tests/README.md](../tests/README.md) for test setup and the full test suite documentation.
 
 ---
 
