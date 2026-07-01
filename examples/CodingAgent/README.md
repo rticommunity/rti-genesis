@@ -7,7 +7,7 @@ See [VISION.md](VISION.md) for the full technical design.
 ## Prerequisites
 
 - Python 3.10+
-- RTI Connext DDS 7.3.0+ (for DDS-based tests)
+- RTI Connext DDS 7.7.0+ (for DDS-based tests)
 - `claude` CLI installed and logged in (`claude login`)
 - OR `codex` CLI installed and logged in (`codex login`)
 

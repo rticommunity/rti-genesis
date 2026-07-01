@@ -21,7 +21,7 @@ set -euo pipefail
 # ═══════════════════════════════════════════════════════════════════════════════
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-RTI_VERSION="${RTI_VERSION:-7.3.0}"
+RTI_VERSION="${RTI_VERSION:-7.7.0}"
 
 # Pre-filled URL with 60-day evaluation selected
 RTI_LICENSE_URL="https://www.rti.com/get-connext?license_type=Standard%2030-day%20evaluation%20license"
@@ -154,20 +154,20 @@ find_rti_installation() {
             search_paths=(
                 "/Applications/rti_connext_dds-7.5.0"
                 "/Applications/rti_connext_dds-7.4.0"
-                "/Applications/rti_connext_dds-7.3.0"
+                "/Applications/rti_connext_dds-7.7.0"
                 "$HOME/rti_connext_dds-7.5.0"
                 "$HOME/rti_connext_dds-7.4.0"
-                "$HOME/rti_connext_dds-7.3.0"
+                "$HOME/rti_connext_dds-7.7.0"
             )
             ;;
         linux)
             search_paths=(
                 "$HOME/rti_connext_dds-7.5.0"
                 "$HOME/rti_connext_dds-7.4.0"
-                "$HOME/rti_connext_dds-7.3.0"
+                "$HOME/rti_connext_dds-7.7.0"
                 "/opt/rti_connext_dds-7.5.0"
                 "/opt/rti_connext_dds-7.4.0"
-                "/opt/rti_connext_dds-7.3.0"
+                "/opt/rti_connext_dds-7.7.0"
             )
             ;;
     esac

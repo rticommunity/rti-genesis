@@ -189,7 +189,7 @@ response = await interface.send_request({"message": "Hello"})
 - Check logs in the `logs/` directory for detailed execution traces
 
 ### Important Dependencies
-- **RTI Connext DDS 7.3.0+**: Core communication middleware
+- **RTI Connext DDS 7.7.0+**: Core communication middleware
 - **Python 3.10**: Required Python version
 - **OpenAI/Anthropic APIs**: For LLM integration
 - **Pydantic**: For schema validation and type safety

@@ -661,7 +661,7 @@ result = await self._process_request(request)
 
 ### Required
 - Python 3.10+
-- RTI Connext DDS 7.3.0+ (for genesis_lib)
+- RTI Connext DDS 7.7.0+ (for genesis_lib)
 - `claude` CLI installed and logged in (`claude login`)
 - OR `codex` CLI installed and logged in (`codex login`)
 

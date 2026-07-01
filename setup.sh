@@ -52,13 +52,13 @@ check_rti() {
     local paths=(
         "/Applications/rti_connext_dds-7.5.0"
         "/Applications/rti_connext_dds-7.4.0"
-        "/Applications/rti_connext_dds-7.3.0"
+        "/Applications/rti_connext_dds-7.7.0"
         "$HOME/rti_connext_dds-7.5.0"
         "$HOME/rti_connext_dds-7.4.0"
-        "$HOME/rti_connext_dds-7.3.0"
+        "$HOME/rti_connext_dds-7.7.0"
         "/opt/rti_connext_dds-7.5.0"
         "/opt/rti_connext_dds-7.4.0"
-        "/opt/rti_connext_dds-7.3.0"
+        "/opt/rti_connext_dds-7.7.0"
     )
 
     for path in "${paths[@]}"; do
