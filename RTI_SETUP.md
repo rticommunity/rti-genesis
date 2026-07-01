@@ -162,7 +162,7 @@ The wizard runs verification checks:
 ```
   Running verification checks...
 
-  ✓ NDDSHOME is set: /Applications/rti_connext_dds-7.3.0
+  ✓ NDDSHOME is set: /Applications/rti_connext_dds-7.7.0
   ✓ rtiddsspy found
   ✓ License file installed
 
@@ -253,21 +253,21 @@ Add to your `~/.zshrc` or `~/.bashrc`:
 
 **Mac (Apple Silicon):**
 ```bash
-export NDDSHOME="/Applications/rti_connext_dds-7.3.0"
+export NDDSHOME="/Applications/rti_connext_dds-7.7.0"
 export PATH="$NDDSHOME/bin:$PATH"
 export DYLD_LIBRARY_PATH="$NDDSHOME/lib/arm64Darwin20clang12.0:$DYLD_LIBRARY_PATH"
 ```
 
 **Mac (Intel):**
 ```bash
-export NDDSHOME="/Applications/rti_connext_dds-7.3.0"
+export NDDSHOME="/Applications/rti_connext_dds-7.7.0"
 export PATH="$NDDSHOME/bin:$PATH"
 export DYLD_LIBRARY_PATH="$NDDSHOME/lib/x64Darwin17clang9.0:$DYLD_LIBRARY_PATH"
 ```
 
 **Linux:**
 ```bash
-export NDDSHOME="$HOME/rti_connext_dds-7.3.0"
+export NDDSHOME="$HOME/rti_connext_dds-7.7.0"
 export PATH="$NDDSHOME/bin:$PATH"
 export LD_LIBRARY_PATH="$NDDSHOME/lib/x64Linux4gcc7.3.0:$LD_LIBRARY_PATH"
 ```

@@ -32,7 +32,7 @@ setup(
         "anthropic>=0.68.0",
         "openai>=1.100.0",
         "jsonschema>=4.25.0",
-        "rti-connext>=7.5.0",
+        "rti-connext>=7.7.0",
         "mcp>=1.21.0",
         "pydantic>=2.11.0",
         "pydantic-settings>=2.12.0",
