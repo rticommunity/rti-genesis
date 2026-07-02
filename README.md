@@ -12,7 +12,7 @@
 ## Install
 
 ```bash
-pip install genesis-lib
+pip install git+https://github.com/rticommunity/rti-genesis.git
 ```
 
 This pulls the full RTI Connext DDS runtime automatically (bundled in the package). The only RTI-specific step is a free license file.
