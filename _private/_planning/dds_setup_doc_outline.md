@@ -4,7 +4,7 @@ This outline defines the shared DDS installation and configuration guide referen
 
 ## Scope
 
-- Target RTI Connext DDS version: 7.3.0+
+- Target RTI Connext DDS version: 7.7.0+
 - Platforms: macOS, Linux, Windows
 - Audience: users running the library and examples; CI maintainers
 
@@ -12,8 +12,8 @@ This outline defines the shared DDS installation and configuration guide referen
 
 - Download and install RTI Connext DDS from the vendor site.
 - Default install locations:
-  - macOS/Linux: `$HOME/rti_connext_dds-7.3.0` (or similar)
-  - Windows: `C:\path\to\rti_connext_dds-7.3.0`
+  - macOS/Linux: `$HOME/rti_connext_dds-7.7.0` (or similar)
+  - Windows: `C:\path\to\rti_connext_dds-7.7.0`
 - Connext Express: to be default path. Subsection will walk through obtaining/activating Express (TBD with vendor guidance).
 
 ## Environment Configuration

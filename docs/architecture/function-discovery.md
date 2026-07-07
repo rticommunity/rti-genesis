@@ -128,6 +128,14 @@ relevant = classifier.classify_functions("add two numbers", list(functions.value
 
 ---
 
+## Agent Discovery (same pattern)
+
+Agents are discovered via `AgentCapability` topic using the same DDS durability and QoS as function discovery (TRANSIENT_LOCAL + RELIABLE + KEEP_LAST). The `AgentCommunicationMixin` in `genesis_lib/agent_communication.py` mirrors `FunctionRegistry` for the agent side.
+
+Discovered agents are converted to LLM tool schemas by `OpenAIGenesisAgent`. See [agent-as-tool.md](agent-as-tool.md) for the full implementation.
+
+---
+
 *(c) 2025 Copyright, Real-Time Innovations, Inc. (RTI) All rights reserved.*
 
 *RTI grants Licensee a license to use, modify, compile, and create derivative works of the Software. Licensee has the right to distribute object form only for use with RTI products. The Software is provided "as is", with no warranty of any type, including any warranty for fitness for any purpose. RTI is under no obligation to maintain or support the Software. RTI shall not be liable for any incidental or consequential damages arising out of the use or inability to use the software.*

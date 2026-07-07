@@ -57,8 +57,8 @@ The Genesis monitoring system has evolved through multiple iterations, resulting
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <dds xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-     xsi:noNamespaceSchemaLocation="http://community.rti.com/schema/7.3.0/rti_dds_qos_profiles.xsd"
-     version="7.3.0">
+     xsi:noNamespaceSchemaLocation="http://community.rti.com/schema/7.7.0/rti_dds_qos_profiles.xsd"
+     version="7.7.0">
   <type_library name="genesis_lib">
 
     <!-- Unified Graph Event for persistent network structure -->

@@ -4,7 +4,7 @@ Runnable examples and demo topologies built on `genesis-lib`.
 
 ## Prerequisites
 
-- Install RTI Connext DDS (7.3.0+) and configure env (see DDS Setup).
+- Install RTI Connext DDS (7.7.0+) and configure env (see DDS Setup).
 - `pip install genesis-lib` (from PyPI)
 
 ## Running

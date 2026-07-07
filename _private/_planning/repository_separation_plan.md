@@ -58,14 +58,14 @@ Note on `run_scripts/` and current tests
   - `viz` for optional visualization helpers
   - Example: `pip install genesis-lib[openai]`
 - Entry points: `genesis` CLI with `--version`, `quickstart`, and diagnostics; keep current monitoring entry points.
-- DDS compatibility: Document RTI Connext DDS 7.3.0+ requirement and environment configuration (see DDS Setup section). Connext Express will be the default license path; a dedicated subsection will describe obtaining/activating Express.
+- DDS compatibility: Document RTI Connext DDS 7.7.0+ requirement and environment configuration (see DDS Setup section). Connext Express will be the default license path; a dedicated subsection will describe obtaining/activating Express.
 
 ### DDS Setup (shared doc referenced by both repos)
 
 - Central document: a single “DDS Setup” page referenced by `genesis-lib` and `genesis-examples` READMEs.
-- Covers installation on macOS, Linux, and Windows; version ≥ 7.3.0.
+- Covers installation on macOS, Linux, and Windows; version ≥ 7.7.0.
 - Environment variables and paths:
-  - `NDDSHOME` pointing to installation (e.g., `$HOME/rti_connext_dds-7.3.0`).
+  - `NDDSHOME` pointing to installation (e.g., `$HOME/rti_connext_dds-7.7.0`).
   - Platform paths: `LD_LIBRARY_PATH` (Linux), `DYLD_LIBRARY_PATH` (macOS), `Path` (Windows).
   - License var if needed: `RTI_LICENSE_FILE` (note: Connext Express guidance to be finalized).
   - Sourcing vendor scripts: `rticonnextdds-installation/scripts/rtisetenv.*` as a reliable alternative.

@@ -4,7 +4,7 @@ Core Python library for building Genesis networks on top of RTI Connext DDS.
 
 ## Install
 
-1) Install RTI Connext DDS (7.3.0+) and configure env (see DDS Setup).
+1) Install RTI Connext DDS (7.7.0+) and configure env (see DDS Setup).
 2) `pip install genesis-lib`
 
 Optional providers: `pip install genesis-lib[openai,anthropic]`
